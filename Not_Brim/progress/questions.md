@@ -50,3 +50,6 @@ If a sim reaches ready, then fails within the 2 s window and is repaired, the ru
 
 ## S4.3 "The sim is covered until Run"
 Chose: don't mount the iframe until Run (the panel shows a message instead). This is simpler than an overlay over a running sim and stops students peeking or interacting early. After Run the prediction stays visible, read-only.
+
+## S4.4 Checkout switched under the loop
+Another session stashed loop/sim's uncommitted changes and checked the shared checkout out to `main`. The loop now works in the worktree `/Users/sunnychen/Developer/PersonalProjects/codejam2026-loop-sim` (branch loop/sim). Nothing on main was touched. Left in place: `stash@{0}` (already re-applied and committed here, so it can be dropped), and untracked leftovers in the main checkout's `Not_Brim/` (node_modules, data/, e2e/student.spec.ts, test-results/).

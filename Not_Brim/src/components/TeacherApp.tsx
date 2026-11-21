@@ -111,35 +111,37 @@ export function TeacherApp() {
               idle="Type what a student is confused about, then press “Create simulation”."
             />
           </div>
-          <form
-            className="flex items-stretch gap-3"
-            onSubmit={(e) => {
-              e.preventDefault();
-              askForChange();
-            }}
-          >
-            <label htmlFor="change" className="sr-only">
-              Ask for a change
-            </label>
-            <input
-              id="change"
-              data-testid="edit-input"
-              className="field flex-1 text-xl"
-              placeholder="Ask for a change, e.g. “make bob B twice as heavy”"
-              value={change}
-              disabled={v.state !== "ready"}
-              onChange={(e) => setChange(e.target.value)}
-            />
-            <button
-              type="submit"
-              className="btn-secondary text-xl"
-              data-testid="edit-button"
-              disabled={v.state !== "ready" || !change.trim()}
+          <div className="flex flex-wrap items-stretch gap-3">
+            <form
+              className="flex min-w-[24rem] flex-1 items-stretch gap-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                askForChange();
+              }}
             >
-              Ask for a change
-            </button>
-          </form>
-          <ShareButton simId={simId} disabled={v.state !== "ready"} />
+              <label htmlFor="change" className="sr-only">
+                Ask for a change
+              </label>
+              <input
+                id="change"
+                data-testid="edit-input"
+                className="field flex-1 text-xl"
+                placeholder="Ask for a change, e.g. “make bob B twice as heavy”"
+                value={change}
+                disabled={v.state !== "ready"}
+                onChange={(e) => setChange(e.target.value)}
+              />
+              <button
+                type="submit"
+                className="btn-secondary text-xl"
+                data-testid="edit-button"
+                disabled={v.state !== "ready" || !change.trim()}
+              >
+                Ask for a change
+              </button>
+            </form>
+            <ShareButton simId={simId} disabled={v.state !== "ready"} />
+          </div>
         </section>
 
         <aside className="flex min-h-0 basis-[30%] flex-col gap-5 overflow-y-auto pr-1" aria-label="Controls">

@@ -21,7 +21,7 @@ export function SimPanel({
   const busy = v.state === "streaming" || v.state === "mounting" || v.state === "repairing";
   return (
     <div
-      className="relative h-full min-h-[360px] w-full overflow-hidden rounded-2xl border-2 border-slate-300 bg-[#f8fafc]"
+      className="relative h-full min-h-[260px] w-full overflow-hidden rounded-2xl border-2 border-slate-300 bg-[#f8fafc]"
       data-testid="sim-panel"
       data-state={v.state}
       data-applied={v.appliedCount}

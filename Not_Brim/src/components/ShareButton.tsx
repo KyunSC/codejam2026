@@ -36,7 +36,7 @@ export function ShareButton({ simId, disabled }: { simId: string | null; disable
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-3">
+    <div className="flex flex-wrap items-center gap-3 basis-auto">
       <button
         type="button"
         className="btn-secondary text-xl"

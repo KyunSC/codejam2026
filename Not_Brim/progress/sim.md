@@ -32,7 +32,7 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 - [x] S4.1 `lib/store.ts`, save on ready, `/api/sims`, Vitest. Attempts: 1
 - [x] S4.2 Homework via `model.homework` + share route, defaults validated. Attempts: 2
 - [x] S4.3 "Share with students" copy link + fallback, `/s/[id]` student page. Attempts: 1
-- [ ] S4.4 Playwright: create → share → open → Run disabled → predict → Run → ready with homework question. Attempts: 0
+- [x] S4.4 Playwright: create → share → open → Run disabled → predict → Run → ready with homework question. Attempts: 2
 - [ ] S4.5 Step 4 report. Attempts: 0
 
 ## Step 5: saved demos + polish
@@ -65,3 +65,5 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 - S4.1: store is a factory (`createStore(file)`) so Vitest uses a temp dir; the app uses data/sims.json (gitignored). Writes are serialised through an in-process promise queue, plus tmp+rename. POST /api/sims re-validates code (validateHtml) and params (validateParams), since the body comes from the browser.
 - S4.2: first vitest run failed because clampToParam doesn't snap to the step grid. Added snapToParam (clamp, snap from min, strip float noise). Homework defaults: unknown ids dropped, missing or non-numeric ones fall back to the class default. The share route makes the homework once and stores it; a model error gives a 502 with the friendly message.
 - S4.3: on the student page the sim isn't mounted at all until Run (load(code, {initial: homework.defaults})), so a student can't peek; the panel shows a cover message meanwhile. If the link is opened before Share made homework, it falls back to the class question and defaults.
+- S4.4: first full run failed in edit.spec. The new share row pushed the sim panel's min-height (360px) over the edit form at 1280×720, so the iframe intercepted the click. Fixed: edit and share share one wrapping row, and the panel min-height is 260px. Student flow: share → link → Run disabled (even for whitespace) → predict → Run → ready ~1 s, with homework defaults applied and the same homework on re-share. Unknown /s/ id → 404.
+- S4.4: mid-item, another session stashed the uncommitted work (`stash@{0}: WIP on loop/sim`) and checked the main checkout out to `main`, to edit Brim there. Rather than switch that shared checkout back, the loop continued in a separate worktree, `../codejam2026-loop-sim` on loop/sim: `git stash apply` (the stash is left in place), the untracked student.spec.ts copied over, then `npm ci`.
