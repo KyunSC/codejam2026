@@ -56,6 +56,12 @@ Local env for every command (never Neon): `BRIM_LOCAL_DB_ONLY=1 DATABASE_URL=pos
   - [x] 6b. `/payments` page (AP clerk, finance manager, controller, auditor; nav link): bucket chips with counts and amounts by currency, headline numbers, rows held first with each blocker as a sentence, "who may release" per row (or the reason nobody can), Prepare (clerk), Release (finance manager / controller), Simulate bank run. Opens on "Awaiting release" for releasers, "Ready to prepare" for the clerk. Invoice screen shows its payments.
     - Day-one check in `payment-dashboard.test.ts`: 18 awaiting release, 2 ready; AP-00407 held (OPEN_HOLD), AP-00394 clear, AP-00426 held (OPEN_HOLD + BANK_CHANGE_UNVERIFIED).
 - [ ] 7. Vendors: list/detail, onboarding, approve/hold/release-hold (FOUR_EYES), bank changes verify/reject (CALLBACK_REQUIRED); V004 held until BC-009 verified.
+  - [x] 7a. Service + API (`src/lib/workflow/vendors.ts`): `GET/POST vendors`, `GET vendors/[id]`, `POST vendors/[id]/approve|hold|release-hold`, `POST vendors/[id]/bank-changes`, `POST bank-changes/[id]/verify|reject`.
+    - Views by role: employee names only; AP clerk bank as `•••• 1234`; approver no bank; finance manager, controller, auditor full. Detail: AP invoices, card charges at the vendor's merchant descriptor, bank change history, open flags.
+    - FOUR_EYES: approve against the vendor's creator; release-hold against whoever placed the hold (from the audit log); verify/reject against the requester. Verify needs "called back" + a note (CALLBACK_REQUIRED); reject needs a reason.
+    - Verifying makes the new account live (old one closed, `changeRequestId` set), fixes open BANK_CHANGE_UNVERIFIED flags on the vendor's invoices (each audited) and re-checks invoices in review. Tested: V004/AP-00426 blocked until a second person verifies BC-009, then clear.
+    - Decision: rejecting a change whose account is already the one on file (BC-009, imported that way) puts the vendor on hold, since the old full account is unknown (Loop A's note). In questions.md.
+  - [ ] 7b. Vendor list and detail pages with the actions.
 - [ ] 8. Audit: pack per payment, global log filters, CSV export (auditor read-only server-side), verify chain.
 - [ ] 9. Navigation and landing pages per role; every route checks the matrix server-side.
 - [ ] 10. Policy editor for the controller with "Try on an invoice" preview (LOCKED_RULE, BAD_CONDITION).
