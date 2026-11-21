@@ -1,20 +1,44 @@
 "use client";
 
-import { useState } from "react";
-import { useSimSession, type EditBase } from "@/lib/useSimSession";
+import { useRef, useState } from "react";
+import { useSimSession, type EditBase, type ReadyInfo } from "@/lib/useSimSession";
 import { useStandInStatus } from "@/lib/useStandInStatus";
 import { StandInBadge, TimingBadge } from "./Badges";
 import { ParamSliders } from "./ParamSliders";
 import { SimPanel } from "./SimPanel";
 
 export function TeacherApp() {
-  const session = useSimSession();
+  const [simId, setSimId] = useState<string | null>(null);
+  const saveSeq = useRef(0);
+  const session = useSimSession({ onReady: save });
   const standIn = useStandInStatus();
   const [prompt, setPrompt] = useState("");
   const [change, setChange] = useState("");
   const [last, setLast] = useState<{ kind: "generate"; prompt: string } | { kind: "edit"; request: string; base: EditBase } | null>(
     null,
   );
+  // The prompt behind the sim on screen; edits append their request to it.
+  const [simPrompt, setSimPrompt] = useState("");
+
+  /** Saved on every ready of a generate or edit, so the share link always points at what's on screen. */
+  function save(info: ReadyInfo) {
+    if (info.kind === "load") return;
+    const prompt = last?.kind === "edit" ? `${simPrompt} → ${last.request}` : (last?.prompt ?? simPrompt);
+    setSimPrompt(prompt);
+    const seq = ++saveSeq.current;
+    setSimId(null);
+    fetch("/api/sims", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, code: info.code, title: info.title, question: info.question, params: info.params }),
+    })
+      .then(async (r) => {
+        const j = (await r.json()) as { id?: string; error?: string };
+        if (!r.ok || !j.id) throw new Error(j.error ?? `HTTP ${r.status}`);
+        if (seq === saveSeq.current) setSimId(j.id);
+      })
+      .catch((err: unknown) => console.warn("[sim] save failed:", err instanceof Error ? err.message : err));
+  }
   const v = session.view;
   const busy = v.state === "streaming" || v.state === "mounting" || v.state === "repairing";
 
@@ -41,7 +65,7 @@ export function TeacherApp() {
   }
 
   return (
-    <div className="flex h-screen min-h-[640px] flex-col gap-4 p-5">
+    <div className="flex h-screen min-h-[640px] flex-col gap-4 p-5" data-sim-id={simId ?? ""}>
       <form
         className="flex items-stretch gap-4"
         onSubmit={(e) => {

@@ -18,6 +18,12 @@ test("pendulum prompt reaches ready with 4 sliders, and sliders apply", async ({
   await expect(page.getByTestId("sim-title")).toHaveText("Two Pendulums, Two Masses");
   await expect(page.getByTestId("timing-badge")).toHaveText(/Interactive in \d+\.\ds/);
 
+  // Saved on ready: the page learns the id, and GET /api/sims lists it.
+  await expect(page.locator("[data-sim-id]")).not.toHaveAttribute("data-sim-id", "");
+  const id = await page.locator("[data-sim-id]").getAttribute("data-sim-id");
+  const { sims } = (await (await page.request.get("/api/sims")).json()) as { sims: Array<{ id: string; title: string }> };
+  expect(sims.find((s) => s.id === id)?.title).toBe("Two Pendulums, Two Masses");
+
   await expect(panel).toHaveAttribute("data-applied", "0");
   await page.locator('input[data-param="massB"]').fill("8");
   await expect(panel).toHaveAttribute("data-applied", "1");

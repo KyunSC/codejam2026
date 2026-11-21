@@ -44,3 +44,6 @@ The stand-in only proves the repair plumbing. The real first-draft failure rate 
 
 ## S3.1 "Try again" after a failed edit
 The spec only gives "Try again". Chose: it re-runs the last action. For an edit, that is the same request on the snapshot taken before the edit; the previous sim isn't restored automatically.
+
+## S4.1 "Saving happens on the first ready"
+If a sim reaches ready, then fails within the 2 s window and is repaired, the run gets a second ready. Chose: save on every ready of a generate or edit run (a new record each time), so the share button always points at the code on screen. The extra records are harmless.

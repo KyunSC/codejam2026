@@ -29,7 +29,7 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 - [x] S3.3 Step 3 report. Attempts: 1
 
 ## Step 4: student links + homework
-- [ ] S4.1 `lib/store.ts`, save on ready, `/api/sims`, Vitest. Attempts: 0
+- [x] S4.1 `lib/store.ts`, save on ready, `/api/sims`, Vitest. Attempts: 1
 - [ ] S4.2 Homework via `model.homework` + share route, defaults validated. Attempts: 0
 - [ ] S4.3 "Share with students" copy link + fallback, `/s/[id]` student page. Attempts: 0
 - [ ] S4.4 Playwright: create → share → open → Run disabled → predict → Run → ready with homework question. Attempts: 0
@@ -62,3 +62,4 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 - S2.2: first run failed. `viewRef` was updated inside the lazy setState updater, so a `ready` from the broken frame (queued just after its error) still saw "mounting" and overwrote "repairing". Fixed: `update()` now computes the next view synchronously from viewRef and then calls setView. Stand-in: throws-broken → ready ~9.8 s (two replays); throws-twice → failed ~9.9 s.
 - S3.1: an edit snapshots {code, params, values} first, so "Try again" after a failed edit retries the same edit on the same base. The edit run goes through the same machine (one repair, then failed).
 - S3.2: edit e2e also checks a moved slider (length → 2) survives the edit while untouched massB takes the new default (5 → 10, max 10 → 20). Stand-in edit round trip ~4.6 s.
+- S4.1: store is a factory (`createStore(file)`) so Vitest uses a temp dir; the app uses data/sims.json (gitignored). Writes are serialised through an in-process promise queue, plus tmp+rename. POST /api/sims re-validates code (validateHtml) and params (validateParams), since the body comes from the browser.
