@@ -46,6 +46,14 @@ export const config = {
     cardMerchantMaxLen: 22,
   },
 
+  resolution: {
+    /** Vendor step 2: a bank-account match also needs names at least this similar (word overlap, 0–1). */
+    bankNameMinSimilarity: 0.5,
+    /** VENDOR_UNKNOWN: how many closest names to offer, and the least similarity worth offering. */
+    candidateCount: 3,
+    candidateMinSimilarity: 0.2,
+  },
+
   checks: {
     /** SPLIT_SUSPECTED: invoices from one vendor within this many days. */
     splitWindowDays: 5,

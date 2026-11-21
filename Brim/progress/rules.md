@@ -11,7 +11,7 @@ Scripts in `scripts/` set `APP_TODAY=2026-11-02` themselves.
 - [x] 1. `scripts/verify-counts.ts`: verify every count in BUILD_PLAN "Tables"; log mismatches below
 - [x] 2. Refs (reference data indexes) + history adapter (InvoiceRow + lines → ResolvedInvoice) + name/number key helpers
 - [x] 3. Roles and permissions: matrix in `src/lib/auth/permissions.ts` + invariant checks (SELF_APPROVAL, NOT_YOUR_STEP, APPROVER_CANNOT_RELEASE, RELEASE_LIMIT, FOUR_EYES, READ_ONLY_ROLE)
-- [ ] 4. Resolution: vendor (tax number → bank+similar name → normalised name → unknown with candidates)
+- [x] 4. Resolution: vendor (tax number → bank+similar name → normalised name → unknown with candidates)
 - [ ] 5. Resolution: province, PO + suggestions, contract, department, requester (terminated → manager), line type, currency/FX
 - [ ] 6. Checks: UNREADABLE, FIELD_UNCERTAIN, ARITHMETIC_LINE/SUBTOTAL/TOTAL, DATE_ODD, DATE_AMBIGUOUS, TERMS_MISMATCH, FX_RATE_FALLBACK, SHIP_TO_UNKNOWN
 - [ ] 7. Checks: VENDOR_UNKNOWN, VENDOR_PENDING, VENDOR_ON_HOLD, VENDOR_NEW, VENDOR_LOOKALIKE, TAX_NUMBER_MISMATCH
@@ -50,3 +50,10 @@ own department or step, own step, up to limit), `VENDOR_VIEW` for bank masking, 
 invariants plus `canDecideStep` / `canRelease`. The matrix test checks all 120 cells against an independent
 transcription of BUILD_PLAN's table. APPROVER_CANNOT_RELEASE also blocks the absent approver a delegate
 approved for (the approval was on their authority).
+
+### Item 4: vendor resolution (2026-11-21)
+`src/lib/rules/resolve/vendor.ts`. A step matching more than one record is not a hit: V001/V051 and
+V002/V053 share a bank account, and V001/V051, V002/V053, V026/V052 share a normalised name, so those
+fall through and end as no vendor with both records offered (never chosen). Thresholds added to
+`config.resolution` (bank-match name similarity 0.5, 3 candidates, min similarity 0.2). Every master
+record resolves to itself by tax number; V054 (no tax number) by its unique name.
