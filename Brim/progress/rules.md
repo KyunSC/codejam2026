@@ -20,7 +20,7 @@ Scripts in `scripts/` set `APP_TODAY=2026-11-02` themselves.
 - [x] 10. Checks: PO_REQUIRED_MISSING, PO_NOT_FOUND, PO_VENDOR_MISMATCH, PO_CLOSED, PO_OVER_BALANCE
 - [x] 11. Checks: CONTRACT_EXPIRED, CONTRACT_FEE_MISMATCH, CONTRACT_RATE_OVER_CAP, CONTRACT_FUEL_OVER_CAP, CONTRACT_MONTHLY_CAP, CONTRACT_PERIOD_REPEAT
 - [x] 12. Checks: SPLIT_SUSPECTED, REQUESTER_TERMINATED, SELF_APPROVAL (history), CREDIT_NOTE_ORPHAN
-- [ ] 13. Duplicate detection: DUP_EXACT, DUP_NEAR, DUP_CONTENT, DUP_PAID_BY_CARD (lookalike vendors count as one)
+- [x] 13. Duplicate detection: DUP_EXACT, DUP_NEAR, DUP_CONTENT, DUP_PAID_BY_CARD (lookalike vendors count as one)
 - [ ] 14. Checks runner (`runChecks`) + `scripts/history-replay.ts`: compare against "What is planted"; explain differences below
 - [ ] 15. Smart coding (same description at vendor → vendor default → nearest description) + `scripts/coding-accuracy.ts` (train Jan–Aug, test Sep–Oct; account and department)
 - [ ] 16. Approval routing: policy rows P01–P13, rules → steps → people (self, leave, terminated, repeats, unresolvable), release eligibility; the five worked examples as tests
@@ -141,3 +141,19 @@ guessing). A tax line with an unknown label skips TAX_WRONG_FOR_PROVINCE (readin
   four-eyes rule to review; it cannot happen to a new invoice because the service refuses it).
 - REQUESTER_TERMINATED: none in history (U015's last invoice was received 2026-09-05, before 2026-09-15).
 - CREDIT_NOTE_ORPHAN: none in history (no credit notes).
+
+### Item 13: duplicate detection (2026-11-21)
+`src/lib/rules/checks/dupes.ts`. Replay (each invoice vs the ones before it), exactly as planted:
+- DUP_EXACT 5: AP-00026~00007 and AP-00237~00219 (rejected by the approver), AP-00034~00023 and
+  AP-00224~00215 (paid twice), AP-00407~00394 (both scheduled for 2026-11-02).
+- DUP_NEAR 2: AP-00077~00073 (`604`/`000604`), AP-00155~00136 (`1655-A`/`FA-001655`).
+- DUP_PAID_BY_CARD 6: CT-00017, CT-00026, CT-00318, CT-00383 (Paper Trail), CT-00324, CT-00551 (Alpenglow).
+- DUP_CONTENT 0.
+Two readings of BUILD_PLAN needed to reproduce it:
+1. BUILD_PLAN defines numberKey without leading zeros, so `000604`/`604` share a numberKey, yet it lists them
+   as DUP_NEAR. DUP_EXACT therefore also needs the same printed number (letters and digits, zeros kept);
+   a numberKey match that differs only in leading zeros is DUP_NEAR. Both are fraud/hold, so only the label differs.
+2. One card charge pays one invoice: CT-00324 matched both AP-00215 and its duplicate AP-00224, so a charge that
+   already matches an earlier invoice is attributed to that one. AP-00224 still gets DUP_EXACT.
+Trap test: for each of the 17 fixed-fee vendors, the next bill (same total, next number, 3 weeks later) raises
+no duplicate. Lookalike records count as one vendor (V053 reusing a V002 number → DUP_EXACT).
