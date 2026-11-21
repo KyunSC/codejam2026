@@ -50,3 +50,11 @@ Run `BRIM_LOCAL_DB_ONLY=1 npm run db:seed` after applying the migrations locally
 | `src/lib/today.ts` | both | `today()` reads `APP_TODAY`; never call `new Date()` for "today" in a rule |
 | `src/lib/db.ts` | Loop A | Prisma client, created on first use |
 | `src/lib/db-guard.ts` | Loop A | With `BRIM_LOCAL_DB_ONLY=1`, Prisma and `db()` refuse non-local databases |
+
+## Pull request checks
+
+GitHub Actions runs typecheck, lint, and Vitest against a fresh local Postgres database after applying migrations and seeding the open dataset.
+
+Vercel sends deployment events to the workflow on `main`. For each Brim preview it posts `Brim preview / Neon` on the deployed commit. The check calls `/api/health` and verifies that Prisma can read invoice columns. Protected previews accept a short-lived GitHub OIDC token with audience `brim-preview-health` from the preview workflow on `main`.
+
+After the workflows land on `main` and run on a PR, select `Brim tests, types, and lint` and `Brim preview / Neon` as required status checks in GitHub's branch rules.
