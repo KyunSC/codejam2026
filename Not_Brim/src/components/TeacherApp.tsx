@@ -5,6 +5,7 @@ import { useSimSession, type EditBase, type ReadyInfo } from "@/lib/useSimSessio
 import { useStandInStatus } from "@/lib/useStandInStatus";
 import { StandInBadge, TimingBadge } from "./Badges";
 import { ParamSliders } from "./ParamSliders";
+import { ShareButton } from "./ShareButton";
 import { SimPanel } from "./SimPanel";
 
 export function TeacherApp() {
@@ -138,6 +139,7 @@ export function TeacherApp() {
               Ask for a change
             </button>
           </form>
+          <ShareButton simId={simId} disabled={v.state !== "ready"} />
         </section>
 
         <aside className="flex min-h-0 basis-[30%] flex-col gap-5 overflow-y-auto pr-1" aria-label="Controls">

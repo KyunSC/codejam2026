@@ -47,3 +47,6 @@ The spec only gives "Try again". Chose: it re-runs the last action. For an edit,
 
 ## S4.1 "Saving happens on the first ready"
 If a sim reaches ready, then fails within the 2 s window and is repaired, the run gets a second ready. Chose: save on every ready of a generate or edit run (a new record each time), so the share button always points at the code on screen. The extra records are harmless.
+
+## S4.3 "The sim is covered until Run"
+Chose: don't mount the iframe until Run (the panel shows a message instead). This is simpler than an overlay over a running sim and stops students peeking or interacting early. After Run the prediction stays visible, read-only.
