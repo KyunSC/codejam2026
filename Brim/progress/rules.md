@@ -17,7 +17,7 @@ Scripts in `scripts/` set `APP_TODAY=2026-11-02` themselves.
 - [x] 7. Checks: VENDOR_UNKNOWN, VENDOR_PENDING, VENDOR_ON_HOLD, VENDOR_NEW, VENDOR_LOOKALIKE, TAX_NUMBER_MISMATCH
 - [x] 8. Checks: BANK_MISMATCH, BANK_CHANGE_UNVERIFIED, BANK_CHANGE_RECENT
 - [x] 9. Checks: TAX_WRONG_FOR_PROVINCE, TAX_AMOUNT, TAX_NOT_REGISTERED, CURRENCY_UNEXPECTED
-- [ ] 10. Checks: PO_REQUIRED_MISSING, PO_NOT_FOUND, PO_VENDOR_MISMATCH, PO_CLOSED, PO_OVER_BALANCE
+- [x] 10. Checks: PO_REQUIRED_MISSING, PO_NOT_FOUND, PO_VENDOR_MISMATCH, PO_CLOSED, PO_OVER_BALANCE
 - [ ] 11. Checks: CONTRACT_EXPIRED, CONTRACT_FEE_MISMATCH, CONTRACT_RATE_OVER_CAP, CONTRACT_FUEL_OVER_CAP, CONTRACT_MONTHLY_CAP, CONTRACT_PERIOD_REPEAT
 - [ ] 12. Checks: SPLIT_SUSPECTED, REQUESTER_TERMINATED, SELF_APPROVAL (history), CREDIT_NOTE_ORPHAN
 - [ ] 13. Duplicate detection: DUP_EXACT, DUP_NEAR, DUP_CONTENT, DUP_PAID_BY_CARD (lookalike vendors count as one)
@@ -105,3 +105,13 @@ AP-00325 (the three planted); TAX_AMOUNT and CURRENCY_UNEXPECTED never fire. Exe
 `config.tax.exemptCategories` (["Insurance"]: every EXEMPT history line is from an Insurance vendor; every
 FOREIGN line from a US vendor). In BC with a line of unknown type, PST is neither required nor rejected (no
 guessing). A tax line with an unknown label skips TAX_WRONG_FOR_PROVINCE (reading problem, not a tax error).
+
+### Item 10: PO checks (2026-11-21)
+`src/lib/rules/checks/po.ts`. Over history, each invoice against the ones before it:
+- PO_OVER_BALANCE fires on exactly AP-00159, AP-00216 (planted) and AP-00224 (PO-2026-0027) and AP-00407
+  (PO-2026-0044), the second bills of the two POs billed twice by the duplicates. 4 = "2, plus two POs billed twice".
+- PO_REQUIRED_MISSING fires on exactly AP-00200/00206/00207 (the split trio, "no PO though the vendor requires one").
+- No PO_VENDOR_MISMATCH or PO_NOT_FOUND in history.
+- PO_CLOSED: every closed PO in the CSV was closed by its own invoices (none closed without an invoice), so
+  the replay (item 14) must treat a PO as open until its last history invoice is entered, or every PO invoice
+  in history would show PO_CLOSED against the PO's final status.
