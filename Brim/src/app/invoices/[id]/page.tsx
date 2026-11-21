@@ -12,6 +12,17 @@ import { db } from "@/lib/db";
 import { FLAG_KIND_RANK, flagKind } from "@/components/ui";
 import type { EvidenceItem, Flag as FlagT, FieldEvidence } from "@/lib/types";
 import { ChoicesForm, CodingTable, FlagPanel, type FlagView, type LineView } from "./review-panels";
+import { ApprovalPanel, type ChainStep } from "./approval-panel";
+import { REJECTION_REASONS, routePreview } from "@/lib/workflow/approvals";
+import { loadLiveRefs, personId } from "@/lib/workflow/refs";
+import { releaseEligibility } from "@/lib/rules/routing/route";
+
+const STEP_ROLE: Record<string, string> = {
+  dept_manager: "department manager",
+  finance_manager: "finance manager",
+  controller_admin: "controller",
+  cfo: "CFO",
+};
 
 const EVIDENCE_MARK: Record<FieldEvidence | "unchecked", { text: string; className: string }> = {
   confirmed: { text: "✓ on the page", className: "text-[var(--green)]" },
@@ -115,6 +126,55 @@ async function InvoiceView({ params }: { params: Promise<{ id: string }> }) {
     departmentFinal: l.departmentFinal,
     reason: (l.reason as { account?: string } | null)?.account ?? null,
   }));
+  // ---- Approval chain ----
+  const people = await db().user.findMany({ where: { organizationId: org.id }, select: { id: true, externalId: true, fullName: true, status: true, delegateId: true } });
+  const byPid = new Map(people.map((p) => [personId(p), p]));
+  const nameOf = (pid: string | null) => (pid ? (byPid.get(pid)?.fullName ?? pid) : "nobody");
+  const me = personId(user);
+  const firstPending = inv.approvalSteps.find((s) => s.decision === "pending");
+  let chain: ChainStep[] = [];
+  let blocked: string[] = [];
+  let releaserIds: string[] | null = null;
+  let isPreview = false;
+  const mayPreview = !["employee", "approver"].includes(user.role);
+  if (inv.approvalSteps.length > 0) {
+    chain = inv.approvalSteps.map((s) => {
+      const why = (s.why ?? {}) as { ruleIds?: string[]; replacements?: string[] };
+      return {
+        who: nameOf(s.assignedToId),
+        role: STEP_ROLE[s.role] ?? s.role,
+        policy: [why.ruleIds?.join(", "), ...(why.replacements ?? []), s.comment ? `“${s.comment}”` : null].filter(Boolean).join(" · "),
+        delegateNote: s.onBehalfOfId ? `acting for ${nameOf(s.onBehalfOfId)} (on leave)` : null,
+        state: s.decision !== "pending" ? "done" : s.id === firstPending?.id ? "current" : "waiting",
+        decision: s.decision === "pending" ? null : s.decision,
+      };
+    });
+    if (inv.totalCad && ["pending_approval", "approved", "scheduled", "released"].includes(inv.status)) {
+      const refs = await loadLiveRefs(db(), org.id);
+      releaserIds = releaseEligibility(Number(inv.totalCad), inv.approvalSteps, refs.policyRules, refs).releaserIds;
+    }
+  } else if (inv.status === "coded" && mayPreview) {
+    const p = await db().$transaction((tx) => routePreview(tx, org.id, inv.id), { timeout: 60_000 });
+    isPreview = true;
+    chain = p.route.steps.map((s) => ({
+      who: nameOf(s.assignedToId),
+      role: STEP_ROLE[s.role] ?? s.role,
+      policy: [s.ruleIds.join(", "), ...s.replacements].filter(Boolean).join(" · "),
+      delegateNote: s.onBehalfOfId ? `acting for ${nameOf(s.onBehalfOfId)} (on leave)` : null,
+      state: "waiting",
+      decision: null,
+    }));
+    blocked = [...p.route.blocked, ...(p.release.blockedReason ? [p.release.blockedReason] : [])];
+    releaserIds = p.release.releaserIds;
+  }
+  const assignee = firstPending ? byPid.get(firstPending.assignedToId) : undefined;
+  const canDecide =
+    inv.status === "pending_approval" &&
+    roleCan(user.role, "invoice.decide") &&
+    !!firstPending &&
+    (firstPending.assignedToId === me || (assignee?.status === "on_leave" && assignee.delegateId === user.id));
+  const showApprovals = chain.length > 0 || inv.status === "coded";
+
   const [accounts, departments, vendors, pos] = await Promise.all([
     db().glAccount.findMany({ where: { organizationId: org.id, accountType: "expense" }, orderBy: { id: "asc" }, select: { id: true, name: true } }),
     db().department.findMany({ where: { organizationId: org.id }, orderBy: { id: "asc" }, select: { id: true, name: true } }),
@@ -239,6 +299,27 @@ async function InvoiceView({ params }: { params: Promise<{ id: string }> }) {
                 accounts={accounts}
                 departments={departments}
                 editable={canEdit}
+              />
+            </section>
+          )}
+
+          {showApprovals && (
+            <section aria-labelledby="approvals">
+              <SectionHeading id="approvals" level={3}>
+                Approval chain
+              </SectionHeading>
+              <ApprovalPanel
+                slug={org.slug}
+                invoiceId={inv.id}
+                version={inv.version}
+                steps={chain}
+                isPreview={isPreview}
+                blocked={blocked}
+                releasers={releaserIds === null ? null : releaserIds.length ? releaserIds.map(nameOf).join(", ") : "nobody"}
+                canSubmit={inv.status === "coded" && roleCan(user.role, "invoice.submit")}
+                canDecide={canDecide}
+                canReopen={inv.status === "rejected" && roleCan(user.role, "invoice.edit")}
+                reasons={REJECTION_REASONS}
               />
             </section>
           )}

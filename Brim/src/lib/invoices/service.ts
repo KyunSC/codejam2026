@@ -16,6 +16,12 @@ import { SENT_STATUSES, STATUS_LABEL } from "./labels";
 /** Brought in by the user or waiting on them; for an AP clerk also intake-stage invoices with no owner. */
 function mineWhere(user: User): Prisma.InvoiceWhereInput {
   const or: Prisma.InvoiceWhereInput[] = [{ createdById: user.id }, { assignedToId: user.id }];
+  if (user.role === "approver") {
+    // Matrix "Read invoices" for an approver: own department, plus steps assigned to them (or held for them).
+    const pid = user.externalId ?? user.id;
+    if (user.departmentId) or.push({ departmentId: user.departmentId });
+    or.push({ approvalSteps: { some: { OR: [{ assignedToId: pid }, { onBehalfOfId: pid }] } } });
+  }
   if (user.role === "ap_clerk") {
     or.push({ assignedToId: null, status: { in: ["received", "extracted", "needs_review", "coded"] } });
   }
