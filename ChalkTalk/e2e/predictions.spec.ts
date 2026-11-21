@@ -3,7 +3,8 @@ import { expect, test } from "./fixtures";
 
 /** Teacher makes the pendulum and shares it; returns the student link. */
 async function shareSim(page: Page): Promise<string> {
-  await page.goto("/");
+  await page.goto("/new");
+  await page.getByTestId("tool-sim").click();
   await page.getByTestId("prompt-input").fill("Does a heavier pendulum bob swing faster?");
   await page.getByTestId("create-button").click();
   await expect(page.getByTestId("sim-panel")).toHaveAttribute("data-state", "ready", { timeout: 20_000 });

@@ -1,14 +1,18 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
-  applyAction,
+  applyOps,
   checkItems,
+  diffItems,
+  eraseAt,
   freeSpot,
   MAX_ITEMS,
   MAX_POS,
   MAX_PROMPT_CHARS,
   MAX_STROKES,
+  MAX_TITLE_CHARS,
   moveItem,
   newItemId,
   NOTE_SIZE,
@@ -24,14 +28,15 @@ import { renderBoardImage } from "@/lib/board-image";
 import { readNdjson } from "@/lib/ndjson";
 import type { BoardEvent, Stage } from "@/lib/types";
 import { useStandInStatus } from "@/lib/useStandInStatus";
-import { Logo, StandInBadge } from "./Badges";
-import { DemosMenu, type DemoFull } from "./DemosMenu";
+import { StandInBadge } from "./Badges";
+import { rememberBoard } from "./BoardsHome";
+import { ToolIcon } from "./ToolIcon";
 import { PetPicker } from "./PetPicker";
 import { InkView, StrokePaths } from "./board/InkView";
 import { NoteView } from "./board/NoteView";
 import { SimBox } from "./board/SimBox";
 
-type Tool = "select" | "pen" | "note";
+type Tool = "select" | "pen" | "erase" | "note";
 type SaveState = "saved" | "saving" | "error";
 interface Camera {
   x: number;
@@ -42,6 +47,7 @@ interface AskState {
   state: "idle" | "busy" | "done" | "error";
   stage: Stage | null;
   text: string;
+  /** Claude's steps that didn't work, in its words or the board's. */
   rejected: string[];
 }
 
@@ -53,6 +59,15 @@ const JOIN_GAP = 80;
 const SAVE_DELAY_MS = 500;
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 2;
+/** How often the page checks whether Claude or an MCP client changed the board. */
+const POLL_MS = 2000;
+const ERASER_RADIUS = 12;
+const TOOLS: Array<{ id: Tool; label: string; key: string }> = [
+  { id: "select", label: "Select", key: "v" },
+  { id: "pen", label: "Pen", key: "p" },
+  { id: "erase", label: "Eraser", key: "e" },
+  { id: "note", label: "Note", key: "n" },
+];
 
 const isTyping = (el: Element | null) =>
   !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || (el as HTMLElement).isContentEditable);
@@ -79,7 +94,7 @@ export function BoardApp({ board }: { board: Board }) {
   const itemsRef = useRef(items);
   const [cam, setCamState] = useState<Camera>(() => {
     if (!board.items.length) return { x: 0, y: 0, s: 1 };
-    return { x: Math.min(...board.items.map((i) => i.x)) - 40, y: Math.min(...board.items.map((i) => i.y)) - 180, s: 1 };
+    return { x: Math.min(...board.items.map((i) => i.x)) - 40, y: Math.min(...board.items.map((i) => i.y)) - 90, s: 1 };
   });
   const camRef = useRef(cam);
   const [tool, setTool] = useState<Tool>("select");
@@ -91,6 +106,17 @@ export function BoardApp({ board }: { board: Board }) {
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [saveError, setSaveError] = useState("");
   const [simPrompt, setSimPrompt] = useState("");
+  const [title, setTitle] = useState(board.title);
+  const simDialog = useRef<HTMLDialogElement>(null);
+  /** The board as the server last sent it: what the page's changes are measured against. */
+  const base = useRef<BoardItem[]>(board.items);
+  const version = useRef(board.version);
+  const savedTitle = useRef(board.title);
+  /** The title as typed, and whether it differs from the server's (so a sync doesn't overwrite it). */
+  const titleRef = useRef(board.title);
+  const titleDirty = useRef(false);
+  /** The latest save, for retries scheduled from inside a save. */
+  const saveRef = useRef<() => Promise<void>>(async () => {});
   const [message, setMessage] = useState("");
   const [ask, setAsk] = useState<AskState>({ state: "idle", stage: null, text: "", rejected: [] });
   const viewport = useRef<HTMLDivElement>(null);
@@ -102,28 +128,59 @@ export function BoardApp({ board }: { board: Board }) {
 
   // ---------- saving ----------
 
-  const save = useCallback(async () => {
+  /**
+   * Take the server's board: the page's changes that the server hasn't seen yet are put back on top,
+   * so they're neither lost nor sent twice. `sent` is what the page had when it sent its last change.
+   */
+  const sync = useCallback((server: Board, sent: BoardItem[] = base.current) => {
+    const pending = diffItems(sent, itemsRef.current);
+    base.current = server.items;
+    version.current = server.version;
+    savedTitle.current = server.title;
+    const merged = applyOps(server.items, pending);
+    itemsRef.current = merged;
+    setItemsState(merged);
+    setTitle((t) => (titleDirty.current ? t : server.title));
+    return pending.length > 0;
+  }, []);
+
+  const save = useCallback(async (): Promise<void> => {
     if (saving.current) await saving.current;
-    // The server rejects the whole board if any item breaks a limit, so check here and say why.
-    const checked = checkItems(itemsRef.current);
+    const sent = itemsRef.current;
+    const ops = diffItems(base.current, sent);
+    const newTitle = titleDirty.current ? titleRef.current : undefined;
+    if (!ops.length && newTitle === undefined) {
+      setSaveState("saved");
+      return;
+    }
+    // The server rejects a change that breaks a limit, so check here and say why.
+    const checked = checkItems(sent);
     if (!checked.ok) {
       console.warn("[board] not saving:", checked.reason);
       setSaveError(checked.reason);
       setSaveState("error");
       return;
     }
-    const body = JSON.stringify({ items: itemsRef.current });
     setSaveState("saving");
-    const run = fetch(`/api/boards/${board.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body })
+    titleDirty.current = false;
+    const run = fetch(`/api/boards/${board.id}/ops`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ops, ...(newTitle !== undefined ? { title: newTitle } : {}) }),
+    })
       .then(async (r) => {
-        if (!r.ok) {
-          const j = (await r.json().catch(() => null)) as { error?: string } | null;
-          throw new Error(j?.error ?? `HTTP ${r.status}`);
-        }
+        const j = (await r.json().catch(() => null)) as (Board & { error?: string }) | null;
+        if (!r.ok || !j?.items) throw new Error(j?.error ?? `HTTP ${r.status}`);
         setSaveError("");
-        if (JSON.stringify({ items: itemsRef.current }) === body) setSaveState("saved");
+        const more = sync(j, sent);
+        setSaveState(more || titleDirty.current ? "saving" : "saved");
+        if (more || titleDirty.current) {
+          if (saveTimer.current) clearTimeout(saveTimer.current);
+          saveTimer.current = setTimeout(() => void saveRef.current(), SAVE_DELAY_MS);
+        }
       })
       .catch((err: unknown) => {
+        if (newTitle !== undefined) titleDirty.current = true;
         console.warn("[board] save failed:", err instanceof Error ? err.message : err);
         setSaveError(err instanceof Error ? err.message : "");
         setSaveState("error");
@@ -131,7 +188,43 @@ export function BoardApp({ board }: { board: Board }) {
     saving.current = run;
     await run;
     saving.current = null;
-  }, [board.id]);
+  }, [board.id, sync]);
+  useEffect(() => {
+    saveRef.current = save;
+  });
+
+  // Claude (from another tab) or an MCP client may change the board: check for a newer version every few seconds.
+  useEffect(() => {
+    rememberBoard(board.id);
+    let stopped = false;
+    const timer = setInterval(async () => {
+      if (stopped || saving.current || document.hidden) return;
+      try {
+        const r = await fetch(`/api/boards/${board.id}?since=${version.current}`, { cache: "no-store" });
+        if (r.status !== 200 || saving.current) return;
+        const server = (await r.json()) as Board;
+        if (server.version > version.current) sync(server);
+      } catch {
+        // Offline for a moment: the next tick tries again.
+      }
+    }, POLL_MS);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [board.id, sync]);
+
+  function rename(next: string) {
+    const t = next.slice(0, MAX_TITLE_CHARS);
+    setTitle(t);
+    titleRef.current = t;
+    titleDirty.current = t.trim() !== savedTitle.current;
+    if (titleDirty.current) {
+      setSaveState("saving");
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(() => void save(), SAVE_DELAY_MS);
+    }
+  }
 
   const setItems = useCallback(
     (fn: (items: BoardItem[]) => BoardItem[]) => {
@@ -265,6 +358,10 @@ export function BoardApp({ board }: { board: Board }) {
       } else if (e.key === "Escape") {
         setSelected(null);
         setTool("select");
+      } else if (!e.metaKey && !e.ctrlKey && !e.altKey) {
+        const t = TOOLS.find((x) => x.key === e.key.toLowerCase());
+        if (t) setTool(t.id);
+        else if (e.key.toLowerCase() === "s") simDialog.current?.showModal();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -330,6 +427,25 @@ export function BoardApp({ board }: { board: Board }) {
       );
       return;
     }
+    if (tool === "erase") {
+      e.preventDefault();
+      const r = ERASER_RADIUS / camRef.current.s;
+      let last = start;
+      setItems((list) => eraseAt(list, start.x, start.y, r));
+      track(e, (_dx, _dy, ev) => {
+        const p = toWorld(ev.clientX, ev.clientY);
+        // A fast swipe reports few positions; erase along the line between them too.
+        const steps = Math.max(1, Math.ceil(Math.hypot(p.x - last.x, p.y - last.y) / (r / 2)));
+        const from = last;
+        setItems((list) => {
+          let out = list;
+          for (let i = 1; i <= steps; i++) out = eraseAt(out, from.x + ((p.x - from.x) * i) / steps, from.y + ((p.y - from.y) * i) / steps, r);
+          return out;
+        });
+        last = p;
+      });
+      return;
+    }
     if (tool === "note") {
       if (full) return;
       // Without this, the click's mousedown moves focus back to the page after the new note took it.
@@ -358,7 +474,7 @@ export function BoardApp({ board }: { board: Board }) {
 
   function startDrag(e: ReactPointerEvent, id: string) {
     if (e.button !== 0) return;
-    if (tool === "pen") return;
+    if (tool === "pen" || tool === "erase") return;
     e.stopPropagation();
     e.preventDefault();
     const item = itemsRef.current.find((it) => it.id === id);
@@ -418,52 +534,54 @@ export function BoardApp({ board }: { board: Board }) {
 
   function addSimFromPrompt() {
     const prompt = simPrompt.trim();
-    if (!prompt) return;
+    if (!prompt || full) return;
     setSimPrompt("");
+    simDialog.current?.close();
+    setTool("select");
     addSim({ prompt });
-  }
-
-  function addDemo(demo: DemoFull) {
-    addSim({ prompt: demo.prompt, code: demo.code, title: demo.title, question: demo.question, params: demo.params });
   }
 
   // ---------- Ask Claude ----------
 
   async function askClaude() {
     if (ask.state === "busy") return;
-    const snapshot = itemsRef.current;
+    setAsk({ state: "busy", stage: null, text: "", rejected: [] });
+    // Claude reads the stored board, so the page's latest changes go first.
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    await save();
     const view = currentView();
     let image: string | null = null;
     try {
-      image = renderBoardImage(snapshot);
+      image = renderBoardImage(itemsRef.current);
     } catch (err) {
       console.warn("[board] couldn't draw the board picture:", err);
     }
-    setAsk({ state: "busy", stage: null, text: "", rejected: [] });
     const rejected: string[] = [];
     let made = 0;
     try {
-      const res = await fetch("/api/board-turn", {
+      const res = await fetch(`/api/boards/${board.id}/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: snapshot, view, message, image }),
+        body: JSON.stringify({ view, message, image }),
       });
       if (!res.ok || !res.body) {
         const j = (await res.json().catch(() => null)) as { error?: string } | null;
         throw new Error(j?.error ?? `The server answered ${res.status}.`);
       }
+      const before = new Set(itemsRef.current.map((it) => it.id));
       for await (const ev of readNdjson<BoardEvent>(res.body)) {
         if (ev.type === "status") setAsk((a) => ({ ...a, stage: ev.stage }));
-        else if (ev.type === "action") {
-          const result = applyAction(itemsRef.current, ev.action, view);
-          if (result.rejected) rejected.push(result.rejected);
-          else {
-            made++;
-            setItems(() => result.items);
-            if (result.itemId && (ev.action.type === "add_note" || ev.action.type === "add_sim")) reveal(result.itemId);
+        else if (ev.type === "tool") {
+          if (!ev.ok) rejected.push(ev.text);
+          else if (ev.name !== "get_board" && ev.name !== "get_changelog") made++;
+        } else if (ev.type === "board") {
+          if (sync(ev.board)) void save();
+          const added = ev.board.items.find((it) => !before.has(it.id));
+          if (added) {
+            before.add(added.id);
+            reveal(added.id);
           }
-        } else if (ev.type === "rejected") rejected.push(ev.reason);
-        else if (ev.type === "error") throw new Error(ev.message);
+        } else if (ev.type === "error") throw new Error(ev.message);
       }
       setMessage("");
       setAsk({
@@ -493,7 +611,9 @@ export function BoardApp({ board }: { board: Board }) {
     <div className="relative h-screen w-screen overflow-clip bg-paper" data-board-id={board.id}>
       <div
         ref={viewport}
-        className={`board-viewport absolute inset-0 overflow-clip ${tool === "pen" ? "pen-mode cursor-crosshair" : tool === "note" ? "cursor-copy" : "cursor-default"} ${
+        className={`board-viewport absolute inset-0 overflow-clip ${
+          tool === "pen" ? "pen-mode cursor-crosshair" : tool === "erase" ? "pen-mode erase-mode" : tool === "note" ? "cursor-copy" : "cursor-default"
+        } ${
           dragging ? "is-dragging" : ""
         }`}
         style={{ backgroundPosition: `${-cam.x * cam.s}px ${-cam.y * cam.s}px`, backgroundSize: `${40 * cam.s}px ${40 * cam.s}px` }}
@@ -507,7 +627,8 @@ export function BoardApp({ board }: { board: Board }) {
           style={{ transform: `translate(${-cam.x * cam.s}px, ${-cam.y * cam.s}px) scale(${cam.s})` }}
         >
           {items.map((it) => (
-            <div key={it.id} className={`absolute ${it.kind === "ink" ? "ink-slot" : ""}`} style={{ left: it.x, top: it.y, width: it.w, height: it.h }}>
+            // The wrapper lets the pointer through; the item inside takes it (except handwriting under the pen or eraser).
+            <div key={it.id} className="pointer-events-none absolute" style={{ left: it.x, top: it.y, width: it.w, height: it.h }}>
               {it.kind === "note" ? (
                 <NoteView
                   item={it}
@@ -540,81 +661,83 @@ export function BoardApp({ board }: { board: Board }) {
         </div>
         {!items.length ? (
           <p className="pointer-events-none absolute inset-x-0 top-[40%] px-6 text-center text-[1.2rem] font-medium text-[#55595e]">
-            Pick Pen to write, Note to type, or describe a simulation above. Then press “Ask Claude”.
+            Write with Pen, type with Note, or add a simulation from the bar above. Then press “Ask Claude”.
           </p>
         ) : null}
       </div>
 
-      <header ref={header} className="card absolute inset-x-3 top-3 flex flex-wrap items-center gap-3 p-3">
-        <Logo />
-        <PetPicker />
-        <div className="flex gap-2" role="group" aria-label="Tools">
-          {(["select", "pen", "note"] as const).map((t) => (
-            <button
-              key={t}
-              type="button"
-              className={tool === t ? "btn-primary" : "btn-secondary"}
-              aria-pressed={tool === t}
-              data-testid={`tool-${t}`}
-              onClick={() => setTool(t)}
-            >
-              {t === "select" ? "Select" : t === "pen" ? "Pen" : "Note"}
-            </button>
-          ))}
-        </div>
-        {tool === "pen" ? (
-          <div className="flex gap-2" role="group" aria-label="Pen colour">
-            {PEN_COLORS.map((c) => (
+      <header ref={header} className="toolbar absolute left-3 right-3 top-3" role="toolbar" aria-label="Whiteboard tools">
+        <Link href="/" className="tool-btn" data-testid="boards-link" title="My whiteboards">
+          <ToolIcon name="back" />
+          <span className="tool-label">Boards</span>
+        </Link>
+        <input
+          className="board-title"
+          aria-label="Board title"
+          data-testid="board-title"
+          value={title}
+          maxLength={MAX_TITLE_CHARS}
+          onChange={(e) => rename(e.target.value)}
+          onBlur={() => {
+            if (!title.trim()) rename(savedTitle.current);
+          }}
+        />
+        <span className="toolbar-sep" aria-hidden />
+        {TOOLS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            className="tool-btn"
+            aria-pressed={tool === t.id}
+            data-testid={`tool-${t.id}`}
+            title={`${t.label} (${t.key.toUpperCase()})`}
+            onClick={() => setTool(t.id)}
+          >
+            <ToolIcon name={t.id} />
+            <span className="tool-label">{t.label}</span>
+          </button>
+        ))}
+        <button
+          type="button"
+          className="tool-btn"
+          data-testid="tool-sim"
+          title="Add simulation (S)"
+          disabled={full}
+          onClick={() => simDialog.current?.showModal()}
+        >
+          <ToolIcon name="sim" />
+          <span className="tool-label">Simulation</span>
+        </button>
+        {tool === "pen"
+          ? PEN_COLORS.map((c) => (
               <button
                 key={c}
                 type="button"
-                className={`h-9 w-9 rounded-[3px] border-2 ${penColor === c ? "outline-3 outline-offset-2 outline-[var(--blue)] border-[var(--text)]" : "border-[var(--text)]"}`}
+                className="tool-swatch"
                 style={{ background: c }}
                 aria-label={`Pen colour ${c}`}
                 aria-pressed={penColor === c}
                 onClick={() => setPenColor(c)}
               />
-            ))}
-          </div>
-        ) : null}
-        <form
-          className="flex min-w-0 basis-full flex-wrap gap-2 sm:min-w-[20rem] sm:basis-auto sm:flex-1 sm:flex-nowrap"
-          onSubmit={(e) => {
-            e.preventDefault();
-            addSimFromPrompt();
-          }}
-        >
-          <input
-            className="field min-w-0 flex-1 basis-[16rem]"
-            aria-label="Describe a simulation"
-            data-testid="prompt-input"
-            placeholder="Add a simulation: e.g. “Does a heavier pendulum swing faster?”"
-            value={simPrompt}
-            maxLength={MAX_PROMPT_CHARS}
-            onChange={(e) => setSimPrompt(e.target.value)}
-          />
-          <button type="submit" className="btn-secondary" data-testid="create-button" disabled={!simPrompt.trim() || full}>
-            Add simulation
-          </button>
-        </form>
-        <DemosMenu refreshKey={0} onPick={addDemo} />
-        <div className="hidden items-center gap-1 sm:flex" role="group" aria-label="Zoom">
-          <button type="button" className="btn-secondary px-3" aria-label="Zoom out" onClick={() => zoomAt(1 / 1.25)}>
-            −
-          </button>
-          <button type="button" className="btn-secondary w-20 px-2 tabular-nums" aria-label="Reset zoom" onClick={() => zoomAt(1 / cam.s)}>
-            {Math.round(cam.s * 100)}%
-          </button>
-          <button type="button" className="btn-secondary px-3" aria-label="Zoom in" onClick={() => zoomAt(1.25)}>
-            +
-          </button>
-        </div>
-        <StandInBadge standIn={standIn} />
+            ))
+          : null}
+        <span className="toolbar-sep" aria-hidden />
+        <button type="button" className="tool-btn" aria-label="Zoom out" title="Zoom out" onClick={() => zoomAt(1 / 1.25)}>
+          <ToolIcon name="minus" />
+        </button>
+        <button type="button" className="tool-btn tabular-nums" aria-label="Reset zoom" title="Reset zoom" onClick={() => zoomAt(1 / cam.s)}>
+          {Math.round(cam.s * 100)}%
+        </button>
+        <button type="button" className="tool-btn" aria-label="Zoom in" title="Zoom in" onClick={() => zoomAt(1.25)}>
+          <ToolIcon name="plus" />
+        </button>
+        <span className="flex-1" />
         {full ? (
-          <span className="kicker text-danger" data-testid="board-full">
-            Board full ({MAX_ITEMS} items): delete something to add more
+          <span className="kicker text-danger" data-testid="board-full" title={`Board full (${MAX_ITEMS} items): delete something to add more`}>
+            Full
           </span>
         ) : null}
+        <StandInBadge standIn={standIn} />
         <span
           className="kicker"
           data-testid="save-state"
@@ -624,7 +747,46 @@ export function BoardApp({ board }: { board: Board }) {
         >
           {saveState === "saved" ? "Saved" : saveState === "saving" ? "Saving…" : "Couldn't save"}
         </span>
+        <PetPicker />
       </header>
+
+      <dialog ref={simDialog} className="card m-auto w-[min(34rem,calc(100vw-2rem))] p-0 backdrop:bg-black/40" data-testid="sim-dialog">
+        <form
+          className="flex flex-col gap-3 p-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            addSimFromPrompt();
+          }}
+        >
+          <label htmlFor="sim-prompt" className="kicker">
+            Add a simulation
+          </label>
+          <textarea
+            id="sim-prompt"
+            className="field min-h-[5em] resize-none"
+            data-testid="prompt-input"
+            placeholder="What should it show? e.g. “Does a heavier pendulum swing faster?”"
+            value={simPrompt}
+            maxLength={MAX_PROMPT_CHARS}
+            autoFocus
+            onChange={(e) => setSimPrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                addSimFromPrompt();
+              }
+            }}
+          />
+          <div className="flex justify-end gap-2">
+            <button type="button" className="btn-secondary" onClick={() => simDialog.current?.close()}>
+              Cancel
+            </button>
+            <button type="submit" className="btn-primary" data-testid="create-button" disabled={!simPrompt.trim() || full}>
+              Generate
+            </button>
+          </div>
+        </form>
+      </dialog>
 
       <aside
         ref={panel}

@@ -1,8 +1,9 @@
 import { expect, test } from "./fixtures";
 
 test("pendulum prompt reaches ready with 4 sliders, and sliders apply", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/new");
   await expect(page.getByTestId("stand-in-badge")).toHaveText("Offline stand-in");
+  await page.getByTestId("tool-sim").click();
   await page.getByTestId("prompt-input").fill("Does a heavier pendulum bob swing faster?");
   await page.getByTestId("create-button").click();
 

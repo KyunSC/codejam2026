@@ -1,7 +1,8 @@
 import { expect, test } from "./fixtures";
 
 test("create → share → open link → predict → Run → ready with the homework question", async ({ page, context }) => {
-  await page.goto("/");
+  await page.goto("/new");
+  await page.getByTestId("tool-sim").click();
   await page.getByTestId("prompt-input").fill("Does a heavier pendulum bob swing faster?");
   await page.getByTestId("create-button").click();
   await expect(page.getByTestId("sim-panel")).toHaveAttribute("data-state", "ready", { timeout: 20_000 });

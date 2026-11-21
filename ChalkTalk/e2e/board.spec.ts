@@ -8,21 +8,20 @@ async function addNote(page: Page, text: string, at = { x: 300, y: 400 }) {
 }
 
 test("the student writes a note, Claude reads it and answers with a note and a simulation, and it all survives a reload", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/new");
   await addNote(page, "Does a heavier pendulum swing faster?");
   await expect(page.getByTestId("note")).toHaveAttribute("data-author", "student");
 
-  let sent: { items: Array<{ kind: string; text?: string }>; image: string | null; view: unknown } | null = null;
+  let sent: { image: string | null; view: unknown } | null = null;
   page.on("request", (r) => {
-    if (r.url().endsWith("/api/board-turn")) sent = r.postDataJSON();
+    if (/\/api\/boards\/[0-9a-f]{12}\/ask$/.test(r.url())) sent = r.postDataJSON();
   });
   await page.getByTestId("ask-button").click();
   await expect(page.getByTestId("ask-status")).toHaveAttribute("data-state", "busy");
   await expect(page.getByTestId("ask-status")).toHaveAttribute("data-state", "done", { timeout: 15_000 });
   await expect(page.getByTestId("ask-status")).toHaveText("Claude made 2 changes on the board.");
 
-  // Claude was sent the board as items and as a picture.
-  expect(sent!.items).toEqual([expect.objectContaining({ kind: "note", text: "Does a heavier pendulum swing faster?" })]);
+  // The page sends the picture and the view; Claude reads the items and changelog from the stored board.
   expect(sent!.image).toMatch(/^iVBORw0KGgo/);
   expect(sent!.view).toEqual(expect.objectContaining({ w: expect.any(Number) }));
 
@@ -45,7 +44,7 @@ test("the student writes a note, Claude reads it and answers with a note and a s
 });
 
 test("Claude changes its own simulation when asked", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/new");
   await page.getByTestId("ask-input").fill("Does a heavier pendulum swing faster?");
   await page.getByTestId("ask-button").click();
   const panel = page.getByTestId("sim-panel");
@@ -68,7 +67,7 @@ test("Claude changes its own simulation when asked", async ({ page }) => {
 });
 
 test("the pen writes handwriting, grouped into one item, which can be selected and deleted", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/new");
   await page.getByTestId("tool-pen").click();
   const board = page.getByTestId("board");
   const b = (await board.boundingBox())!;
@@ -93,7 +92,7 @@ test("the pen writes handwriting, grouped into one item, which can be selected a
 });
 
 test("the pen draws inside its own earlier handwriting", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/new");
   await page.getByTestId("tool-pen").click();
   const b = (await page.getByTestId("board").boundingBox())!;
   // A circle, then a stroke inside its box.
@@ -112,7 +111,7 @@ test("the pen draws inside its own earlier handwriting", async ({ page }) => {
 });
 
 test("dragging a note moves it", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/new");
   await addNote(page, "Move me");
   const note = page.getByTestId("note");
   const before = (await note.boundingBox())!;
@@ -125,4 +124,33 @@ test("dragging a note moves it", async ({ page }) => {
   const after = (await note.boundingBox())!;
   expect(Math.round(after.x - before.x)).toBe(200);
   expect(Math.round(after.y - before.y)).toBe(100);
+});
+
+test("the eraser removes the handwriting it passes over", async ({ page }) => {
+  await page.goto("/new");
+  await page.getByTestId("tool-pen").click();
+  const b = (await page.getByTestId("board").boundingBox())!;
+  await page.mouse.move(b.x + 300, b.y + 300);
+  await page.mouse.down();
+  await page.mouse.move(b.x + 420, b.y + 360, { steps: 6 });
+  await page.mouse.up();
+  await expect(page.getByTestId("ink")).toHaveCount(1);
+
+  await page.getByTestId("tool-erase").click();
+  await page.mouse.move(b.x + 360, b.y + 250);
+  await page.mouse.down();
+  await page.mouse.move(b.x + 360, b.y + 420, { steps: 2 });
+  await page.mouse.up();
+  await expect(page.getByTestId("ink")).toHaveCount(0);
+});
+
+test("a change made through the MCP server shows up on the open board", async ({ page, request }) => {
+  await page.goto("/new");
+  await expect(page).toHaveURL(/\/b\/[0-9a-f]{12}$/);
+  const id = page.url().split("/b/")[1];
+  const res = await request.post("/api/mcp", {
+    data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "add_note", arguments: { board_id: id, text: "Hello from MCP" } } },
+  });
+  expect(((await res.json()) as { result: { isError: boolean } }).result.isError).toBe(false);
+  await expect(page.locator('[data-testid="note"][data-author="claude"]')).toContainText("Hello from MCP", { timeout: 6_000 });
 });

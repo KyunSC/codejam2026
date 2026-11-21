@@ -51,9 +51,13 @@ describe.skipIf(!url)("Postgres stores", () => {
     const s = createPgBoardStore(database);
     const b = await s.createBoard();
     expect(b.items).toEqual([]);
-    expect((await s.saveItems(b.id, [note]))?.items).toEqual([note]);
-    expect((await s.getBoard(b.id))?.items).toEqual([note]);
-    expect(await s.saveItems("000000000000", [])).toBeNull();
+    expect((await s.change(b.id, () => ({ items: [note], title: "Pendulums" })))?.items).toEqual([note]);
+    expect(await s.getBoard(b.id)).toMatchObject({ items: [note], title: "Pendulums", version: 1 });
+    expect(await s.change("000000000000", () => ({ items: [] }))).toBeNull();
+    expect((await s.listBoards([b.id])).map((x) => x.title)).toEqual(["Pendulums"]);
+    // Two changes at once both land: each one reads the other's result.
+    await Promise.all([1, 2].map((n) => s.change(b.id, (cur) => ({ items: [...cur.items, { ...note, id: `n${n}` }] }))));
+    expect((await s.getBoard(b.id))?.items.map((i) => i.id).sort()).toEqual(["a1", "n1", "n2"]);
     expect(await s.getBoard("000000000000")).toBeNull();
 
     const old = await s.createBoard();

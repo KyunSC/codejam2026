@@ -1,7 +1,8 @@
 import { expect, test } from "./fixtures";
 
 async function create(page: import("@playwright/test").Page, prompt: string) {
-  await page.goto("/");
+  await page.goto("/new");
+  await page.getByTestId("tool-sim").click();
   await page.getByTestId("prompt-input").fill(prompt);
   await page.getByTestId("create-button").click();
 }

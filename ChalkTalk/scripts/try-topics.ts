@@ -39,7 +39,8 @@ test("try topics", async ({ page, request }) => {
       if (text.startsWith("[sim] run ")) log = JSON.parse(text.slice("[sim] run ".length)) as RunLog;
     };
     page.on("console", onConsole);
-    await page.goto("/");
+    await page.goto("/new");
+    await page.getByTestId("tool-sim").click();
     await page.getByTestId("prompt-input").fill(topic);
     await page.getByTestId("create-button").click();
     const panel = page.getByTestId("sim-panel");

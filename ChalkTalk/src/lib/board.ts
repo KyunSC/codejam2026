@@ -4,6 +4,8 @@ import { validateHtml } from "./sim-html";
 import type { SimParam } from "./types";
 
 export type Author = "student" | "claude";
+/** Who a changelog entry is about: the student, Claude, or the app itself (a simulation finished generating). */
+export type LogAuthor = Author | "app";
 
 interface ItemBase {
   id: string;
@@ -53,10 +55,30 @@ export interface SimItem extends ItemBase {
 
 export type BoardItem = NoteItem | InkItem | SimItem;
 
+export interface LogEntry {
+  at: string;
+  author: LogAuthor;
+  text: string;
+  /** The item the entry is about, so repeated changes to one item (a drag) fold into one entry. */
+  itemId?: string;
+}
+
 export interface Board {
   id: string;
+  title: string;
   items: BoardItem[];
+  /** Rises by one on every change, so a browser can tell when someone else (Claude, an MCP client) changed the board. */
+  version: number;
+  /** Newest last, at most MAX_LOG entries. */
+  log: LogEntry[];
   createdAt: string;
+  updatedAt: string;
+}
+
+export interface BoardSummary {
+  id: string;
+  title: string;
+  itemCount: number;
   updatedAt: string;
 }
 
@@ -77,6 +99,9 @@ export function simSizeFor(view: View | null): { w: number; h: number } {
 }
 
 export const MAX_ITEMS = 400;
+export const MAX_LOG = 300;
+export const MAX_TITLE_CHARS = 120;
+export const DEFAULT_TITLE = "Untitled whiteboard";
 export const MAX_NOTE_CHARS = 4000;
 export const MAX_STROKES = 400;
 export const MAX_POINTS = 4000;
@@ -218,10 +243,11 @@ export type BoardAction =
   | { type: "update_note"; id: string; text: string }
   | { type: "add_sim"; prompt: string; x?: number; y?: number }
   | { type: "edit_sim"; id: string; request: string }
+  | { type: "set_sliders"; id: string; values: Record<string, number> }
   | { type: "move_item"; id: string; x: number; y: number }
   | { type: "delete_item"; id: string };
 
-export const ACTION_TYPES = ["add_note", "update_note", "add_sim", "edit_sim", "move_item", "delete_item"] as const;
+export const ACTION_TYPES = ["add_note", "update_note", "add_sim", "edit_sim", "set_sliders", "move_item", "delete_item"] as const;
 
 const str = (v: unknown, max: number) => (typeof v === "string" && v.trim() && v.length <= max ? v : null);
 const optCoord = (v: unknown) => (v === undefined || v === null ? undefined : coord(v) ? (v as number) : null);
@@ -253,6 +279,17 @@ export function parseAction(type: string, input: unknown): Checked<BoardAction> 
       const request = str(d.request, MAX_REQUEST_CHARS);
       if (!id || !request) return bad("needs id and request");
       return { ok: true, value: { type, id, request } };
+    }
+    case "set_sliders": {
+      const id = str(d.id, 24);
+      const raw = d.values && typeof d.values === "object" ? (d.values as Record<string, unknown>) : null;
+      if (!id || !raw) return bad("needs id and values");
+      const values: Record<string, number> = {};
+      for (const [k, v] of Object.entries(raw)) {
+        if (!finite(v)) return bad(`slider ${k} needs a number`);
+        values[k] = v;
+      }
+      return { ok: true, value: { type, id, values } };
     }
     case "move_item": {
       const id = str(d.id, 24);
@@ -310,10 +347,7 @@ export interface Applied {
   itemId?: string;
 }
 
-/**
- * Apply one of Claude's actions. Claude may add anything, and may change, move or delete only items it made.
- * `id` makes new item ids (injectable for tests).
- */
+/** Apply one of Claude's actions to any item on the board. `id` makes new item ids (injectable for tests). */
 export function applyAction(
   items: BoardItem[],
   action: BoardAction,
@@ -336,7 +370,6 @@ export function applyAction(
   }
   const target = items.find((it) => it.id === action.id);
   if (!target) return { items, rejected: `there is no item ${action.id}` };
-  if (target.author !== "claude") return { items, rejected: `item ${action.id} was made by the student, so Claude can't change it` };
   const replace = (next: BoardItem) => ({ items: items.map((it) => (it.id === next.id ? next : it)), itemId: next.id });
   switch (action.type) {
     case "update_note":
@@ -346,6 +379,17 @@ export function applyAction(
       if (target.kind !== "sim") return { items, rejected: `item ${action.id} is not a simulation box` };
       if (!target.code) return { items, rejected: `simulation ${action.id} is still being generated` };
       return replace({ ...target, change: { request: action.request, nonce: (target.change?.nonce ?? 0) + 1 } });
+    case "set_sliders": {
+      if (target.kind !== "sim") return { items, rejected: `item ${action.id} is not a simulation box` };
+      if (!target.code) return { items, rejected: `simulation ${action.id} is still being generated` };
+      const values = { ...target.values };
+      for (const [k, v] of Object.entries(action.values)) {
+        const p = target.params.find((q) => q.id === k);
+        if (!p) return { items, rejected: `simulation ${action.id} has no slider ${k}` };
+        values[k] = Math.min(p.max, Math.max(p.min, v));
+      }
+      return replace({ ...target, values });
+    }
     case "move_item":
       return replace(moveItem(target, action.x, action.y));
     case "delete_item":
@@ -393,4 +437,141 @@ export function strokesBox(strokes: Stroke[]): { x: number; y: number; w: number
   const w = Math.max(MIN_SIZE, x1 - x0 + pad * 2);
   const h = Math.max(MIN_SIZE, y1 - y0 + pad * 2);
   return { x: (x0 + x1) / 2 - w / 2, y: (y0 + y1) / 2 - h / 2, w, h };
+}
+
+// ---------- changes between two versions of the board ----------
+
+export type BoardOp = { type: "put"; item: BoardItem } | { type: "delete"; id: string };
+
+/** What turns `base` into `next`: each added or changed item as a put, each removed one as a delete. */
+export function diffItems(base: BoardItem[], next: BoardItem[]): BoardOp[] {
+  const before = new Map(base.map((it) => [it.id, it]));
+  const ops: BoardOp[] = [];
+  for (const it of next) {
+    const old = before.get(it.id);
+    if (old !== it && (!old || JSON.stringify(old) !== JSON.stringify(it))) ops.push({ type: "put", item: it });
+    before.delete(it.id);
+  }
+  for (const id of before.keys()) ops.push({ type: "delete", id });
+  return ops;
+}
+
+/** Apply ops on top of the latest items: a put replaces or adds that item (in place), a delete removes it. */
+export function applyOps(items: BoardItem[], ops: BoardOp[]): BoardItem[] {
+  let out = items;
+  for (const op of ops) {
+    if (op.type === "delete") out = out.filter((it) => it.id !== op.id);
+    else {
+      const i = out.findIndex((it) => it.id === op.item.id);
+      out = i < 0 ? [...out, op.item] : out.map((it, j) => (j === i ? op.item : it));
+    }
+  }
+  return out;
+}
+
+export function checkOps(raw: unknown): Checked<BoardOp[]> {
+  if (!Array.isArray(raw) || raw.length > MAX_ITEMS * 2) return { ok: false, reason: "ops must be a list" };
+  const ops: BoardOp[] = [];
+  for (const r of raw as Array<Record<string, unknown> | null>) {
+    if (r?.type === "delete" && typeof r.id === "string" && /^[a-z0-9]{1,24}$/.test(r.id)) ops.push({ type: "delete", id: r.id });
+    else if (r?.type === "put") {
+      const c = checkItem(r.item);
+      if (!c.ok) return c;
+      ops.push({ type: "put", item: c.value });
+    } else return { ok: false, reason: "an op is neither put nor delete" };
+  }
+  return { ok: true, value: ops };
+}
+
+const who = (a: LogAuthor) => (a === "student" ? "The student" : a === "claude" ? "Claude" : "The app");
+const quote = (t: string, n = 80) => JSON.stringify(t.length > n ? t.slice(0, n - 1) + "…" : t);
+const kindName = (it: BoardItem) => (it.kind === "note" ? "note" : it.kind === "ink" ? "handwriting" : "simulation");
+
+/** One changelog line for one change, or null when there is nothing worth telling Claude (e.g. a share id). */
+export function describeChange(before: BoardItem | undefined, after: BoardItem | undefined, author: LogAuthor): LogEntry | null {
+  const at = new Date().toISOString();
+  const entry = (text: string, itemId: string, by: LogAuthor = author): LogEntry => ({ at, author: by, text, itemId });
+  if (!after && before) return entry(`${who(author)} deleted ${kindName(before)} [${before.id}].`, before.id);
+  if (!after) return null;
+  const id = after.id;
+  if (!before) {
+    if (after.kind === "note") return entry(`${who(author)} added note [${id}]: ${quote(after.text)}.`, id);
+    if (after.kind === "ink") return entry(`${who(author)} wrote or drew [${id}] (${after.strokes.length} strokes).`, id);
+    return entry(`${who(author)} added simulation [${id}]: ${quote(after.prompt)}.`, id);
+  }
+  if (after.kind === "note" && before.kind === "note" && after.text !== before.text)
+    return entry(`${who(author)} edited note [${id}]: ${quote(after.text)}.`, id);
+  if (after.kind === "ink" && before.kind === "ink" && after.strokes.length !== before.strokes.length)
+    return entry(`${who(author)} ${after.strokes.length > before.strokes.length ? "added to" : "erased part of"} handwriting [${id}] (${after.strokes.length} strokes).`, id);
+  if (after.kind === "sim" && before.kind === "sim") {
+    if (after.code !== before.code && after.code) return entry(`Simulation [${id}] is ready: ${quote(after.title)}.`, id, "app");
+    if (after.change?.nonce !== before.change?.nonce && after.change)
+      return entry(`${who(author)} asked simulation [${id}] to change: ${quote(after.change.request)}.`, id);
+    if (JSON.stringify(after.values) !== JSON.stringify(before.values)) {
+      const moved = after.params
+        .filter((p) => after.values[p.id] !== before.values[p.id])
+        .map((p) => `${p.label} = ${after.values[p.id]}`)
+        .join(", ");
+      if (moved) return entry(`${who(author)} set simulation [${id}] sliders: ${moved}.`, id);
+    }
+  }
+  if (after.x !== before.x || after.y !== before.y) return entry(`${who(author)} moved ${kindName(after)} [${id}].`, id);
+  if (after.w !== before.w || after.h !== before.h) return entry(`${who(author)} resized ${kindName(after)} [${id}].`, id);
+  return null;
+}
+
+/** Add entries to a changelog. A same-kind change to the same item by the same author within a minute replaces the last one. */
+export function appendLog(log: LogEntry[], entries: LogEntry[]): LogEntry[] {
+  const out = [...log];
+  for (const e of entries) {
+    const last = out[out.length - 1];
+    const sameKind = last && last.text.split(" ").slice(0, 2).join(" ") === e.text.split(" ").slice(0, 2).join(" ");
+    if (last && e.itemId && last.itemId === e.itemId && last.author === e.author && sameKind && Date.parse(e.at) - Date.parse(last.at) < 60_000)
+      out[out.length - 1] = e;
+    else out.push(e);
+  }
+  return out.slice(-MAX_LOG);
+}
+
+/** The changelog as text for Claude, newest last. */
+export function describeLog(log: LogEntry[], limit = 40): string {
+  if (!log.length) return "Nothing has happened on this board yet.";
+  return log
+    .slice(-limit)
+    .map((e) => `- ${e.at.slice(11, 19)} ${e.text}`)
+    .join("\n");
+}
+
+/** Remove the parts of handwriting within `r` of (x, y). Handwriting left with no strokes is removed. */
+export function eraseAt(items: BoardItem[], x: number, y: number, r: number): BoardItem[] {
+  let changed = false;
+  const out: BoardItem[] = [];
+  for (const it of items) {
+    if (it.kind !== "ink" || x < it.x - r || x > it.x + it.w + r || y < it.y - r || y > it.y + it.h + r) {
+      out.push(it);
+      continue;
+    }
+    const strokes = it.strokes.filter((s) => {
+      const reach = r + s.width / 2;
+      const p = s.points;
+      if (p.length === 2) return Math.hypot(p[0] - x, p[1] - y) > reach;
+      for (let i = 0; i + 3 < p.length; i += 2) if (segmentDistance(x, y, p[i], p[i + 1], p[i + 2], p[i + 3]) <= reach) return false;
+      return true;
+    });
+    if (strokes.length === it.strokes.length) out.push(it);
+    else {
+      changed = true;
+      if (strokes.length) out.push({ ...it, strokes, ...strokesBox(strokes) });
+    }
+  }
+  return changed ? out : items;
+}
+
+/** Distance from (px, py) to the segment (ax, ay)–(bx, by). */
+function segmentDistance(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len = dx * dx + dy * dy;
+  const t = len ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len)) : 0;
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
 }

@@ -1,9 +1,9 @@
-import { NewBoard } from "@/components/NewBoard";
+import type { Metadata } from "next";
+import { BoardsHome } from "@/components/BoardsHome";
 
-/**
- * Opening the app starts a fresh whiteboard. The board is made by a POST from the browser, not while
- * rendering this page, so crawlers, health checks and prefetches don't create boards.
- */
+export const metadata: Metadata = { title: "My whiteboards · Live Sim" };
+
+/** The boards page: your whiteboards (remembered by this browser) and the demo whiteboards. */
 export default function Home() {
-  return <NewBoard />;
+  return <BoardsHome />;
 }

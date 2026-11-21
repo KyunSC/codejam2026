@@ -1,5 +1,5 @@
 // Shared types. Safe to import from both server and client code.
-import type { BoardAction, BoardItem, View } from "./board";
+import type { Board, View } from "./board";
 
 export type Stage = "thinking" | "writing";
 
@@ -59,18 +59,20 @@ export type PublicPrediction = Omit<Prediction, "id">;
 
 /** One "Ask Claude" on the whiteboard. */
 export interface BoardTurnInput {
-  items: BoardItem[];
+  board: Board;
   view: View | null;
   /** What the student typed next to "Ask Claude" (may be empty). */
   message: string;
   /** A PNG of the board, base64 without the data: prefix, so Claude can read handwriting. */
   image: string | null;
+  /** Runs one board tool against the stored board and says how it went. */
+  runTool(name: string, input: unknown): Promise<{ text: string; isError: boolean }>;
 }
 
 export type BoardEvent =
   | { type: "status"; stage: Stage }
-  | { type: "action"; action: BoardAction }
-  | { type: "rejected"; reason: string }
+  | { type: "tool"; name: string; ok: boolean; text: string }
+  | { type: "board"; board: Board }
   | { type: "done"; usage: Usage; ms: number }
   | { type: "error"; message: string };
 

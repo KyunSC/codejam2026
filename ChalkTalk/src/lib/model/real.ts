@@ -1,10 +1,10 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { EFFORT, MAX_TOKENS, MODEL } from "../config";
-import { describeBoard, parseAction } from "../board";
+import { describeBoard, describeLog } from "../board";
+import { BOARD_TOOLS } from "../board-tool-defs";
 import {
   BOARD_SYSTEM_PROMPT,
-  BOARD_TOOLS,
   boardMessage,
   SYSTEM_PROMPT,
   editMessage,
@@ -21,6 +21,9 @@ import type {
   StreamEvent,
   Usage,
 } from "../types";
+
+/** Tool-use rounds in one Ask Claude, so a confused turn can't loop forever. */
+const MAX_TOOL_ROUNDS = 6;
 
 /** Claude-backed model. Only constructed when a key is present (see index.ts). */
 export class RealModel implements SimModel {
@@ -81,63 +84,75 @@ export class RealModel implements SimModel {
   }
 
   /** One whiteboard turn: Claude reads the board (text + picture) and answers with tool calls, applied by the browser. */
+  /**
+   * One whiteboard turn: Claude gets the board (items, changelog, picture) and acts through the board tools.
+   * Tool results go back to Claude, so it can look again or fix a rejected step, for up to MAX_TOOL_ROUNDS rounds.
+   */
   async *boardTurn(input: BoardTurnInput): AsyncGenerator<BoardEvent> {
     const start = Date.now();
-    const content: Anthropic.Beta.BetaContentBlockParam[] = [];
-    if (input.image) content.push({ type: "image", source: { type: "base64", media_type: "image/png", data: input.image } });
-    content.push({ type: "text", text: boardMessage(describeBoard(input.items, input.view), input.message) });
+    const first: Anthropic.Beta.BetaContentBlockParam[] = [];
+    if (input.image) first.push({ type: "image", source: { type: "base64", media_type: "image/png", data: input.image } });
+    first.push({
+      type: "text",
+      text: boardMessage(
+        { title: input.board.title, description: describeBoard(input.board.items, input.view), changelog: describeLog(input.board.log) },
+        input.message,
+      ),
+    });
+    const messages: Anthropic.Beta.BetaMessageParam[] = [{ role: "user", content: first }];
+    const usage: Usage = { input_tokens: 0, output_tokens: 0 };
+    let acted = false;
     try {
-      const stream = this.client.beta.messages.stream({
-        model: MODEL,
-        max_tokens: 16000,
-        thinking: { type: "adaptive" },
-        output_config: { effort: EFFORT },
-        betas: ["server-side-fallback-2026-07-01"],
-        fallbacks: "default",
-        tools: BOARD_TOOLS,
-        system: [{ type: "text", text: BOARD_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
-        messages: [{ role: "user", content }],
-      });
-      for await (const event of stream) {
-        if (event.type === "content_block_start") {
-          if (event.content_block.type === "thinking") yield { type: "status", stage: "thinking" };
-          else if (event.content_block.type === "text" || event.content_block.type === "tool_use")
-            yield { type: "status", stage: "writing" };
+      for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+        const stream = this.client.beta.messages.stream({
+          model: MODEL,
+          max_tokens: 16000,
+          thinking: { type: "adaptive" },
+          output_config: { effort: EFFORT },
+          betas: ["server-side-fallback-2026-07-01"],
+          fallbacks: "default",
+          tools: BOARD_TOOLS,
+          system: [{ type: "text", text: BOARD_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+          messages,
+        });
+        for await (const event of stream) {
+          if (event.type === "content_block_start") {
+            if (event.content_block.type === "thinking") yield { type: "status", stage: "thinking" };
+            else if (event.content_block.type === "text" || event.content_block.type === "tool_use")
+              yield { type: "status", stage: "writing" };
+          }
         }
+        const final = await stream.finalMessage();
+        usage.input_tokens += final.usage.input_tokens;
+        usage.output_tokens += final.usage.output_tokens;
+        if (final.stop_reason === "refusal") {
+          yield { type: "error", message: "Claude declined this request. Try rewording it." };
+          return;
+        }
+        const calls = final.content.filter((b) => b.type === "tool_use");
+        const text = final.content.flatMap((b) => (b.type === "text" && b.text.trim() ? [b.text.trim()] : []));
+        if (!calls.length) {
+          // Text outside the tools isn't shown on the board; if Claude only wrote text, it becomes a note.
+          if (!acted && text.length) {
+            const r = await input.runTool("add_note", { text: text.join("\n\n").slice(0, 4000) });
+            yield { type: "tool", name: "add_note", ok: !r.isError, text: r.text };
+          }
+          if (final.stop_reason === "max_tokens") yield { type: "tool", name: "", ok: false, text: "Claude's answer was cut off." };
+          break;
+        }
+        const results: Anthropic.Beta.BetaToolResultBlockParam[] = [];
+        for (const call of calls) {
+          if (call.type !== "tool_use") continue;
+          const r = await input.runTool(call.name, call.input);
+          if (!r.isError && call.name !== "get_board" && call.name !== "get_changelog") acted = true;
+          yield { type: "tool", name: call.name, ok: !r.isError, text: r.text };
+          results.push({ type: "tool_result", tool_use_id: call.id, content: r.text, is_error: r.isError });
+        }
+        // The assistant turn goes back unchanged (thinking included), then every result in one user message.
+        messages.push({ role: "assistant", content: final.content as Anthropic.Beta.BetaContentBlockParam[] });
+        messages.push({ role: "user", content: results });
       }
-      const final = await stream.finalMessage();
-      if (final.stop_reason === "refusal") {
-        yield { type: "error", message: "Claude declined this request. Try rewording it." };
-        return;
-      }
-      let acted = false;
-      const text: string[] = [];
-      for (const block of final.content) {
-        if (block.type === "text" && block.text.trim()) text.push(block.text.trim());
-        if (block.type !== "tool_use") continue;
-        const parsed = parseAction(block.name, block.input);
-        if (parsed.ok) {
-          acted = true;
-          yield { type: "action", action: parsed.value };
-        } else yield { type: "rejected", reason: parsed.reason };
-      }
-      // Text outside the tools is not shown on the board; if that's all Claude wrote, it becomes a note.
-      if (!acted && text.length) {
-        const note = parseAction("add_note", { text: text.join("\n\n").slice(0, 4000) });
-        if (note.ok) yield { type: "action", action: note.value };
-      }
-      if (final.stop_reason === "max_tokens") yield { type: "rejected", reason: "Claude's answer was cut off." };
-      const u = final.usage;
-      yield {
-        type: "done",
-        usage: {
-          input_tokens: u.input_tokens,
-          output_tokens: u.output_tokens,
-          cache_read_input_tokens: u.cache_read_input_tokens ?? undefined,
-          cache_creation_input_tokens: u.cache_creation_input_tokens ?? undefined,
-        },
-        ms: Date.now() - start,
-      };
+      yield { type: "done", usage, ms: Date.now() - start };
     } catch (err) {
       yield { type: "error", message: friendlyError(err) };
     }
