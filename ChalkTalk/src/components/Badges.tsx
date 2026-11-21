@@ -9,15 +9,20 @@ export function ModelBadge({ status, compact = false }: { status: ModelStatus; c
       <span
         className="chip shrink-0 bg-gold"
         data-testid="stand-in-badge"
-        title={`Offline stand-in: ${status.reason ?? "no API key."} Replies and simulations are hand-made replays.`}
+        title={`Offline stand-in: ${status.reason ?? "no API key."} The pet's replies and simulations are hand-made replays.`}
       >
         {compact ? "Offline" : "Offline stand-in"}
       </span>
     );
   }
+  const name = status.assistant === "AI" ? status.provider : status.assistant;
   return (
-    <span className="chip shrink-0 bg-[#c6d0da]" data-testid="model-badge" title={`${status.provider} · ${status.model ?? ""}`}>
-      {status.assistant === "AI" ? status.provider : status.assistant}
+    <span
+      className="chip shrink-0 bg-[#c6d0da]"
+      data-testid="model-badge"
+      title={`The pet's answers come from ${status.provider}${status.model ? ` (${status.model})` : ""}.`}
+    >
+      {name}
       {status.model && !compact ? <span className="ml-1 font-normal opacity-70">{status.model}</span> : null}
     </span>
   );

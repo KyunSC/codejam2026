@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { MAX_REQUEST_CHARS, promptAfterEdit, type SimItem } from "@/lib/board";
+import { capitalized, useMascotName } from "@/lib/useMascot";
 import { useSimSession, type EditBase, type ReadyInfo } from "@/lib/useSimSession";
 import { ParamSliders } from "../ParamSliders";
 import { SimPanel } from "../SimPanel";
-import { useAssistant } from "../Assistant";
 
 type Last = { kind: "generate" } | { kind: "load" } | { kind: "edit"; request: string; base: EditBase };
 
@@ -28,8 +28,8 @@ export function SimBox({
   onResizeStart: (e: ReactPointerEvent) => void;
   onDelete: () => void;
 }) {
-  const ai = useAssistant();
   const session = useSimSession({ onReady: ready });
+  const mascot = useMascotName();
   const v = session.view;
   const [change, setChange] = useState("");
   const last = useRef<Last | null>(null);
@@ -110,7 +110,7 @@ export function SimBox({
     onPatch({ change: { request, nonce: (item.change?.nonce ?? handledNonce.current ?? 0) + 1 } });
   }
 
-  const author = item.author === "claude" ? ai : "You";
+  const author = item.author === "claude" ? capitalized(mascot) : "You";
   return (
     <div
       className={`board-item card @container flex h-full flex-col overflow-hidden ${

@@ -26,9 +26,8 @@ import {
 } from "@/lib/board";
 import { renderBoardImage } from "@/lib/board-image";
 import { readNdjson } from "@/lib/ndjson";
-import type { BoardEvent, Stage } from "@/lib/types";
-import type { ModelStatus } from "@/lib/types";
-import { AssistantProvider } from "./Assistant";
+import type { BoardEvent, ModelStatus, Stage } from "@/lib/types";
+import { capitalized, useMascotName } from "@/lib/useMascot";
 import { ModelBadge } from "./Badges";
 import { rememberBoard } from "./BoardsHome";
 import { BoardShareButton } from "./ShareButton";
@@ -91,7 +90,9 @@ function track(e: ReactPointerEvent, onMove: (dx: number, dy: number, ev: Pointe
 }
 
 export function BoardApp({ board, status }: { board: Board; status: ModelStatus }) {
-  const ai = status.assistant;
+  // The assistant goes by the student's lab pet ("Ask Hypo"); "your pet" until one is picked.
+  const mascot = useMascotName();
+  const Mascot = capitalized(mascot);
   const [items, setItemsState] = useState<BoardItem[]>(board.items);
   const itemsRef = useRef(items);
   const [cam, setCamState] = useState<Camera>(() => {
@@ -594,7 +595,7 @@ export function BoardApp({ board, status }: { board: Board; status: ModelStatus 
       setAsk({
         state: "done",
         stage: null,
-        text: made ? `${ai} made ${made} change${made === 1 ? "" : "s"} on the board.` : `${ai} didn't change anything.`,
+        text: made ? `${Mascot} made ${made} change${made === 1 ? "" : "s"} on the board.` : `${Mascot} didn't change anything.`,
         rejected,
       });
     } catch (err) {
@@ -607,245 +608,243 @@ export function BoardApp({ board, status }: { board: Board; status: ModelStatus 
   const askLabel =
     ask.state === "busy"
       ? ask.stage === "writing"
-        ? `${ai} is writing on the board…`
-        : `${ai} is reading the board…`
+        ? `${Mascot} is writing on the board…`
+        : `${Mascot} is reading the board…`
       : ask.text;
 
   // ---------- render ----------
 
   return (
-    <AssistantProvider value={ai}>
-      {/* overflow-clip, not hidden: a hidden box still scrolls when focus lands on something past its edge. */}
-      <div className="relative h-screen w-screen overflow-clip bg-paper" data-board-id={board.id}>
+    // overflow-clip, not hidden: a hidden box still scrolls when focus lands on something past its edge.
+    <div className="relative h-screen w-screen overflow-clip bg-paper" data-board-id={board.id}>
+      <div
+        ref={viewport}
+        className={`board-viewport absolute inset-0 overflow-clip ${
+          tool === "pen" ? "pen-mode cursor-crosshair" : tool === "erase" ? "pen-mode erase-mode" : tool === "note" ? "cursor-copy" : "cursor-default"
+        } ${
+          dragging ? "is-dragging" : ""
+        }`}
+        style={{ backgroundPosition: `${-cam.x * cam.s}px ${-cam.y * cam.s}px`, backgroundSize: `${40 * cam.s}px ${40 * cam.s}px` }}
+        onPointerDown={onBoardPointerDown}
+        data-testid="board"
+        data-tool={tool}
+      >
         <div
-          ref={viewport}
-          className={`board-viewport absolute inset-0 overflow-clip ${
-            tool === "pen" ? "pen-mode cursor-crosshair" : tool === "erase" ? "pen-mode erase-mode" : tool === "note" ? "cursor-copy" : "cursor-default"
-          } ${
-            dragging ? "is-dragging" : ""
-          }`}
-          style={{ backgroundPosition: `${-cam.x * cam.s}px ${-cam.y * cam.s}px`, backgroundSize: `${40 * cam.s}px ${40 * cam.s}px` }}
-          onPointerDown={onBoardPointerDown}
-          data-testid="board"
-          data-tool={tool}
+          data-world="1"
+          className="absolute left-0 top-0 origin-top-left"
+          style={{ transform: `translate(${-cam.x * cam.s}px, ${-cam.y * cam.s}px) scale(${cam.s})` }}
         >
-          <div
-            data-world="1"
-            className="absolute left-0 top-0 origin-top-left"
-            style={{ transform: `translate(${-cam.x * cam.s}px, ${-cam.y * cam.s}px) scale(${cam.s})` }}
-          >
-            {items.map((it) => (
-              // The wrapper lets the pointer through; the item inside takes it (except handwriting under the pen or eraser).
-              <div key={it.id} className="pointer-events-none absolute" style={{ left: it.x, top: it.y, width: it.w, height: it.h }}>
-                {it.kind === "note" ? (
-                  <NoteView
-                    item={it}
-                    selected={selected === it.id}
-                    autoFocus={focusNote === it.id}
-                    onText={(text) => patchItem(it.id, { text })}
-                    onDragStart={(e) => startDrag(e, it.id)}
-                    onResizeStart={(e) => startResize(e, it.id)}
-                    onDelete={() => removeItem(it.id)}
-                  />
-                ) : it.kind === "ink" ? (
-                  <InkView item={it} selected={selected === it.id} onDragStart={(e) => startDrag(e, it.id)} />
-                ) : (
-                  <SimBox
-                    item={it}
-                    selected={selected === it.id}
-                    onPatch={(patch) => patchItem(it.id, patch)}
-                    onDragStart={(e) => startDrag(e, it.id)}
-                    onResizeStart={(e) => startResize(e, it.id)}
-                    onDelete={() => removeItem(it.id)}
-                  />
-                )}
-              </div>
-            ))}
-            {drawing ? (
-              <svg className="pointer-events-none absolute left-0 top-0 overflow-visible" width="1" height="1">
-                <StrokePaths strokes={[{ points: drawing, color: penColor, width: PEN_WIDTH }]} />
-              </svg>
-            ) : null}
-          </div>
-          {!items.length ? (
-            <p className="pointer-events-none absolute inset-x-0 top-[40%] px-6 text-center text-[1.2rem] font-medium text-[#55595e]">
-              Write with Pen, type with Note, or add a simulation from the bar above. Then press “Ask {ai}”.
-            </p>
+          {items.map((it) => (
+            // The wrapper lets the pointer through; the item inside takes it (except handwriting under the pen or eraser).
+            <div key={it.id} className="pointer-events-none absolute" style={{ left: it.x, top: it.y, width: it.w, height: it.h }}>
+              {it.kind === "note" ? (
+                <NoteView
+                  item={it}
+                  selected={selected === it.id}
+                  autoFocus={focusNote === it.id}
+                  onText={(text) => patchItem(it.id, { text })}
+                  onDragStart={(e) => startDrag(e, it.id)}
+                  onResizeStart={(e) => startResize(e, it.id)}
+                  onDelete={() => removeItem(it.id)}
+                />
+              ) : it.kind === "ink" ? (
+                <InkView item={it} selected={selected === it.id} onDragStart={(e) => startDrag(e, it.id)} />
+              ) : (
+                <SimBox
+                  item={it}
+                  selected={selected === it.id}
+                  onPatch={(patch) => patchItem(it.id, patch)}
+                  onDragStart={(e) => startDrag(e, it.id)}
+                  onResizeStart={(e) => startResize(e, it.id)}
+                  onDelete={() => removeItem(it.id)}
+                />
+              )}
+            </div>
+          ))}
+          {drawing ? (
+            <svg className="pointer-events-none absolute left-0 top-0 overflow-visible" width="1" height="1">
+              <StrokePaths strokes={[{ points: drawing, color: penColor, width: PEN_WIDTH }]} />
+            </svg>
           ) : null}
         </div>
+        {!items.length ? (
+          <p className="pointer-events-none absolute inset-x-0 top-[40%] px-6 text-center text-[1.2rem] font-medium text-[#55595e]">
+            Write with Pen, type with Note, or add a simulation from the bar above. Then press “Ask {mascot}”.
+          </p>
+        ) : null}
+      </div>
 
-        <header ref={header} className="toolbar absolute left-3 right-3 top-3" role="toolbar" aria-label="Whiteboard tools">
-          <Link href="/" className="tool-btn" data-testid="boards-link" title="My whiteboards">
-            <ToolIcon name="back" />
-            <span className="tool-label">Boards</span>
-          </Link>
-          <input
-            className="board-title"
-            aria-label="Board title"
-            data-testid="board-title"
-            value={title}
-            maxLength={MAX_TITLE_CHARS}
-            onChange={(e) => rename(e.target.value)}
-            onBlur={() => {
-              if (!title.trim()) rename(savedTitle.current);
-            }}
-          />
-          <span className="toolbar-sep" aria-hidden />
-          {TOOLS.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              className="tool-btn"
-              aria-pressed={tool === t.id}
-              data-testid={`tool-${t.id}`}
-              title={`${t.label} (${t.key.toUpperCase()})`}
-              onClick={() => setTool(t.id)}
-            >
-              <ToolIcon name={t.id} />
-              <span className="tool-label">{t.label}</span>
-            </button>
-          ))}
+      <header ref={header} className="toolbar absolute left-3 right-3 top-3" role="toolbar" aria-label="Whiteboard tools">
+        <Link href="/" className="tool-btn" data-testid="boards-link" title="My whiteboards">
+          <ToolIcon name="back" />
+          <span className="tool-label">Boards</span>
+        </Link>
+        <input
+          className="board-title"
+          aria-label="Board title"
+          data-testid="board-title"
+          value={title}
+          maxLength={MAX_TITLE_CHARS}
+          onChange={(e) => rename(e.target.value)}
+          onBlur={() => {
+            if (!title.trim()) rename(savedTitle.current);
+          }}
+        />
+        <span className="toolbar-sep" aria-hidden />
+        {TOOLS.map((t) => (
           <button
+            key={t.id}
             type="button"
             className="tool-btn"
-            data-testid="tool-sim"
-            title="Add simulation (S)"
-            disabled={full}
-            onClick={() => simDialog.current?.showModal()}
+            aria-pressed={tool === t.id}
+            data-testid={`tool-${t.id}`}
+            title={`${t.label} (${t.key.toUpperCase()})`}
+            onClick={() => setTool(t.id)}
           >
-            <ToolIcon name="sim" />
-            <span className="tool-label">Simulation</span>
+            <ToolIcon name={t.id} />
+            <span className="tool-label">{t.label}</span>
           </button>
-          <span className="toolbar-sep" aria-hidden />
-          <button type="button" className="tool-btn" aria-label="Zoom out" title="Zoom out" onClick={() => zoomAt(1 / 1.25)}>
-            <ToolIcon name="minus" />
-          </button>
-          <button type="button" className="tool-btn tabular-nums" aria-label="Reset zoom" title="Reset zoom" onClick={() => zoomAt(1 / cam.s)}>
-            {Math.round(cam.s * 100)}%
-          </button>
-          <button type="button" className="tool-btn" aria-label="Zoom in" title="Zoom in" onClick={() => zoomAt(1.25)}>
-            <ToolIcon name="plus" />
-          </button>
-          <span className="toolbar-sep" aria-hidden />
-          <BoardShareButton boardId={board.id} />
-          <span className="flex-1" />
-          {full ? (
-            <span className="kicker text-danger" data-testid="board-full" title={`Board full (${MAX_ITEMS} items): delete something to add more`}>
-              Full
-            </span>
-          ) : null}
-          <ModelBadge status={status} compact />
-          <span
-            className="kicker"
-            data-testid="save-state"
-            data-state={saveState}
-            role="status"
-            title={saveState === "error" && saveError ? saveError : undefined}
-          >
-            {saveState === "saved" ? "Saved" : saveState === "saving" ? "Saving…" : "Couldn't save"}
+        ))}
+        <button
+          type="button"
+          className="tool-btn"
+          data-testid="tool-sim"
+          title="Add simulation (S)"
+          disabled={full}
+          onClick={() => simDialog.current?.showModal()}
+        >
+          <ToolIcon name="sim" />
+          <span className="tool-label">Simulation</span>
+        </button>
+        <span className="toolbar-sep" aria-hidden />
+        <button type="button" className="tool-btn" aria-label="Zoom out" title="Zoom out" onClick={() => zoomAt(1 / 1.25)}>
+          <ToolIcon name="minus" />
+        </button>
+        <button type="button" className="tool-btn tabular-nums" aria-label="Reset zoom" title="Reset zoom" onClick={() => zoomAt(1 / cam.s)}>
+          {Math.round(cam.s * 100)}%
+        </button>
+        <button type="button" className="tool-btn" aria-label="Zoom in" title="Zoom in" onClick={() => zoomAt(1.25)}>
+          <ToolIcon name="plus" />
+        </button>
+        <span className="toolbar-sep" aria-hidden />
+        <BoardShareButton boardId={board.id} />
+        <span className="flex-1" />
+        {full ? (
+          <span className="kicker text-danger" data-testid="board-full" title={`Board full (${MAX_ITEMS} items): delete something to add more`}>
+            Full
           </span>
-          <PetPicker />
-        </header>
+        ) : null}
+        <ModelBadge status={status} compact />
+        <span
+          className="kicker"
+          data-testid="save-state"
+          data-state={saveState}
+          role="status"
+          title={saveState === "error" && saveError ? saveError : undefined}
+        >
+          {saveState === "saved" ? "Saved" : saveState === "saving" ? "Saving…" : "Couldn't save"}
+        </span>
+        <PetPicker />
+      </header>
 
-        {tool === "pen" ? (
-          // The colours hang under the bar, so picking the pen never pushes the bar's other buttons out of view.
-          <div className="toolbar absolute top-[3.6rem] z-10" style={{ left: penLeft }} role="group" aria-label="Pen colour" data-testid="pen-colours">
-            {PEN_COLORS.map((c) => (
-              <button
-                key={c}
-                type="button"
-                className="tool-swatch"
-                style={{ background: c }}
-                aria-label={`Pen colour ${c}`}
-                aria-pressed={penColor === c}
-                onClick={() => setPenColor(c)}
-              />
-            ))}
+      {tool === "pen" ? (
+        // The colours hang under the bar, so picking the pen never pushes the bar's other buttons out of view.
+        <div className="toolbar absolute top-[3.6rem] z-10" style={{ left: penLeft }} role="group" aria-label="Pen colour" data-testid="pen-colours">
+          {PEN_COLORS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              className="tool-swatch"
+              style={{ background: c }}
+              aria-label={`Pen colour ${c}`}
+              aria-pressed={penColor === c}
+              onClick={() => setPenColor(c)}
+            />
+          ))}
+        </div>
+      ) : null}
+
+      <dialog ref={simDialog} className="card m-auto w-[min(34rem,calc(100vw-2rem))] p-0 text-text backdrop:bg-black/40" data-testid="sim-dialog">
+        <form
+          className="flex flex-col gap-3 p-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            addSimFromPrompt();
+          }}
+        >
+          <label htmlFor="sim-prompt" className="kicker">
+            Add a simulation
+          </label>
+          <textarea
+            id="sim-prompt"
+            className="field min-h-[5em] resize-none"
+            data-testid="prompt-input"
+            placeholder="What should it show? e.g. “Does a heavier pendulum swing faster?”"
+            value={simPrompt}
+            maxLength={MAX_PROMPT_CHARS}
+            autoFocus
+            onChange={(e) => setSimPrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                addSimFromPrompt();
+              }
+            }}
+          />
+          <div className="flex justify-end gap-2">
+            <button type="button" className="btn-secondary" onClick={() => simDialog.current?.close()}>
+              Cancel
+            </button>
+            <button type="submit" className="btn-primary" data-testid="create-button" disabled={!simPrompt.trim() || full}>
+              Generate
+            </button>
+          </div>
+        </form>
+      </dialog>
+
+      <aside
+        ref={panel}
+        className="toolbar absolute bottom-3 right-3 w-[min(24rem,calc(100vw-1.5rem))] flex-col !flex-nowrap !items-stretch !overflow-visible shadow-[4px_4px_0_var(--blue)]"
+        aria-label={`Ask ${mascot}`}
+        data-scrolls="1"
+      >
+        <form
+          className="flex gap-1.5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void askClaude();
+          }}
+        >
+          <input
+            className="field h-[2.1rem] min-w-0 flex-1 px-2 py-0 shadow-none"
+            aria-label={`Message for ${mascot} (optional)`}
+            data-testid="ask-input"
+            placeholder={`Ask ${mascot} (optional message)`}
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+          />
+          <button type="submit" className="tool-btn" aria-pressed={ask.state === "busy"} data-testid="ask-button" disabled={ask.state === "busy"}>
+            {ask.state === "busy" ? "Working…" : `Ask ${mascot}`}
+          </button>
+        </form>
+        {askLabel ? (
+          <div
+            className={`max-h-[7rem] overflow-y-auto px-1 text-base font-semibold leading-snug ${ask.state === "error" ? "text-danger" : "text-text"}`}
+            data-testid="ask-status"
+            data-state={ask.state}
+            role={ask.state === "error" ? "alert" : "status"}
+          >
+            {askLabel}
+            {ask.rejected.length ? (
+              <ul className="mt-1 list-disc pl-5 font-normal text-muted">
+                {ask.rejected.map((r, i) => (
+                  <li key={i}>Skipped: {r}</li>
+                ))}
+              </ul>
+            ) : null}
           </div>
         ) : null}
-
-        <dialog ref={simDialog} className="card m-auto w-[min(34rem,calc(100vw-2rem))] p-0 text-text backdrop:bg-black/40" data-testid="sim-dialog">
-          <form
-            className="flex flex-col gap-3 p-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              addSimFromPrompt();
-            }}
-          >
-            <label htmlFor="sim-prompt" className="kicker">
-              Add a simulation
-            </label>
-            <textarea
-              id="sim-prompt"
-              className="field min-h-[5em] resize-none"
-              data-testid="prompt-input"
-              placeholder="What should it show? e.g. “Does a heavier pendulum swing faster?”"
-              value={simPrompt}
-              maxLength={MAX_PROMPT_CHARS}
-              autoFocus
-              onChange={(e) => setSimPrompt(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  addSimFromPrompt();
-                }
-              }}
-            />
-            <div className="flex justify-end gap-2">
-              <button type="button" className="btn-secondary" onClick={() => simDialog.current?.close()}>
-                Cancel
-              </button>
-              <button type="submit" className="btn-primary" data-testid="create-button" disabled={!simPrompt.trim() || full}>
-                Generate
-              </button>
-            </div>
-          </form>
-        </dialog>
-
-        <aside
-          ref={panel}
-          className="toolbar absolute bottom-3 right-3 w-[min(24rem,calc(100vw-1.5rem))] flex-col !flex-nowrap !items-stretch !overflow-visible shadow-[4px_4px_0_var(--blue)]"
-          aria-label={`Ask ${ai}`}
-          data-scrolls="1"
-        >
-          <form
-            className="flex gap-1.5"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void askClaude();
-            }}
-          >
-            <input
-              className="field h-[2.1rem] min-w-0 flex-1 px-2 py-0 shadow-none"
-              aria-label={`Message for ${ai} (optional)`}
-              data-testid="ask-input"
-              placeholder={`Ask ${ai} (optional message)`}
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-            />
-            <button type="submit" className="tool-btn" aria-pressed={ask.state === "busy"} data-testid="ask-button" disabled={ask.state === "busy"}>
-              {ask.state === "busy" ? "Working…" : `Ask ${ai}`}
-            </button>
-          </form>
-          {askLabel ? (
-            <div
-              className={`max-h-[7rem] overflow-y-auto px-1 text-base font-semibold leading-snug ${ask.state === "error" ? "text-danger" : "text-text"}`}
-              data-testid="ask-status"
-              data-state={ask.state}
-              role={ask.state === "error" ? "alert" : "status"}
-            >
-              {askLabel}
-              {ask.rejected.length ? (
-                <ul className="mt-1 list-disc pl-5 font-normal text-muted">
-                  {ask.rejected.map((r, i) => (
-                    <li key={i}>Skipped: {r}</li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
-          ) : null}
-        </aside>
-      </div>
-    </AssistantProvider>
+      </aside>
+    </div>
   );
 }
