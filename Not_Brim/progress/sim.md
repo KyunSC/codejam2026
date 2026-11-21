@@ -19,7 +19,7 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 - [x] S1.9 Step 1 report. Attempts: 1
 
 ## Step 2: errors + one repair
-- [ ] S2.1 `/api/repair` and full state machine. Attempts: 0
+- [x] S2.1 `/api/repair` and full state machine. Attempts: 1
 - [ ] S2.2 Playwright: throws-broken → repaired → ready; throws-twice → failed. Attempts: 0
 - [ ] S2.3 Step 2 report (real repair rate needs key). Attempts: 0
 
@@ -58,3 +58,4 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 - S1.7: first e2e run: throws-broken, bad-params and external-script lost their bridge messages on /dev/fixture. The page is server-rendered, so the iframe ran and posted before React hydrated and attached the listener (no-sim passed only because its error comes at 3 s). Fix in SimFrame: never server-render the iframe (useSyncExternalStore client check), and attach the message listener in a layout effect. Timings from load: throws-broken ~0.4 s, bad-params ~0.2 s, external-script ~0.2 s (CSP violation), no-sim ~3.5 s (the 3 s SIM wait + page load).
 - S1.7: stand-in pendulum: create → ready in ~5 s (1.5 s thinking + 3 s writing + mount).
 - S1.8: try-topics runs as a Playwright test (`scripts/playwright.scripts.config.ts`), because Node 20 can't run .ts and tsx isn't a listed dep. It reads one `[sim] run {json}` console line per run from useSimSession. Stand-in: all 3 reserved topics fall back to the pendulum fixture (as intended: no fixture covers them). First code ~1.5 s, interactive ~4.6 s.
+- S2.1: one repair per run. `fail()` repairs from `run.attempted` (the last document we tried to mount, even one that failed validation); `giveUp()` is terminal. While repairing, the broken iframe is unmounted (srcdoc null) so no stale errors arrive. A failRef breaks the mount↔fail↔stream callback cycle.

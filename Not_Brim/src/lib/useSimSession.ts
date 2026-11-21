@@ -1,7 +1,9 @@
 "use client";
 
 // The session state machine shared by generate, edit, demos and the student page:
-//   idle → streaming → mounting → ready, with failed.
+//   idle → streaming → mounting → ready, with repairing and failed.
+// The first failure of produced code triggers one /api/repair and a remount; a second
+// failure (or a model/API error with no code to repair) ends in failed.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { buildSrcdoc, defaultValues, validateParams } from "./bridge";
 import { readNdjson } from "./ndjson";
@@ -85,6 +87,8 @@ interface Run {
   watchdog: ReturnType<typeof setTimeout> | null;
   repaired: boolean;
   usage: Usage | null;
+  /** The last document we tried to mount, valid or not: what a repair starts from. */
+  attempted: string | null;
 }
 
 /** One machine-readable line per finished run, for scripts/try-topics.ts. */
@@ -138,7 +142,11 @@ export function useSimSession(options: SessionOptions = {}) {
     run.watchdog = null;
   };
 
-  const fail = useCallback(
+  // Set from an effect below; lets mount/onBridge reach the repair path without a dependency cycle.
+  const failRef = useRef<(run: Run, message: string) => void>(() => {});
+
+  /** Terminal failure: no repair. */
+  const giveUp = useCallback(
     (run: Run, message: string) => {
       if (!isCurrent(run)) return;
       clearWatchdog(run);
@@ -158,18 +166,19 @@ export function useSimSession(options: SessionOptions = {}) {
     (run: Run, raw: string) => {
       if (!isCurrent(run)) return;
       const html = extractHtml(raw);
+      run.attempted = html || raw.trim() || null;
       const check = validateHtml(html);
-      if (!check.ok) return fail(run, check.reason);
+      if (!check.ok) return failRef.current(run, check.reason);
       run.code = html;
       run.readyAt = null;
       run.pendingSet = false;
       clearWatchdog(run);
       run.watchdog = setTimeout(() => {
-        if (isCurrent(run) && run.readyAt === null) fail(run, "The simulation didn't start in time.");
+        if (isCurrent(run) && run.readyAt === null) failRef.current(run, "The simulation didn't start in time.");
       }, MOUNT_TIMEOUT_MS);
       update((v) => ({ state: "mounting", srcdoc: buildSrcdoc(html), mountKey: v.mountKey + 1 }));
     },
-    [fail, update],
+    [update],
   );
 
   const begin = useCallback(
@@ -187,6 +196,7 @@ export function useSimSession(options: SessionOptions = {}) {
         watchdog: null,
         repaired: false,
         usage: null,
+        attempted: null,
         ...extra,
       };
       runRef.current = run;
@@ -197,8 +207,13 @@ export function useSimSession(options: SessionOptions = {}) {
 
   /** Stream a model call and return the raw text, or null if it failed/was superseded. */
   const stream = useCallback(
-    async (run: Run, endpoint: string, body: object): Promise<string | null> => {
-      update({ state: "streaming", stage: null, lineCount: 0, codeTail: "", elapsedMs: 0, error: null, errorDetail: null });
+    async (
+      run: Run,
+      endpoint: string,
+      body: object,
+      shown: "streaming" | "repairing" = "streaming",
+    ): Promise<string | null> => {
+      update({ state: shown, stage: null, lineCount: 0, codeTail: "", error: null, errorDetail: null });
       let text = "";
       let lastPaint = 0;
       try {
@@ -210,7 +225,7 @@ export function useSimSession(options: SessionOptions = {}) {
         });
         if (!res.ok || !res.body) {
           const j = (await res.json().catch(() => null)) as { error?: string } | null;
-          fail(run, j?.error ?? `The server answered ${res.status}.`);
+          giveUp(run, j?.error ?? `The server answered ${res.status}.`);
           return null;
         }
         for await (const ev of readNdjson<StreamEvent>(res.body)) {
@@ -231,20 +246,44 @@ export function useSimSession(options: SessionOptions = {}) {
             const lines = text.split("\n");
             update({ lineCount: lines.length, codeTail: lines.slice(-TAIL_LINES).join("\n"), usage: ev.usage });
           } else if (ev.type === "error") {
-            fail(run, ev.message);
+            giveUp(run, ev.message);
             return null;
           }
         }
       } catch (err) {
         if (run.abort.signal.aborted) return null;
-        fail(run, err instanceof Error ? err.message : "The connection dropped.");
+        giveUp(run, err instanceof Error ? err.message : "The connection dropped.");
         return null;
       }
       if (run.timings.streamDone === null) run.timings.streamDone = performance.now();
       return text;
     },
-    [fail, update],
+    [giveUp, update],
   );
+
+  /** Any failure of produced code: one repair, then give up. */
+  const fail = useCallback(
+    (run: Run, message: string) => {
+      if (!isCurrent(run)) return;
+      clearWatchdog(run);
+      const code = run.attempted;
+      if (run.repaired || !code) return giveUp(run, message);
+      run.repaired = true;
+      run.readyAt = null;
+      run.pendingSet = false;
+      console.warn("[sim] repairing after:", message);
+      update({ state: "repairing", srcdoc: null, errorDetail: message });
+      void (async () => {
+        const text = await stream(run, "/api/repair", { code, error: message }, "repairing");
+        if (text !== null) mount(run, text);
+      })();
+    },
+    [giveUp, mount, stream, update],
+  );
+
+  useEffect(() => {
+    failRef.current = fail;
+  });
 
   const generate = useCallback(
     async (prompt: string) => {
@@ -281,7 +320,7 @@ export function useSimSession(options: SessionOptions = {}) {
       if (msg.type === "ready") {
         if (state !== "mounting") return;
         const checked = validateParams(msg.params);
-        if (!checked.ok) return fail(run, checked.reason);
+        if (!checked.ok) return failRef.current(run, checked.reason);
         clearWatchdog(run);
         run.readyAt = performance.now();
         run.timings.ready = run.readyAt;
@@ -319,14 +358,14 @@ export function useSimSession(options: SessionOptions = {}) {
       // error
       const where = msg.line ? ` (line ${msg.line}${msg.col ? `, col ${msg.col}` : ""})` : "";
       const detail = msg.message + where;
-      if (state === "mounting") return fail(run, detail);
+      if (state === "mounting") return failRef.current(run, detail);
       if (state === "ready") {
         const recent = run.readyAt !== null && performance.now() - run.readyAt < POST_READY_WINDOW_MS;
-        if (recent || run.pendingSet) return fail(run, detail);
+        if (recent || run.pendingSet) return failRef.current(run, detail);
         console.warn("[sim] runtime error after ready (ignored):", detail);
       }
     },
-    [fail, postValues, update],
+    [postValues, update],
   );
 
   const setValue = useCallback(
