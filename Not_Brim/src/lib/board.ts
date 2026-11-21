@@ -47,6 +47,8 @@ export interface SimItem extends ItemBase {
   change?: { request: string; nonce: number };
   /** The saved sim behind the box, for the student homework link. */
   simId?: string;
+  shareToken?: string;
+  sharedClass?: { id: string; title: string };
 }
 
 export type BoardItem = NoteItem | InkItem | SimItem;
@@ -153,6 +155,11 @@ export function checkItem(raw: unknown): Checked<BoardItem> {
     if (c && typeof c.request === "string" && c.request.trim() && finite(c.nonce))
       item.change = { request: c.request.slice(0, MAX_REQUEST_CHARS), nonce: c.nonce };
     if (typeof d.simId === "string" && /^[0-9a-f]{12}$/.test(d.simId)) item.simId = d.simId;
+    const validToken = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f]{32}$/.test(v);
+    if (validToken(d.shareToken)) item.shareToken = d.shareToken;
+    const shared = d.sharedClass as Record<string, unknown> | undefined;
+    if (shared && validToken(shared.id) && typeof shared.title === "string")
+      item.sharedClass = { id: shared.id, title: shared.title.slice(0, 200) };
     return { ok: true, value: item };
   }
   return { ok: false, reason: `item ${d.id} has an unknown kind` };

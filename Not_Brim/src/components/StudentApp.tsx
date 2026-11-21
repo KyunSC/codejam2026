@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useSimSession } from "@/lib/useSimSession";
 import { Logo } from "./Badges";
 import { ParamSliders } from "./ParamSliders";
@@ -9,11 +9,13 @@ import { SimPanel } from "./SimPanel";
 
 /** The student link: write a prediction first, then the sim is revealed with the homework's starting values. */
 export function StudentApp({
+  simId,
   code,
   title,
   question,
   initial,
 }: {
+  simId: string | null;
   code: string;
   title: string;
   question: string;
@@ -21,13 +23,70 @@ export function StudentApp({
 }) {
   const session = useSimSession();
   const [prediction, setPrediction] = useState("");
+  const submissionId = useRef<string | null>(null);
+  const [name, setName] = useState("");
   const [started, setStarted] = useState(false);
+  // The saved prediction's id, once the POST lands. "failed" if it couldn't be saved.
+  const [predictionId, setPredictionId] = useState<string | "failed" | null>(null);
+  // The reflection lives here, not in <Reflection>, so a repair or remount of the sim doesn't wipe it.
+  const [observed, setObserved] = useState("");
+  const [reflectStatus, setReflectStatus] = useState<ReflectStatus>("editing");
   const v = session.view;
 
   function run() {
-    if (!prediction.trim()) return;
+    const text = prediction.trim();
+    // `started` guard: Enter in the read-only name field still submits the form.
+    if (!text || started) return;
     setStarted(true);
     session.load(code, { initial });
+    if (!simId) return;
+    // getRandomValues also works on a classroom LAN served over HTTP.
+    submissionId.current = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+    // Saving never blocks the sim: the student still gets to check their prediction.
+    fetch(`/api/sims/${simId}/predictions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ submissionId: submissionId.current, name: name.trim(), prediction: text }),
+    })
+      .then(async (r) => {
+        const j = (await r.json()) as { prediction?: { id: string }; error?: string };
+        if (!r.ok || !j.prediction) throw new Error(j.error ?? `HTTP ${r.status}`);
+        setPredictionId(j.prediction.id);
+      })
+      .catch((err: unknown) => {
+        console.warn("[sim] couldn't save the prediction:", err instanceof Error ? err.message : err);
+        setPredictionId("failed");
+      });
+  }
+
+  /** Save the reflection. If the prediction never saved, send both now, so a blip on Run isn't a dead end. */
+  async function sendReflection() {
+    const text = observed.trim();
+    if (!text || predictionId === null || reflectStatus === "saving" || reflectStatus === "saved") return;
+    setReflectStatus("saving");
+    try {
+      if (predictionId === "failed") {
+        const r = await fetch(`/api/sims/${simId}/predictions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ submissionId: submissionId.current, name: name.trim(), prediction: prediction.trim(), observed: text }),
+        });
+        const j = (await r.json()) as { prediction?: { id: string } };
+        if (!r.ok || !j.prediction) throw new Error(`HTTP ${r.status}`);
+        setPredictionId(j.prediction.id);
+      } else {
+        const r = await fetch(`/api/sims/${simId}/predictions/${predictionId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ observed: text }),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      }
+      setReflectStatus("saved");
+    } catch (err) {
+      console.warn("[sim] couldn't save the reflection:", err instanceof Error ? err.message : err);
+      setReflectStatus("error");
+    }
   }
 
   return (
@@ -80,6 +139,28 @@ export function StudentApp({
                 run();
               }}
             >
+              {simId ? (
+                <>
+                  <label htmlFor="student-name" className="font-bold">
+                    Your name <span className="font-normal text-muted">(optional)</span>
+                  </label>
+                  <input
+                    id="student-name"
+                    data-testid="name-input"
+                    className="field bg-card-soft py-1.5 shadow-none read-only:text-muted"
+                    maxLength={60}
+                    autoComplete="given-name"
+                    value={name}
+                    readOnly={started}
+                    onChange={(e) => setName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") e.preventDefault();
+                    }}
+                  />
+                </>
+              ) : (
+                <p className="text-muted">Practice link. To send answers to your teacher, open the class link.</p>
+              )}
               <label htmlFor="prediction" className="font-bold">
                 Predict before you run
               </label>
@@ -88,6 +169,7 @@ export function StudentApp({
                 data-testid="prediction-input"
                 className="field min-h-[5em] resize-y bg-card-soft shadow-none read-only:text-muted"
                 placeholder="I think… because…"
+                maxLength={1000}
                 value={prediction}
                 readOnly={started}
                 onChange={(e) => setPrediction(e.target.value)}
@@ -105,10 +187,92 @@ export function StudentApp({
             </form>
 
             {v.state === "ready" ? <ParamSliders params={v.params} values={v.values} onChange={session.setValue} /> : null}
+
+            {simId && started && v.state === "ready" ? (
+              <Reflection
+                observed={observed}
+                onChange={setObserved}
+                status={reflectStatus}
+                predictionId={predictionId}
+                onSubmit={() => void sendReflection()}
+              />
+            ) : null}
           </aside>
         </div>
       </main>
     </div>
+  );
+}
+
+type ReflectStatus = "editing" | "saving" | "saved" | "error";
+
+/** After Run: what actually happened, saved next to the prediction for the teacher. */
+function Reflection({
+  observed,
+  onChange,
+  status,
+  predictionId,
+  onSubmit,
+}: {
+  observed: string;
+  onChange: (text: string) => void;
+  status: ReflectStatus;
+  predictionId: string | "failed" | null;
+  onSubmit: () => void;
+}) {
+  const locked = status === "saving" || status === "saved";
+  return (
+    <form
+      className="card flex flex-col gap-3 p-5"
+      data-testid="reflection-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSubmit();
+      }}
+    >
+      <label htmlFor="observed" className="font-bold">
+        Were you right? What actually happened?
+      </label>
+      <textarea
+        id="observed"
+        data-testid="observed-input"
+        className="field min-h-[4em] resize-y bg-card-soft shadow-none read-only:text-muted"
+        placeholder="Move the sliders, then write what you saw…"
+        maxLength={1000}
+        value={observed}
+        readOnly={locked}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {status === "saved" ? (
+        <p className="font-bold text-ok" role="status" data-testid="reflection-saved">
+          Sent to your teacher.
+        </p>
+      ) : (
+        <>
+          <button
+            type="submit"
+            className="btn-secondary"
+            data-testid="observed-button"
+            disabled={!observed.trim() || predictionId === null || status === "saving"}
+          >
+            {status === "saving" ? "Sending…" : "Send to my teacher"}
+          </button>
+          {status === "error" ? (
+            <p className="font-semibold text-danger" role="alert" data-testid="reflection-error">
+              Couldn’t reach your teacher. Try again.
+            </p>
+          ) : predictionId === null ? (
+            <p className="text-muted" role="status">
+              Saving your prediction…
+            </p>
+          ) : predictionId === "failed" ? (
+            <p className="text-muted" role="status" data-testid="prediction-unsaved">
+              Your prediction hasn’t reached your teacher yet. It will be sent with this answer.
+            </p>
+          ) : null}
+        </>
+      )}
+    </form>
   );
 }
 

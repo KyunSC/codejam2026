@@ -3,10 +3,13 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { SimRecord } from "./types";
+import type { Prediction, SimRecord } from "./types";
 
-export type NewSim = Omit<SimRecord, "id" | "createdAt">;
+export type NewSim = Omit<SimRecord, "id" | "createdAt" | "predictions" | "shareToken">;
 export type SimSummary = Pick<SimRecord, "id" | "title" | "prompt" | "createdAt">;
+
+/** Predictions kept per sim. Past this, new ones are refused so the file can't grow without bound. */
+export const MAX_PREDICTIONS = 200;
 
 /** A short url-safe id from crypto.randomUUID (12 hex chars ≈ 48 bits). */
 export function newId(): string {
@@ -45,7 +48,7 @@ export function createStore(file: string) {
     saveSim(input: NewSim): Promise<SimRecord> {
       return locked(async () => {
         const sims = await readAll();
-        const record: SimRecord = { ...input, id: newId(), createdAt: new Date().toISOString() };
+        const record: SimRecord = { ...input, id: newId(), shareToken: randomUUID().replace(/-/g, ""), createdAt: new Date().toISOString() };
         sims.push(record);
         await writeAll(sims);
         return record;
@@ -54,6 +57,10 @@ export function createStore(file: string) {
     async getSim(id: string): Promise<SimRecord | null> {
       await queue;
       return (await readAll()).find((s) => s.id === id) ?? null;
+    },
+    async getSharedSim(token: string): Promise<SimRecord | null> {
+      await queue;
+      return (await readAll()).find((s) => s.shareToken === token) ?? null;
     },
     async listSims(): Promise<SimSummary[]> {
       await queue;
@@ -71,6 +78,47 @@ export function createStore(file: string) {
         return sims[i];
       });
     },
+    /** Add a student's prediction to a sim. Null when the sim doesn't exist, "full" past MAX_PREDICTIONS. */
+    addPrediction(
+      shareToken: string,
+      input: { submissionId?: string; name: string; prediction: string; observed?: string },
+    ): Promise<Prediction | null | "full"> {
+      return locked(async () => {
+        const sims = await readAll();
+        const sim = sims.find((s) => s.shareToken === shareToken);
+        if (!sim) return null;
+        const existing = input.submissionId && sim.predictions?.find((p) => p.id === input.submissionId);
+        if (existing) {
+          if (input.observed && input.observed !== existing.observed) {
+            existing.observed = input.observed;
+            await writeAll(sims);
+          }
+          return existing;
+        }
+        if ((sim.predictions?.length ?? 0) >= MAX_PREDICTIONS) return "full";
+        const entry: Prediction = {
+          id: input.submissionId ?? newId(),
+          name: input.name,
+          prediction: input.prediction,
+          ...(input.observed ? { observed: input.observed } : {}),
+          createdAt: new Date().toISOString(),
+        };
+        sim.predictions = [...(sim.predictions ?? []), entry];
+        await writeAll(sims);
+        return entry;
+      });
+    },
+    /** Record what the student saw after Run. Null when the sim or the prediction doesn't exist. */
+    setObserved(shareToken: string, predictionId: string, observed: string): Promise<Prediction | null> {
+      return locked(async () => {
+        const sims = await readAll();
+        const entry = sims.find((s) => s.shareToken === shareToken)?.predictions?.find((p) => p.id === predictionId);
+        if (!entry) return null;
+        entry.observed = observed;
+        await writeAll(sims);
+        return entry;
+      });
+    },
   };
 }
 
@@ -80,6 +128,7 @@ let defaultStore: SimStore | null = null;
 
 /** The app's store at data/sims.json. */
 export function store(): SimStore {
-  defaultStore ??= createStore(path.join(process.cwd(), "data", "sims.json"));
+  // SIMS_FILE lets tests point the routes at a temp file.
+  defaultStore ??= createStore(process.env.SIMS_FILE || path.join(process.cwd(), "data", "sims.json"));
   return defaultStore;
 }

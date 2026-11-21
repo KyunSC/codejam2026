@@ -27,8 +27,10 @@ Restart `npm run dev`. The badge disappears and Ask Claude, generate, repair, ed
 - **Note**: pick Note, click the board, type. **Pen**: pick Pen and write; strokes made close together form one handwriting item. **Select**: drag an item by its top bar, resize from the corner, and delete with × or the Delete key.
 - **Add simulation**: describe a confusion in the toolbar. The box shows the stages and code as they stream, then runs the sim in a `sandbox="allow-scripts"` iframe (strict CSP, no network) with its sliders beside it.
 - **Ask Claude**: optionally type a message, then press the button. Claude gets every item (who made it, where, its text, each sim's title, question and slider values) and a picture of the board, and answers with actions the page applies: add or update a note, add a simulation, change one of its simulations, move or delete its items. Claude can't change what the student made; skipped actions are listed under the button. Claude's items have blue borders.
-- **In a simulation box**: one automatic repair if it breaks ("Fixing a glitch…"), then "Try again". **Change** asks for a plain-language edit (moved sliders keep their values). **Share with students** makes a homework variation and copies a `/s/<id>` link; students write a prediction before Run reveals the sim. **Save as demo** adds the sim to the demos.
+- **In a simulation box**: one automatic repair if it breaks ("Fixing a glitch…"), then "Try again". **Change** asks for a plain-language edit (moved sliders keep their values). **Share with students** makes a homework variation and copies an unlisted homework link; students write a prediction before Run reveals the sim. **Save as demo** adds the sim to the demos.
 - **Saved demos**: places a stored sim on the board instantly, with no model call.
+- **Class predictions** appear under the sliders in each shared box. The count in the box header jumps to the panel. Reload or bookmark the board to return to it.
+- Students can scan the share QR, add their name, predict before Run, and send a reflection afterward. Anyone with the homework link can submit and read answers. Older ID-only links open in practice mode.
 
 ## Scripts
 
@@ -51,4 +53,5 @@ Both scripts start their own dev server on port 3100 (see `scripts/playwright.sc
 - `src/lib/model/`: the real Claude model, the stand-in, and the selection between them.
 - `src/app/api/*`: NDJSON routes for board-turn (Ask Claude), generate, repair and edit, plus boards, sims, share, demos and status.
 - `data/boards.json` and `data/sims.json` (gitignored) store boards and saved sims; `data/demos/` (committed) holds the demos.
+- `src/components/ClassPredictions.tsx` displays live answers from the prediction routes.
 - `progress/`: the build log (`sim.md`), decisions (`questions.md`), the report (`report.md`) and screenshots.

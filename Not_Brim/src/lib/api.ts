@@ -2,6 +2,8 @@ import "server-only";
 
 export const MAX_PROMPT_CHARS = 2000;
 export const MAX_CODE_CHARS = 160 * 1024;
+export const MAX_NAME_CHARS = 60;
+export const MAX_ANSWER_CHARS = 1000;
 
 export function badRequest(message: string, status = 400): Response {
   return Response.json({ error: message }, { status });
