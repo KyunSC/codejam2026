@@ -507,7 +507,7 @@ export function BoardApp({ board }: { board: Board }) {
           style={{ transform: `translate(${-cam.x * cam.s}px, ${-cam.y * cam.s}px) scale(${cam.s})` }}
         >
           {items.map((it) => (
-            <div key={it.id} className="absolute" style={{ left: it.x, top: it.y, width: it.w, height: it.h }}>
+            <div key={it.id} className={`absolute ${it.kind === "ink" ? "ink-slot" : ""}`} style={{ left: it.x, top: it.y, width: it.w, height: it.h }}>
               {it.kind === "note" ? (
                 <NoteView
                   item={it}
