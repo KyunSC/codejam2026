@@ -38,27 +38,33 @@ async function readyPendulum(page: Page) {
   await expect(page.getByTestId("sim-panel")).toHaveAttribute("data-state", "ready", { timeout: 20_000 });
 }
 
+async function addNote(page: Page, text: string) {
+  await page.getByTestId("tool-note").click();
+  await page.getByTestId("board").click({ position: { x: 240, y: 360 } });
+  await page.keyboard.type(text);
+}
+
 for (const size of SIZES) {
-  test(`teacher and student screens at ${size.name}`, async ({ page, context }) => {
+  test(`board and student screens at ${size.name}`, async ({ page, context }) => {
     await page.setViewportSize(size);
 
     await page.goto("/");
     await expect(page.getByTestId("stand-in-badge")).toBeVisible();
     expect(await smallText(page)).toEqual([]);
-    await page.screenshot({ path: path.join(SCREENS, `teacher-idle-${size.name}.png`) });
+    await page.screenshot({ path: path.join(SCREENS, `board-empty-${size.name}.png`) });
 
-    await page.getByTestId("prompt-input").fill("Does a heavier ball fall faster than a light one?");
-    await page.getByTestId("create-button").click();
+    await addNote(page, "Does a heavier ball fall faster than a light one?");
+    await page.getByTestId("ask-button").click();
     await expect(page.getByTestId("status-lines")).not.toHaveText("0 lines", { timeout: 10_000 });
     expect(await smallText(page)).toEqual([]);
-    await page.screenshot({ path: path.join(SCREENS, `teacher-streaming-${size.name}.png`) });
+    await page.screenshot({ path: path.join(SCREENS, `board-streaming-${size.name}.png`) });
     await expect(page.getByTestId("sim-panel")).toHaveAttribute("data-state", "ready", { timeout: 20_000 });
     await page.waitForTimeout(600); // let the sim animate a little
     expect(await smallText(page)).toEqual([]);
-    await page.screenshot({ path: path.join(SCREENS, `teacher-ready-${size.name}.png`) });
+    await page.screenshot({ path: path.join(SCREENS, `board-ready-${size.name}.png`) });
 
-    // Everything important fits without scrolling.
-    for (const id of ["prompt-input", "create-button", "sim-panel", "edit-input", "share-button", "param-sliders"]) {
+    // Everything important is on screen without panning.
+    for (const id of ["prompt-input", "create-button", "sim-panel", "edit-input", "share-button", "param-sliders", "ask-button"]) {
       const box = await page.getByTestId(id).boundingBox();
       expect(box, id).not.toBeNull();
       expect(box!.y + box!.height, `${id} fits in ${size.name}`).toBeLessThanOrEqual(size.height + 1);
@@ -102,13 +108,13 @@ test("failed state screenshot", async ({ page }) => {
   await page.getByTestId("create-button").click();
   await expect(page.getByTestId("sim-panel")).toHaveAttribute("data-state", "failed", { timeout: 20_000 });
   expect(await smallText(page)).toEqual([]);
-  await page.screenshot({ path: path.join(SCREENS, "teacher-failed-1280x720.png") });
+  await page.screenshot({ path: path.join(SCREENS, "board-failed-1280x720.png") });
 });
 
 test("keyboard focus is visible on every control", async ({ page }) => {
   await readyPendulum(page);
   const seen = new Set<string>();
-  for (let i = 0; i < 25; i++) {
+  for (let i = 0; i < 40; i++) {
     await page.keyboard.press("Tab");
     const info = await page.evaluate(() => {
       const el = document.activeElement as HTMLElement | null;
@@ -124,7 +130,8 @@ test("keyboard focus is visible on every control", async ({ page }) => {
     expect(info.outline, `focus ring on ${info.key}`).toBe(true);
     seen.add(info.key);
   }
-  for (const key of ["prompt-input", "create-button", "demos-select", "massA", "edit-input", "share-button"]) {
+  // "Add simulation" is disabled once its text box is cleared, so it isn't in the Tab order after a sim is added.
+  for (const key of ["tool-pen", "prompt-input", "demos-select", "massA", "edit-input", "share-button", "ask-input", "ask-button"]) {
     expect([...seen], `reached ${key} by Tab`).toContain(key);
   }
 });

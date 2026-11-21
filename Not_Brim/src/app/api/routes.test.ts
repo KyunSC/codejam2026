@@ -3,6 +3,19 @@ import { POST as generate } from "./generate/route";
 import { POST as edit } from "./edit/route";
 import { POST as repair } from "./repair/route";
 import { GET as status } from "./status/route";
+import { POST as boardTurn } from "./board-turn/route";
+import { POST as createBoard } from "./boards/route";
+import { GET as getBoard, PUT as saveBoard } from "./boards/[id]/route";
+
+// Boards go to a temp file, not the app's data/boards.json.
+vi.mock("@/lib/boards", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/boards")>();
+  const { mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const path = await import("node:path");
+  const store = real.createBoardStore(path.join(mkdtempSync(path.join(tmpdir(), "routes-boards-")), "boards.json"));
+  return { ...real, boardStore: () => store };
+});
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -59,5 +72,44 @@ describe("/api/edit", () => {
     const res = await edit(post({ code: "<html></html>", request: "make it red" }));
     expect(res.headers.get("content-type")).toBe("application/x-ndjson");
     await res.body!.cancel();
+  });
+});
+
+describe("/api/board-turn", () => {
+  const turn = (body: unknown) => boardTurn(new Request("http://test/api/board-turn", { method: "POST", body: JSON.stringify(body) }));
+  const note = { id: "n1", author: "student", kind: "note", text: "Does a heavier pendulum swing faster?", x: 0, y: 0, w: 320, h: 200 };
+
+  it("rejects bad boards, messages and pictures", async () => {
+    expect((await turn({ items: "x" })).status).toBe(400);
+    expect((await turn({ items: [{ ...note, author: "teacher" }] })).status).toBe(400);
+    expect((await turn({ items: [], message: "x".repeat(3000) })).status).toBe(413);
+    expect((await turn({ items: [], image: "not base64!" })).status).toBe(400);
+  });
+
+  it("streams Claude's actions from the stand-in", async () => {
+    vi.stubEnv("FAKE_MODEL", "1");
+    const res = await turn({ items: [note], view: { x: 0, y: 0, w: 1200, h: 700 }, message: "", image: "iVBORw0KGgo=" });
+    expect(res.headers.get("content-type")).toBe("application/x-ndjson");
+    const lines = (await res.text()).trim().split("\n").map((l) => JSON.parse(l) as { type: string; action?: { type: string } });
+    expect(lines.filter((l) => l.type === "action").map((l) => l.action!.type)).toEqual(["add_note", "add_sim"]);
+    expect(lines.at(-1)!.type).toBe("done");
+  });
+});
+
+describe("/api/boards", () => {
+  it("creates a board, saves checked items and reads them back", async () => {
+    const created = await createBoard();
+    expect(created.status).toBe(201);
+    const { id } = (await created.json()) as { id: string };
+    const ctx = { params: Promise.resolve({ id }) };
+    const note = { id: "n1", author: "student", kind: "note", text: "hi", x: 0, y: 0, w: 320, h: 200 };
+    const put = (body: unknown) => saveBoard(new Request(`http://test/api/boards/${id}`, { method: "PUT", body: JSON.stringify(body) }), ctx);
+    expect((await put({ items: [{ ...note, kind: "video" }] })).status).toBe(400);
+    expect((await put({ items: [note] })).status).toBe(200);
+    const got = (await (await getBoard(new Request(`http://test/api/boards/${id}`), ctx)).json()) as { items: unknown[] };
+    expect(got.items).toEqual([note]);
+    const missing = { params: Promise.resolve({ id: "000000000000" }) };
+    expect((await getBoard(new Request("http://test/api/boards/000000000000"), missing)).status).toBe(404);
+    expect((await getBoard(new Request("http://test/api/boards/../x"), { params: Promise.resolve({ id: "../x" }) })).status).toBe(404);
   });
 });
