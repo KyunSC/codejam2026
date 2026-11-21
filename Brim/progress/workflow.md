@@ -25,12 +25,17 @@ Local env for every command (never Neon): `BRIM_LOCAL_DB_ONLY=1 DATABASE_URL=pos
     2. `SPLIT_SUSPECTED` fires only on the last of the three Orion invoices (`Invoice 287.pdf`); the first two were checked before the third existed. By design (checks only look at earlier invoices); the flag's evidence lists all three.
     3. `cloudbarnsoftwar_INV01561` raises `DUP_CONTENT` against AP-00411 (scheduled, same fixed fee, one day apart) besides the expected `DUP_EXACT` with AP-00370. Both hold a real duplicate; left as is.
   - Surprise: with the audit-chain lock, DB test files running in parallel deadlocked on long rollback transactions. `vitest.config.mts` now sets `fileParallelism: false` (suite 33 s).
-- [ ] 4. Invoice screen: flags as sentences + resolve action, field evidence marks, line coding + reason, accept/override via PATCH If-Match.
+- [x] 4. Invoice screen: flags as sentences + resolve action, field evidence marks, line coding + reason, accept/override via PATCH If-Match.
   - [x] 4a. API: `POST .../invoices/[id]/flags/[flagId]/resolve` and `PATCH .../invoices/[id]` (If-Match).
     - `src/lib/workflow/review.ts`. Resolve: `override` (any class, by the class's role) or `confirm` (fraud only); reason required; 403 `FLAG_CLASS` for the wrong role, `READ_ONLY_ROLE` for the auditor. A confirmed `DUP_*` moves the invoice to `duplicate`; otherwise the checks re-run so the status follows the flags. Audited as `flag.override` / `flag.confirm`.
     - PATCH: 428 `VERSION_REQUIRED` without If-Match, 409 `VERSION_CONFLICT`, 409 `INVALID_STATE` outside review. Edits printed fields (number, dates, totals, PO number; evidence marked confirmed), the clerk's choices (vendor, department, province, requester, PO, kept in `normalized.clerk` and applied by processInvoice on every re-run), and line coding (`accept` or `glFinal` / `departmentFinal`). One `invoice.edit` audit row with before/after per line; then the checks re-run.
     - The invoice detail read now includes flags, taxes, approval steps and payments.
-  - [ ] 4b. The invoice screen itself.
+  - [x] 4b. The invoice screen itself (`src/app/invoices/[id]/page.tsx` + `review-panels.tsx`).
+    - "What the checks found": every flag as its sentence with evidence, open and holding first; a "Resolve…" form with a required reason, labelled by class (data: "Accept as printed"; policy: "Override"; fraud: "Not a problem" / "Confirm duplicate"). Roles that cannot resolve a class see who can.
+    - Details carry evidence marks (✓ on the page / not found in the page text / two reads disagree / not printed / not checked).
+    - "Vendor, department and PO" form for the AP clerk in review (PATCH choices, then re-check).
+    - Lines and coding: suggested account with its reason, a dropdown to override account and department per line, "Accept all suggestions"; every save sends If-Match with the version the page was rendered at.
+    - Not seen in a browser: a dev server was already running on :3000 for this folder (not started by the loop, possibly on Neon), and Next refuses a second one. Typecheck and lint pass; check the page by hand.
 - [ ] 5. Approvals: submit, route-preview, approve/reject, delegation, chain on invoice screen, "Waiting for me"; five worked examples pass against the DB.
 - [ ] 6. Payments: prepare, release, simulate bank run, invoice follows payment, dashboard; day-one state.
 - [ ] 7. Vendors: list/detail, onboarding, approve/hold/release-hold (FOUR_EYES), bank changes verify/reject (CALLBACK_REQUIRED); V004 held until BC-009 verified.
