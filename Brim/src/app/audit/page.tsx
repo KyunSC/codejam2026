@@ -11,6 +11,7 @@ import { canViewAudit } from "@/lib/auth/permissions";
 import { requireUser } from "@/lib/auth/current";
 import { formatDateTime, param } from "@/lib/format";
 import { listUsers } from "@/lib/users/service";
+import { VerifyChain } from "./verify-chain";
 
 type SP = Promise<Record<string, string | string[] | undefined>>;
 const PAGE = 100;
@@ -29,8 +30,30 @@ const ACTIONS = [
   "access_request.rejected",
   "organization.created",
   "organization.updated",
+  "invoice.processed",
+  "invoice.checked",
+  "invoice.edit",
+  "invoice.submit",
+  "invoice.approve",
+  "invoice.reject",
+  "invoice.duplicate",
+  "flag.override",
+  "flag.confirm",
+  "email.label",
+  "payment.prepare",
+  "payment.release",
+  "payment.settled",
+  "payment.failed",
+  "vendor.onboard",
+  "vendor.approve",
+  "vendor.hold",
+  "vendor.release_hold",
+  "vendor.bank_change.request",
+  "vendor.bank_change.verify",
+  "vendor.bank_change.reject",
+  "user.delegation",
 ];
-const ENTITIES = ["invoice", "email", "user", "access_request", "organization"];
+const ENTITIES = ["invoice", "payment", "vendor", "flag", "bank_change", "email", "user", "access_request", "organization"];
 const ACTOR_TYPES: { value: Actor["type"]; label: string }[] = [
   { value: "user", label: "A person" },
   { value: "llm", label: "The reader (LLM)" },
@@ -74,6 +97,7 @@ async function AuditView({ searchParams }: { searchParams: SP }) {
     action: param(sp.action),
     entityType: param(sp.entityType),
     invoiceId: param(sp.invoiceId),
+    paymentId: param(sp.paymentId),
     from: param(sp.from),
     to: param(sp.to),
     beforeSeq: param(sp.beforeSeq),
@@ -86,6 +110,7 @@ async function AuditView({ searchParams }: { searchParams: SP }) {
       action: f.action || undefined,
       entityType: f.entityType || undefined,
       invoiceId: f.invoiceId || undefined,
+      paymentId: f.paymentId || undefined,
       from: f.from ? `${f.from}T00:00:00` : undefined,
       to: f.to ? `${f.to}T23:59:59.999` : undefined,
       beforeSeq: /^\d+$/.test(f.beforeSeq) ? BigInt(f.beforeSeq) : undefined,
@@ -123,6 +148,10 @@ async function AuditView({ searchParams }: { searchParams: SP }) {
         ? { text: `account request from ${requester.fullName}`, href: `/settings?status=any&q=${encodeURIComponent(requester.email)}` }
         : r.entityType === "invoice"
           ? { text: "invoice", href: `/invoices/${r.entityId}` }
+          : r.entityType === "payment"
+            ? { text: "payment (audit pack)", href: `/audit/pack/${r.entityId}` }
+            : r.entityType === "vendor"
+              ? { text: "vendor", href: `/vendors/${r.entityId}` }
           : r.entityType === "user" && names[r.entityId]
             ? { text: `user ${names[r.entityId]}`, href: null }
             : { text: r.entityType.replace("_", " "), href: null },
@@ -139,6 +168,15 @@ async function AuditView({ searchParams }: { searchParams: SP }) {
       <p className="muted m-0 mb-8 max-w-[60ch] text-[15px]">
         Every action by a person, by Brim or by the reader, newest first. Entries are never edited or deleted.
       </p>
+      {user.role === "auditor" && (
+        <p className="form-error mb-6">You are signed in as the auditor: everything is read-only. Exports and the chain check change nothing.</p>
+      )}
+      <div className="mb-8 flex flex-wrap items-start gap-4">
+        <a className="btn btn--ghost btn--sm" href={`/api/orgs/${org.slug}/audit/export.csv?${new URLSearchParams(Object.entries(f).filter(([k, v]) => v && k !== "beforeSeq"))}`}>
+          Export these entries (CSV)
+        </a>
+        <VerifyChain slug={org.slug} />
+      </div>
       <FilterBar action="/audit" resetHref="/audit">
         <FilterText name="q" label="Search" defaultValue={f.q} placeholder="Action, record or invoice ID, reason" />
         <FilterSelect
@@ -153,7 +191,8 @@ async function AuditView({ searchParams }: { searchParams: SP }) {
         <FilterSelect name="entityType" label="Record" defaultValue={f.entityType} options={ENTITIES.map((e) => ({ value: e, label: e.replace("_", " ") }))} />
         <FilterText name="from" label="From" type="date" defaultValue={f.from} />
         <FilterText name="to" label="To" type="date" defaultValue={f.to} />
-        {f.invoiceId && <input type="hidden" name="invoiceId" value={f.invoiceId} />}
+        <FilterText name="invoiceId" label="Invoice" defaultValue={f.invoiceId} placeholder="AP-00100" />
+        <FilterText name="paymentId" label="Payment" defaultValue={f.paymentId} placeholder="PAY-00096" />
       </FilterBar>
 
       <div className="mt-8">

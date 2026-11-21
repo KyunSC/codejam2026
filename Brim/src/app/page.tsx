@@ -1,4 +1,15 @@
+import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import { ButtonLink, Card, SectionHeading } from "@/components/ui";
+import { readUserSession } from "@/lib/auth/session";
+import { LANDING } from "@/lib/workflow/queues";
+
+/** A logged-in person goes straight to their own work (BUILD_PLAN Screens: every role lands on its own work). */
+async function GoToWork() {
+  const session = await readUserSession();
+  if (session) redirect(LANDING[session.user.role]);
+  return null;
+}
 
 const STEPS = [
   { title: "Arrives", text: "Invoices come in from the AP inbox, an upload, or an employee's submission." },
@@ -19,6 +30,9 @@ const POINTS = [
 export default function Home() {
   return (
     <main className="mx-auto w-full max-w-[1240px] px-4 sm:px-5">
+      <Suspense fallback={null}>
+        <GoToWork />
+      </Suspense>
       <section className="grid items-end gap-8 pt-10 pb-12 sm:pt-14 md:grid-cols-[repeat(auto-fit,minmax(420px,1fr))]">
         <div>
           <p className="label muted m-0 mb-4 text-sm">Brim accounts payable</p>

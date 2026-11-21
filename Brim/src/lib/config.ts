@@ -83,6 +83,28 @@ export const config = {
      * the dataset have 0, 2 and 3 invoices; the records they imitate have 4 to 12.
      */
     lookalikeMaxHistory: 3,
+    /**
+     * SENDER_LOOKALIKE_DOMAIN: a sender domain whose name is within this many edits of a vendor's domain name,
+     * or contains a vendor's domain name at least `lookalikeDomainMinNameLen` letters long, without being it.
+     * Over the vendor master this pairs only V052's harlowandstern-llp.example with V026's harlow.example.
+     */
+    lookalikeDomainMaxEdits: 2,
+    lookalikeDomainMinNameLen: 4,
+  },
+
+  reconciliation: {
+    /**
+     * A cleared cheque with no payment of the exact amount may match the earliest unmatched cheque within this
+     * many dollars, shown as "amount differs by $x". History: one at $6,990.53 against $6,990.48.
+     */
+    chequeAmountTolerance: 0.25,
+    /**
+     * An EFT line whose reference matches but whose amount is off by at most this much still matches, noted.
+     * History: BK-00121, BK-00190 and BK-00230 are each one cent off their payment.
+     */
+    eftAmountTolerance: 0.05,
+    /** Bank fee lines (MONTHLY ACCOUNT FEE, WIRE FEE) are explained to this GL account. */
+    feeAccount: "7010",
   },
 
   payments: {
@@ -93,6 +115,10 @@ export const config = {
     /** An EFT account number must have one of these lengths, or the simulated payment fails. */
     // Widened so `.includes(account.length)` type-checks; `as const` would make it `readonly [8, 9]`.
     eftAccountDigits: [8, 9] as readonly number[],
+    /** Simulated references: this base plus the payment number, as the 8 digits after the prefix. */
+    referenceBase: 90_000_000,
+    /** Dashboard "due this week": due within this many days of today. */
+    dueSoonDays: 7,
   },
 } as const;
 

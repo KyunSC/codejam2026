@@ -7,6 +7,7 @@ import type { Refs } from "../refs";
 import { BANK_CHECKS } from "./bank";
 import { CONTRACT_CHECKS } from "./contract";
 import { DUP_CHECKS } from "./dupes";
+import { EMAIL_CHECKS } from "./email";
 import { PEOPLE_CHECKS } from "./people";
 import { PO_CHECKS } from "./po";
 import { type Check, READING_CHECKS } from "./reading";
@@ -19,6 +20,7 @@ export type { Check } from "./reading";
 export const ALL_CHECKS: Readonly<Record<string, Check>> = {
   ...READING_CHECKS,
   ...VENDOR_CHECKS,
+  ...EMAIL_CHECKS,
   ...BANK_CHECKS,
   ...TAX_CHECKS,
   ...PO_CHECKS,

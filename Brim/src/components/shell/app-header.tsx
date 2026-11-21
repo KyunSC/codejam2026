@@ -1,6 +1,7 @@
 import Link from "next/link";
+import { navFor } from "@/lib/workflow/queues";
 import { Suspense } from "react";
-import { ROLE_LABEL, canManageUsers, canViewAudit } from "@/lib/auth/permissions";
+import { ROLE_LABEL } from "@/lib/auth/permissions";
 import { readStaffSession, readUserSession } from "@/lib/auth/session";
 import { LogoutButton } from "./logout-button";
 import { MainNav, type NavItem } from "./main-nav";
@@ -34,11 +35,7 @@ export function AppHeader() {
 async function HeaderSession() {
   const [session, staff] = await Promise.all([readUserSession(), readStaffSession()]);
   const items: NavItem[] = [];
-  if (session) {
-    items.push({ label: "Invoices", href: "/invoices" });
-    if (canManageUsers(session.user.role)) items.push({ label: "Settings", href: "/settings" });
-    if (canViewAudit(session.user.role)) items.push({ label: "Audit log", href: "/audit" });
-  }
+  if (session) items.push(...navFor(session.user.role));
   if (staff) items.push({ label: "Brim admin", href: "/admin" });
 
   return (

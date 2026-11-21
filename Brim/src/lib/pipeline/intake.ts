@@ -299,6 +299,17 @@ export async function intakeEmail(tx: Db, email: IntakeEmail, input: IntakeEmail
         where: { organizationId, id: stored.id },
         data: { label: input.label.label, labelReason: input.label.reason, labelSource: source, ...linked },
       });
+      await logAction(tx, {
+        organizationId,
+        actor: source === "model" ? { type: "llm", model: input.label.model } : actor,
+        action: "email.label",
+        entityType: "email",
+        entityId: stored.id,
+        invoiceId: linked.linkedInvoiceId,
+        vendorId: linked.linkedVendorId,
+        before: { label: null },
+        after: { label: input.label.label, labelReason: input.label.reason, labelSource: source, ...linked },
+      });
       label = { label: input.label.label, reason: input.label.reason, source, ...linked };
     } else {
       // Left unlabelled so the next run asks again; the reason shows in "Needs attention".

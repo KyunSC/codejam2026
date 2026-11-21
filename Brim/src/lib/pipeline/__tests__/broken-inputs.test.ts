@@ -148,12 +148,10 @@ describe.runIf(hasDb)("broken inputs end in named states (rolled back)", () => {
         source: "intake",
       });
       expect(byFile["photo.jpg"]).toMatchObject({ status: "needs_review", docType: "other", flags: [] });
-      expect(byFile["two-page.pdf"]).toMatchObject({
-        status: "extracted",
-        invoiceNumber: "9002",
-        flags: [],
-        document: { pageCount: 2 },
-      });
+      expect(byFile["two-page.pdf"]).toMatchObject({ invoiceNumber: "9002", document: { pageCount: 2 } });
+      // Extraction succeeded, so processInvoice ran: checked and coded, never UNREADABLE.
+      expect(["needs_review", "coded"]).toContain(byFile["two-page.pdf"].status);
+      expect(byFile["two-page.pdf"].flags.map((f) => f.code)).not.toContain("UNREADABLE");
       expect(byFile["two-page.pdf"].total!.toString()).toBe("113");
       // Values on page 2 are checked against page 2's text.
       expect(byFile["two-page.pdf"].evidence).toMatchObject({ total: "confirmed", "taxes.0.label": "confirmed" });
