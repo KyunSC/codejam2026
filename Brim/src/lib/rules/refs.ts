@@ -29,6 +29,14 @@ import type {
 } from "../dataset";
 import type { Currency, InvoiceKind, IsoDate, LineType, Province, TaxCode } from "../types";
 import { buildLineTypeModel, type LineTypeModel } from "./resolve/fields";
+import { type PolicyRule, policyRulesFromCsv } from "./routing/policy";
+
+/**
+ * Statuses of an invoice that will never be paid: rejected, marked a duplicate, or voided. Such an
+ * invoice does not use up a PO balance or count toward a split or a contract's monthly cap.
+ */
+export const DISCARDED_STATUSES: readonly string[] = ["rejected", "duplicate", "void"];
+export const isDiscarded = (status: string | null | undefined): boolean => !!status && DISCARDED_STATUSES.includes(status);
 
 /** An invoice already in the system, as the checks need to see it. */
 export interface KnownInvoice {
@@ -90,6 +98,8 @@ export interface Refs {
   self: { invoiceId: string; status?: string } | null;
   /** Which accounts are goods, services or mixed, learned from the invoices given to buildRefs. */
   lineTypes: LineTypeModel;
+  /** The policy rules in force (seeded from approval_policies.csv; the app replaces them with the PolicyRule table). */
+  policyRules: readonly PolicyRule[];
 }
 
 function groupBy<T>(rows: readonly T[], key: (r: T) => string | null): Map<string, T[]> {
@@ -105,7 +115,7 @@ function groupBy<T>(rows: readonly T[], key: (r: T) => string | null): Map<strin
 }
 
 /** Builds the static part of Refs from the dataset, with the given known invoices. */
-export function buildRefs(ds: Dataset, invoices: readonly KnownInvoice[], today: IsoDate): Refs {
+export function buildRefs(ds: Dataset, invoices: readonly KnownInvoice[], today: IsoDate, policyRules?: readonly PolicyRule[]): Refs {
   const bankChangesByVendor = groupBy(ds.bankChanges, (b) => b.vendorId);
   for (const list of bankChangesByVendor.values()) {
     list.sort((a, b) => a.changedAt.localeCompare(b.changedAt) || a.changeId.localeCompare(b.changeId));
@@ -132,6 +142,7 @@ export function buildRefs(ds: Dataset, invoices: readonly KnownInvoice[], today:
     invoicesByVendor: groupBy(invoices, (i) => i.vendorId),
     self: null,
     lineTypes: buildLineTypeModel(invoices.flatMap((i) => i.lines)),
+    policyRules: policyRules ?? policyRulesFromCsv(ds.approvalPolicies),
   };
 }
 

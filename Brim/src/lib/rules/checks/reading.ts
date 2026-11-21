@@ -5,7 +5,7 @@
 import Decimal from "decimal.js";
 import { config } from "../../config";
 import { addDays, daysBetween } from "../../today";
-import type { Flag, ResolvedInvoice } from "../../types";
+import type { Flag, ParseIssue, ResolvedInvoice } from "../../types";
 import { ev, makeFlag, money } from "../format";
 import type { Refs } from "../refs";
 import { resolveFx } from "../resolve/fields";
@@ -43,7 +43,17 @@ export const checkUnreadable: Check = (inv) =>
       ]
     : [];
 
-/** FIELD_UNCERTAIN: a required field is missing, unreadable, or two reads of a scan disagree on it. */
+const PARSE_ISSUE_TEXT: Record<string, string> = {
+  AMOUNT_UNPARSEABLE: "an amount that could not be read as a number",
+  DATE_UNPARSEABLE: "a date that could not be read",
+  TAX_LABEL_UNKNOWN: "a tax label that matches no known tax, so the tax checks cannot test it",
+};
+
+/**
+ * FIELD_UNCERTAIN: a required field is missing, unreadable, or two reads of a scan disagree on it; or
+ * parsing hit an unreadable amount or date, or an unknown tax label, anywhere on the document (one flag
+ * per field; DATE_AMBIGUOUS has its own check).
+ */
 export const checkFieldUncertain: Check = (inv) => {
   if (isUnusable(inv)) return [];
   const bad = REQUIRED_FIELDS.flatMap((f) => {
@@ -52,7 +62,23 @@ export const checkFieldUncertain: Check = (inv) => {
     if (e === "uncertain" || e === "unreadable" || e === "missing") return [{ f, why: e }];
     return [];
   });
-  return bad.map(({ f, why }) =>
+  const flagged = new Set<string>(bad.map((b) => b.f));
+  const issues: ParseIssue[] = [];
+  for (const p of inv.parseIssues) {
+    if (p.code === "DATE_AMBIGUOUS" || flagged.has(p.field)) continue;
+    flagged.add(p.field);
+    issues.push(p);
+  }
+  const fromIssues = issues.map((p) =>
+    makeFlag(
+      "FIELD_UNCERTAIN",
+      "data",
+      "hold",
+      `The ${p.field} has ${PARSE_ISSUE_TEXT[p.code]}: "${p.raw}" (${p.detail}). Check it against the document.`,
+      [ev(p.field, p.raw, `${DOC}, parse issue ${p.code}`)],
+    ),
+  );
+  return [...bad.map(({ f, why }) =>
     makeFlag(
       "FIELD_UNCERTAIN",
       "data",
@@ -60,7 +86,7 @@ export const checkFieldUncertain: Check = (inv) => {
       `The ${f} field is ${why === "uncertain" ? "uncertain: two reads of the scan disagree" : why}. Check it against the document.`,
       [ev(f, inv[f] === null || inv[f] === undefined ? null : String(inv[f]), `${DOC}, evidence: ${why}`)],
     ),
-  );
+  ), ...fromIssues];
 };
 
 const tol = () => new Decimal(config.tolerance.arithmeticCad);
@@ -208,7 +234,7 @@ export const checkTermsMismatch: Check = (inv, refs) => {
   ];
 };
 
-/** FX_RATE_FALLBACK: a USD invoice is dated after the last FX rate on file, so the last rate was used. */
+/** FX_RATE_FALLBACK: no FX rate on file covers a USD invoice's date (after the last row or before the first), so the nearest was used. */
 export const checkFxRateFallback: Check = (inv, refs) => {
   const fx = resolveFx(inv.currencyResolved, inv.invoiceDate, refs);
   if (!fx.fallback) return [];
@@ -217,8 +243,8 @@ export const checkFxRateFallback: Check = (inv, refs) => {
       "FX_RATE_FALLBACK",
       "data",
       "info",
-      `No USD rate is on file for ${inv.invoiceDate}; the last rate, ${fx.rate!.toString()} on ${fx.rateDate}, was used.`,
-      [ev("Invoice date", inv.invoiceDate, DOC), ev("Rate used", `${fx.rate!.toString()} (${fx.rateDate})`, "fx_rates.csv, last row")],
+      `No USD rate is on file for ${inv.invoiceDate}; the nearest rate, ${fx.rate!.toString()} on ${fx.rateDate}, was used.`,
+      [ev("Invoice date", inv.invoiceDate, DOC), ev("Rate used", `${fx.rate!.toString()} (${fx.rateDate})`, "fx_rates.csv, nearest row")],
     ),
   ];
 };

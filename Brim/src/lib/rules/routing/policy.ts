@@ -68,6 +68,30 @@ export function policyRulesFromCsv(rows: readonly ApprovalPolicyRow[]): PolicyRu
   });
 }
 
+/**
+ * The approval thresholds (CAD incl. tax) in force, lowest first: every amount an active approval rule
+ * compares the total against. A split is a set of invoices dodging one of these.
+ */
+export function approvalThresholds(rules: readonly PolicyRule[]): number[] {
+  const out = new Set<number>();
+  for (const r of rules) {
+    if (!r.active || r.type !== "approval" || r.effect.kind !== "requireSteps") continue;
+    for (const c of r.when) if (c.field === "totalCad") out.add(c.value);
+  }
+  return [...out].sort((a, b) => a - b);
+}
+
+/** The most a role may release under the active release rules (Infinity when uncapped; null when no rule lets it release). */
+export function releaseLimitFor(role: Role, rules: readonly PolicyRule[]): number | null {
+  let best: number | null = null;
+  for (const r of rules) {
+    if (!r.active || r.effect.kind !== "releaseBy" || !r.effect.roles.includes(role)) continue;
+    const cap = r.effect.maxCad ?? Infinity;
+    best = best === null ? cap : Math.max(best, cap);
+  }
+  return best;
+}
+
 /** Release rules (P09/P10) as eligibility bands: roles that may release a payment of this size. */
 export function releaseRoles(amountCad: number, rules: readonly PolicyRule[]): { roles: Set<Role>; ruleIds: string[] } {
   const roles = new Set<Role>();

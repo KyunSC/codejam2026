@@ -24,8 +24,11 @@ import { effectiveRequester } from "../resolve/fields";
 import { type Condition, type PolicyRule, releaseRoles, STEP_RANK, type StepRole } from "./policy";
 
 export interface RoutingInput {
-  /** CAD total incl. tax; for a suspected split, the combined amount. */
-  totalCad: number;
+  /**
+   * CAD total incl. tax; for a suspected split, the combined amount. Null when unknown (e.g. a USD invoice
+   * with no rate): the route then takes every amount-based step and is blocked until the total is known.
+   */
+  totalCad: number | null;
   departmentId: string | null;
   requesterId: string | null;
   vendor: Pick<VendorRow, "status" | "category" | "requiresPo"> | null;
@@ -60,6 +63,8 @@ export interface Route {
 function holds(c: Condition, input: RoutingInput): boolean {
   switch (c.field) {
     case "totalCad":
+      // Unknown total: assume the largest, so no step is missed.
+      if (input.totalCad === null) return c.op === "gt";
       return c.op === "gt" ? input.totalCad > c.value : input.totalCad <= c.value;
     case "vendor.status":
       return !!input.vendor && c.value.includes(input.vendor.status);
@@ -120,6 +125,7 @@ export function route(input: RoutingInput, rules: readonly PolicyRule[], refs: R
   const requester = effectiveRequester(input.requesterId, refs);
   const steps: RouteStep[] = [];
   const blocked: string[] = [];
+  if (input.totalCad === null) blocked.push("The CAD total is unknown, so the approval amount cannot be set; every amount-based step is included until it is known.");
 
   for (const role of roles) {
     const start = resolveRole(role, input, refs);
@@ -146,11 +152,22 @@ export function route(input: RoutingInput, rules: readonly PolicyRule[], refs: R
       }
       step.replacements.push(`${who(cur, step.assignedToId)} ${reason} → manager ${who(mgr, mgr.userId)}`);
       step.assignedToId = mgr.userId;
+      step.onBehalfOfId = null; // the manager acts in their own name, not for the absent person
       step.limitCad = mgr.approvalLimitCad.toNumber();
     };
 
     // 3–6, repeated until nothing changes (a replacement can itself be the requester, absent or a repeat).
-    for (let guard = 0; step.assignedToId && guard < 10; guard++) {
+    // A person reached twice means the replacements go round in a circle: the step is unresolvable.
+    const seen = new Set<string>();
+    let settled = false;
+    while (step.assignedToId) {
+      if (seen.has(step.assignedToId)) {
+        step.unresolvable = `The replacements for this step go round in a circle (${[...seen].join(" → ")} → ${step.assignedToId}).`;
+        step.assignedToId = null;
+        step.onBehalfOfId = null;
+        break;
+      }
+      seen.add(step.assignedToId);
       const u = refs.users.get(step.assignedToId);
       if (!u) {
         step.unresolvable = `User ${step.assignedToId} does not exist.`;
@@ -168,8 +185,12 @@ export function route(input: RoutingInput, rules: readonly PolicyRule[], refs: R
         }
       } else if (u.status === "terminated") toManager("has left the company");
       else if (steps.some((s) => s.assignedToId === u.userId)) toManager(`already holds step ${steps.find((s) => s.assignedToId === u.userId)!.stepNo} of this chain`);
-      else break;
+      else {
+        settled = true;
+        break;
+      }
     }
+    if (!settled && !step.unresolvable) step.unresolvable = "No one could be found to take this step.";
     if (step.unresolvable) blocked.push(`Step ${step.stepNo} (${role}): ${step.unresolvable}`);
     steps.push(step);
   }
@@ -212,7 +233,8 @@ export function routingInputFor(inv: ResolvedInvoice, flags: readonly Flag[], re
   const vendor = inv.vendorId ? refs.vendors.get(inv.vendorId) : undefined;
   const split = findSplit(inv, refs);
   const own: Decimal | null = inv.totalCad;
-  const total = Math.max(own ? own.toNumber() : 0, split ? split.combinedCad.toNumber() : 0);
+  // Unknown own total: unknown routing amount (never $0), even when a split is suspected.
+  const total = own ? Math.max(own.toNumber(), split ? split.combinedCad.toNumber() : 0) : null;
   return {
     totalCad: total,
     departmentId: inv.departmentId,

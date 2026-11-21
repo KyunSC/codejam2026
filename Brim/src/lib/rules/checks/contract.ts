@@ -8,7 +8,7 @@ import { config } from "../../config";
 import type { ContractRow } from "../../dataset";
 import type { ResolvedInvoice } from "../../types";
 import { ev, makeFlag, money, pct } from "../format";
-import type { KnownInvoice, Refs } from "../refs";
+import { isDiscarded, type KnownInvoice, type Refs } from "../refs";
 import type { Check } from "./reading";
 
 const contractOf = (inv: ResolvedInvoice, refs: Refs): ContractRow | undefined =>
@@ -16,12 +16,12 @@ const contractOf = (inv: ResolvedInvoice, refs: Refs): ContractRow | undefined =
 const src = (c: ContractRow) => `contracts.csv ${c.contractId}`;
 const month = (d: string) => d.slice(0, 7);
 
-/** Earlier known invoices from the vendor in the same calendar month, not rejected. */
+/** Earlier known invoices from the vendor in the same calendar month, not discarded (rejected, duplicate, void). */
 function sameMonth(inv: ResolvedInvoice, refs: Refs): KnownInvoice[] {
   if (!inv.vendorId || !inv.invoiceDate) return [];
   const m = month(inv.invoiceDate);
   return (refs.invoicesByVendor.get(inv.vendorId) ?? []).filter(
-    (k) => k.invoiceDate && month(k.invoiceDate) === m && k.status !== "rejected" && k.kind === "invoice",
+    (k) => k.invoiceDate && month(k.invoiceDate) === m && !isDiscarded(k.status) && k.kind === "invoice",
   );
 }
 
@@ -110,20 +110,20 @@ export const checkContractFuelOverCap: Check = (inv, refs) => {
   ];
 };
 
-/** CONTRACT_MONTHLY_CAP: this invoice takes the vendor's calendar month over the contract's not-to-exceed amount. */
+/** CONTRACT_MONTHLY_CAP: with this invoice the vendor's calendar month is over the contract's not-to-exceed amount (every invoice from the one that crosses it on). */
 export const checkContractMonthlyCap: Check = (inv, refs) => {
   const c = contractOf(inv, refs);
   if (!c?.notToExceedMonthly || !inv.subtotal || !inv.invoiceDate || inv.kind === "credit_note") return [];
   const earlier = sameMonth(inv, refs);
   const before = earlier.reduce((s, k) => s.plus(k.subtotal ?? 0), new Decimal(0));
   const after = before.plus(inv.subtotal);
-  if (before.gt(c.notToExceedMonthly) || after.lte(c.notToExceedMonthly)) return [];
+  if (after.lte(c.notToExceedMonthly)) return [];
   return [
     makeFlag(
       "CONTRACT_MONTHLY_CAP",
       "policy",
       "route",
-      `This invoice brings ${month(inv.invoiceDate)} billing under contract ${c.contractId} to ${money(after, inv.currency)}, over the ${money(c.notToExceedMonthly, c.currency)} monthly limit` +
+      `${before.gt(c.notToExceedMonthly) ? "The month was already over its limit; this invoice takes" : "This invoice brings"} ${month(inv.invoiceDate)} billing under contract ${c.contractId} to ${money(after, inv.currency)}, over the ${money(c.notToExceedMonthly, c.currency)} monthly limit` +
         (earlier.length ? ` (with ${earlier.map((e) => `${e.invoiceId} ${money(e.subtotal)}`).join(", ")}).` : "."),
       [ev("Month to date with this invoice", money(after, inv.currency), `invoice subtotals, ${month(inv.invoiceDate)}`), ev("Monthly limit", money(c.notToExceedMonthly, c.currency), src(c))],
       { contractIds: [c.contractId], invoiceIds: earlier.map((e) => e.invoiceId) },

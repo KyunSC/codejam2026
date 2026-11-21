@@ -7,13 +7,9 @@ import { config } from "../../config";
 import { daysBetween } from "../../today";
 import type { ResolvedInvoice } from "../../types";
 import { ev, makeFlag, money } from "../format";
-import type { KnownInvoice, Refs } from "../refs";
+import { isDiscarded, type KnownInvoice, type Refs } from "../refs";
+import { approvalThresholds } from "../routing/policy";
 import type { Check } from "./reading";
-
-/** Approval thresholds (CAD incl. tax) a split could be dodging, lowest first. */
-export function approvalThresholds(): number[] {
-  return [config.approval.deptManagerMaxCad, config.approval.controllerAboveCad, config.approval.cfoAboveCad];
-}
 
 export interface SplitGroup {
   threshold: number;
@@ -30,8 +26,9 @@ function isCopy(k: KnownInvoice, inv: ResolvedInvoice): boolean {
 /**
  * The split this invoice completes, if any: earlier invoices from the same vendor (and the same
  * requester, when both are known) dated within the window, every one (and this one) at or under a
- * threshold, which only together with this invoice go over it. Rejected invoices and copies of this
- * invoice (duplicates) do not count.
+ * threshold (the thresholds of the policy rules in force), which together with this invoice go over it.
+ * Every part from the one that crosses the threshold on is flagged, so a third or later part is caught
+ * too. Discarded invoices (rejected, duplicate, void) and copies of this invoice do not count.
  *
  * Same requester, from PLAN.md ("same vendor + requester"): history's two planted groups are one
  * requester each, and the other same-vendor invoices within 5 days of them have different requesters.
@@ -42,20 +39,19 @@ export function findSplit(inv: ResolvedInvoice, refs: Refs): SplitGroup | null {
   const near = (refs.invoicesByVendor.get(inv.vendorId) ?? []).filter(
     (k) =>
       k.kind === "invoice" &&
-      k.status !== "rejected" &&
+      !isDiscarded(k.status) &&
       k.invoiceDate &&
       k.totalCad &&
       !isCopy(k, inv) &&
       (!inv.requesterId || !k.requesterId || k.requesterId === inv.requesterId) &&
       Math.abs(daysBetween(k.invoiceDate, inv.invoiceDate!)) <= config.checks.splitWindowDays,
   );
-  for (const t of approvalThresholds()) {
+  for (const t of approvalThresholds(refs.policyRules)) {
     if (inv.totalCad.gt(t)) continue;
     const members = near.filter((k) => k.totalCad!.lte(t));
     if (!members.length) continue;
-    const before = members.reduce((s, k) => s.plus(k.totalCad!), new Decimal(0));
-    const combined = before.plus(inv.totalCad);
-    if (before.lte(t) && combined.gt(t)) return { threshold: t, members, combinedCad: combined };
+    const combined = members.reduce((s, k) => s.plus(k.totalCad!), new Decimal(inv.totalCad));
+    if (combined.gt(t)) return { threshold: t, members, combinedCad: combined };
   }
   return null;
 }

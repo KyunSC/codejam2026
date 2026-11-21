@@ -8,7 +8,7 @@ import { addDays } from "../../today";
 import type { ResolvedInvoice } from "../../types";
 import { ev, makeFlag } from "../format";
 import { idKey } from "../keys";
-import type { Refs } from "../refs";
+import { isDiscarded, type Refs } from "../refs";
 import type { Check } from "./reading";
 
 const last4 = (s: string | null | undefined) => (s ? `…${s.slice(-4)}` : "none");
@@ -44,7 +44,7 @@ export function bankChangesAsOf(vendorId: string, asOf: string, refs: Pick<Refs,
 
 /**
  * BANK_CHANGE_UNVERIFIED: the vendor's latest bank change was never verified by a callback, so any
- * payment to the new account is held. An existing invoice is not affected when it was rejected (it will
+ * payment to the new account is held. An existing invoice is not affected when it was discarded (it will
  * not be paid) or its payment was already scheduled before the change.
  */
 export const checkBankChangeUnverified: Check = (inv, refs) => {
@@ -53,7 +53,7 @@ export const checkBankChangeUnverified: Check = (inv, refs) => {
   const latest = changes[changes.length - 1];
   if (!latest || latest.verifiedByCallback) return [];
   if (refs.self) {
-    if (refs.self.status === "rejected") return [];
+    if (isDiscarded(refs.self.status)) return [];
     const inMotion = (refs.paymentsByInvoice.get(refs.self.invoiceId) ?? []).some((p) => p.scheduledDate < latest.changedAt);
     if (inMotion) return [];
   }

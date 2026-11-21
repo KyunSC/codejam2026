@@ -8,11 +8,13 @@ import type { PurchaseOrderRow } from "../../dataset";
 import type { Currency, IsoDate, LineType, Province } from "../../types";
 import { digitsKey, idKey, numberKey } from "../keys";
 import { OFFICES } from "../offices";
-import type { KnownInvoice, Refs } from "../refs";
+import { isDiscarded, type KnownInvoice, type Refs } from "../refs";
 
 // ---------- Province ----------
 
-const squash = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "");
+/** Accents folded (Montréal → MONTREAL), upper case. */
+const fold = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+const squash = (s: string) => fold(s).replace(/[^A-Z0-9]/g, "");
 
 /**
  * The province of the bill-to address: one of Harborline's four offices. Matched on the full
@@ -24,10 +26,10 @@ export function resolveProvince(billToAddress: string | null): Province | null {
   const sq = squash(billToAddress);
   const exact = OFFICES.find((o) => sq.includes(squash(o.address)));
   if (exact) return exact.province;
-  const upper = ` ${billToAddress.toUpperCase().replace(/[^A-Z0-9]/g, " ")} `;
+  const upper = ` ${fold(billToAddress).replace(/[^A-Z0-9]/g, " ")} `;
   const byCode = OFFICES.filter((o) => upper.includes(` ${o.province} `));
   if (byCode.length === 1) return byCode[0].province;
-  const byCity = OFFICES.filter((o) => upper.includes(` ${o.city.toUpperCase()} `));
+  const byCity = OFFICES.filter((o) => upper.includes(` ${fold(o.city).replace(/[^A-Z0-9]/g, " ")} `));
   return byCity.length === 1 ? byCity[0].province : null;
 }
 
@@ -41,9 +43,9 @@ export function findPo(printed: string | null, refs: Pick<Refs, "purchaseOrders"
   return null;
 }
 
-/** Invoices that consume a PO's balance: every known invoice on it except rejected ones. */
+/** Invoices that consume a PO's balance: every known invoice on it except discarded ones (rejected, duplicate, void). */
 export function invoicesOnPo(poId: string, refs: Pick<Refs, "invoices">): KnownInvoice[] {
-  return refs.invoices.filter((i) => i.poId === poId && i.status !== "rejected" && i.kind === "invoice");
+  return refs.invoices.filter((i) => i.poId === poId && !isDiscarded(i.status) && i.kind === "invoice");
 }
 
 /** PO amount (pre-tax) minus the subtotals already invoiced on it (P12). */
@@ -230,17 +232,18 @@ export interface FxResolution {
   rate: Decimal | null;
   /** The fx_rates date used. */
   rateDate: IsoDate | null;
-  /** True when the invoice date is after the last row, so the last row was used (FX_RATE_FALLBACK). */
+  /** True when no row covers the invoice date (after the last row or before the first), so the nearest row was used (FX_RATE_FALLBACK). */
   fallback: boolean;
 }
 
-/** CAD → 1. USD → the fx_rates row for the invoice date; past the last row, the last row (fallback). */
+/** CAD → 1. USD → the fx_rates row for the invoice date; outside the table, the nearest end row (fallback). */
 export function resolveFx(currency: Currency | null, invoiceDate: IsoDate | null, refs: Pick<Refs, "fxRates">): FxResolution {
   if (currency === "CAD") return { rate: new Decimal(1), rateDate: null, fallback: false };
   if (currency !== "USD" || !invoiceDate || !refs.fxRates.length) return { rate: null, rateDate: null, fallback: false };
   const rows = refs.fxRates;
   const last = rows[rows.length - 1];
   if (invoiceDate > last.date) return { rate: last.usdToCad, rateDate: last.date, fallback: true };
+  if (invoiceDate < rows[0].date) return { rate: rows[0].usdToCad, rateDate: rows[0].date, fallback: true };
   // Latest row on or before the date (the table is daily, so normally the date itself).
   let pick = rows[0];
   for (const r of rows) {

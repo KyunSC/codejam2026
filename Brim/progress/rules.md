@@ -207,3 +207,18 @@ their manager before P07 (U015's invoice in D01 → U007 is the requester → st
 - The five worked routing examples pass.
 - Coding accuracy printed: account 147 of 147 lines; department 143 of 147 lines (76 of 78 invoices).
 Run: `npx tsx scripts/verify-counts.ts`, `npx tsx scripts/history-replay.ts`, `npx tsx scripts/coding-accuracy.ts`, `npm test`.
+
+## Code review fixes (2026-11-21)
+Ten findings from the review of loop/rules, each with a regression test in `src/lib/rules/__tests__/review-fixes.test.ts`:
+1. Release limits and split thresholds come from the policy rules in force (`Refs.policyRules`, seeded from
+   approval_policies.csv; `canRelease(..., rules)`), so a policy-editor change reaches them too.
+2. Discarded invoices (rejected, duplicate, void) no longer use up PO balance or count toward splits and monthly caps.
+3. Parse issues other than DATE_AMBIGUOUS (unknown tax label, unreadable amount or date) raise FIELD_UNCERTAIN (hold).
+4. DUP_CONTENT no longer treats two missing number keys as the same number.
+5. CONTRACT_MONTHLY_CAP and SPLIT_SUSPECTED flag every invoice from the one that crosses the limit on.
+6. Bill-to addresses are accent-folded before matching (Montréal → MONTREAL).
+7. An unknown CAD total routes as unknown (every amount step, blocked), never as $0.
+8. Delegates on leave who name each other make the step unresolvable instead of leaving it with an absent person.
+9. A delegate replaced by their manager clears onBehalfOf, so the absent person is not counted as an approver.
+10. A USD invoice dated before the first FX row uses that row and raises FX_RATE_FALLBACK.
+After the fixes: replay still 14 of 14 with no false-positive holds, coding unchanged (147/147, 143/147), 593 tests pass.

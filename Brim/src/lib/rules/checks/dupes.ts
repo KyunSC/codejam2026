@@ -85,6 +85,9 @@ const amountsKey = (amounts: Array<Decimal | null>) =>
     .sort()
     .join("|");
 
+/** Two keys name the same number only when both are present (two missing numbers are not the same number). */
+const sameKey = (a: string | null, b: string | null) => !!a && a === b;
+
 /** DUP_CONTENT: a different number, but the same total, dates within a few days and the same set of line amounts. */
 export const checkDupContent: Check = (inv, refs) => {
   if (!inv.total || !inv.invoiceDate || !inv.lines.length) return [];
@@ -93,8 +96,8 @@ export const checkDupContent: Check = (inv, refs) => {
     .filter(
       (k) =>
         k.kind === inv.kind &&
-        k.numberKey !== inv.numberKey &&
-        k.digitsKey !== inv.digitsKey &&
+        !sameKey(k.numberKey, inv.numberKey) &&
+        !sameKey(k.digitsKey, inv.digitsKey) &&
         k.total?.equals(inv.total!) &&
         k.invoiceDate &&
         Math.abs(daysBetween(k.invoiceDate, inv.invoiceDate!)) <= config.duplicates.contentDateWindowDays &&

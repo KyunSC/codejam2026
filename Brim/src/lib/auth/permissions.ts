@@ -10,6 +10,7 @@
  */
 import Decimal from "decimal.js";
 import { config } from "../config";
+import { type PolicyRule, releaseLimitFor } from "../rules/routing/policy";
 import type { Role } from "../types";
 
 export const ROLES: readonly Role[] = [
@@ -229,15 +230,20 @@ export function checkDidNotApprove(actor: Actor, steps: readonly StepRecord[]): 
     : OK;
 }
 
-/** P09 / P10: finance manager up to the configured limit, controller any amount, nobody else. */
-export function releaseLimitCad(role: Role): number | null {
+/**
+ * P09 / P10: the most this role may release. With the policy rules in force (the PolicyRule table), their
+ * release bands decide, so an admin's edit applies here too. Without them, the seed defaults: finance
+ * manager up to the configured limit, controller any amount, nobody else.
+ */
+export function releaseLimitCad(role: Role, rules?: readonly PolicyRule[]): number | null {
+  if (rules) return releaseLimitFor(role, rules);
   if (role === "controller_admin") return Infinity;
   if (role === "finance_manager") return config.release.financeManagerMaxCad;
   return null;
 }
 
-export function checkReleaseLimit(actor: Actor, amountCad: Decimal | number): Decision {
-  const limit = releaseLimitCad(actor.role);
+export function checkReleaseLimit(actor: Actor, amountCad: Decimal | number, rules?: readonly PolicyRule[]): Decision {
+  const limit = releaseLimitCad(actor.role, rules);
   const amount = new Decimal(amountCad);
   if (limit === null) return deny("RELEASE_LIMIT", `Role ${actor.role} has no release limit.`);
   return amount.lte(limit)
@@ -276,12 +282,12 @@ export function canDecideStep(
   );
 }
 
-/** Release: matrix, read-only, did not approve, within limit. */
-export function canRelease(actor: Actor, steps: readonly StepRecord[], amountCad: Decimal | number): Decision {
+/** Release: matrix, read-only, did not approve, within limit (from `rules`, the policy rules in force, when given). */
+export function canRelease(actor: Actor, steps: readonly StepRecord[], amountCad: Decimal | number, rules?: readonly PolicyRule[]): Decision {
   return firstFailure(
     authorize(actor, "payment.release"),
     checkNotReadOnly(actor),
     checkDidNotApprove(actor, steps),
-    checkReleaseLimit(actor, amountCad),
+    checkReleaseLimit(actor, amountCad, rules),
   );
 }
