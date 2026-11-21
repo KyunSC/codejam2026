@@ -40,8 +40,20 @@ export function PetPerch({ cue, className = "", fadeNear = false }: { cue: PetCu
         e.clientY < r.bottom + FADE_MARGIN;
       root.current.classList.toggle("is-faded", near && !onPet);
     }
+    // A pointer that leaves the page, or a touch or pen that lifts, mustn't leave the pet faded.
+    function clear(e: PointerEvent) {
+      if (e.type === "pointerup" && e.pointerType === "mouse") return;
+      root.current?.classList.remove("is-faded");
+    }
+    const page = document.documentElement;
     window.addEventListener("pointermove", onMove);
-    return () => window.removeEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", clear);
+    page.addEventListener("pointerleave", clear);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", clear);
+      page.removeEventListener("pointerleave", clear);
+    };
   }, [fadeNear, tucked]);
 
   if (tucked) return null;
@@ -50,7 +62,8 @@ export function PetPerch({ cue, className = "", fadeNear = false }: { cue: PetCu
   return (
     <div ref={root} className={`pet-perch ${className}`} data-mood={pet ? cue.mood : "idle"} data-testid="pet-perch">
       {say ? (
-        <p key={say.id} className={`pet-bubble ${say.stay ? "" : "pet-bubble-brief"}`} role="status" data-testid="pet-bubble">
+        // Decorative: the page's own status text carries the same news for screen readers.
+        <p key={say.id} className={`pet-bubble ${say.stay ? "" : "pet-bubble-brief"}`} aria-hidden data-testid="pet-bubble">
           {say.text}
         </p>
       ) : null}

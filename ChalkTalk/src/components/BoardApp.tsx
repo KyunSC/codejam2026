@@ -291,7 +291,9 @@ export function BoardApp({ board }: { board: Board }) {
     const rect = viewport.current?.getBoundingClientRect();
     const c = camRef.current;
     const top = Math.max(0, (header.current?.getBoundingClientRect().bottom ?? 60) - (rect?.top ?? 0));
-    const bottom = panel.current ? panel.current.getBoundingClientRect().height + 24 : 0;
+    // The pet perched on the panel sticks out above it.
+    const perch = panel.current?.querySelector<HTMLElement>("[data-testid=pet-perch]")?.getBoundingClientRect().height ?? 0;
+    const bottom = panel.current ? panel.current.getBoundingClientRect().height + perch + 24 : 0;
     const w = (rect?.width ?? 1280) / c.s;
     const h = Math.max(300, (rect?.height ?? 720) - top - bottom) / c.s;
     return { x: c.x, y: c.y + top / c.s, w, h };

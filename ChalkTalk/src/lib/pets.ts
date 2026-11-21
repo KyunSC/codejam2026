@@ -239,6 +239,7 @@ export function subscribePet(onChange: () => void): () => void {
     if (event.key !== PET_STORAGE_KEY && event.key !== PERCH_STORAGE_KEY && event.key !== null) return;
     if (event.storageArea !== window.localStorage) return;
     unsavedPet = null;
+    unsavedTucked = null;
     onChange();
   }
   window.addEventListener("storage", onStorage);

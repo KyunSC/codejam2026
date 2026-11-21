@@ -87,9 +87,24 @@ export function PetPicker() {
               {tucked && pet ? " It's tucked away: pick a pet to bring it back." : null}
             </p>
           </div>
-          <button type="button" className="btn-secondary min-h-[2.2rem] py-1" onClick={() => dialog.current?.close()}>
-            Close
-          </button>
+          <div className="flex shrink-0 gap-2">
+            {!tucked ? (
+              <button
+                type="button"
+                className="btn-secondary min-h-[2.2rem] py-1"
+                data-testid="pet-hide"
+                onClick={() => {
+                  writePetTucked(true);
+                  dialog.current?.close();
+                }}
+              >
+                Hide pet
+              </button>
+            ) : null}
+            <button type="button" className="btn-secondary min-h-[2.2rem] py-1" onClick={() => dialog.current?.close()}>
+              Close
+            </button>
+          </div>
         </div>
 
         <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3" role="list">

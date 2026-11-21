@@ -304,6 +304,8 @@ body {
   z-index: 5;
 }
 .pet-perch.is-faded { opacity: 0.3; }
+/* A faded bubble lets clicks and pen strokes through to the board. */
+.pet-perch.is-faded .pet-bubble { pointer-events: none; }
 .pet-perch-btn {
   position: relative;
   flex: none;
