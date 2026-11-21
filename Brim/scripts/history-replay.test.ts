@@ -56,7 +56,7 @@ describe("runChecks", () => {
   const { known, resolved } = loadHistory(ds);
   const refs = buildRefs(ds, known, today());
 
-  it("covers every code in BUILD_PLAN's checks table plus the duplicate layers", () => {
+  it("covers every code in BUILD_PLAN's checks table, the duplicate layers and the email fraud checks", () => {
     expect(Object.keys(ALL_CHECKS).sort()).toEqual(
       [
         "UNREADABLE", "FIELD_UNCERTAIN", "ARITHMETIC_LINE", "ARITHMETIC_SUBTOTAL", "ARITHMETIC_TOTAL", "DATE_ODD", "DATE_AMBIGUOUS",
@@ -66,6 +66,8 @@ describe("runChecks", () => {
         "PO_VENDOR_MISMATCH", "PO_CLOSED", "PO_OVER_BALANCE", "CONTRACT_EXPIRED", "CONTRACT_FEE_MISMATCH", "CONTRACT_RATE_OVER_CAP",
         "CONTRACT_FUEL_OVER_CAP", "CONTRACT_MONTHLY_CAP", "CONTRACT_PERIOD_REPEAT", "SPLIT_SUSPECTED", "REQUESTER_TERMINATED",
         "SELF_APPROVAL", "CREDIT_NOTE_ORPHAN", "DUP_EXACT", "DUP_NEAR", "DUP_CONTENT", "DUP_PAID_BY_CARD",
+        // Bonus: fraud alerts on the email.
+        "SENDER_DOMAIN_MISMATCH", "SENDER_LOOKALIKE_DOMAIN",
       ].sort(),
     );
   });

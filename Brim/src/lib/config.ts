@@ -83,6 +83,13 @@ export const config = {
      * the dataset have 0, 2 and 3 invoices; the records they imitate have 4 to 12.
      */
     lookalikeMaxHistory: 3,
+    /**
+     * SENDER_LOOKALIKE_DOMAIN: a sender domain whose name is within this many edits of a vendor's domain name,
+     * or contains a vendor's domain name at least `lookalikeDomainMinNameLen` letters long, without being it.
+     * Over the vendor master this pairs only V052's harlowandstern-llp.example with V026's harlow.example.
+     */
+    lookalikeDomainMaxEdits: 2,
+    lookalikeDomainMinNameLen: 4,
   },
 
   payments: {

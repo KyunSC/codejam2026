@@ -78,5 +78,10 @@ Local env for every command (never Neon): `BRIM_LOCAL_DB_ONLY=1 DATABASE_URL=pos
   - Validation follows what `route.ts` can evaluate (the policy.ts Condition, not types.ts: no `any`/`poPresent`). A rule's effect kind cannot change (a requireSteps rule stays one). Steps are re-sorted by rank.
   - Locked = no change at all (active, when, effect, note); an unchanged draft passes so the preview can send every rule. The auditor may run the preview (reading), not save.
   - Not browser-tested: the dev server on :3000 isn't mine and points at `.env`.
-- [ ] 11. Fraud watch page; sender domain flags shown; open fraud flag blocks release.
+- [x] 11. Fraud watch page; sender domain flags shown; open fraud flag blocks release.
+  - New checks in `src/lib/rules/checks/email.ts` (fraud / hold), with table tests written first: SENDER_DOMAIN_MISMATCH (sender domain ≠ resolved vendor's ap_contact_email domain) and SENDER_LOOKALIKE_DOMAIN (domain name within `config.checks.lookalikeDomainMaxEdits` = 2 of a vendor domain, or containing a vendor domain name of ≥ 4 letters, without being it). Over the whole vendor master only V052 harlowandstern-llp.example ~ V026 harlow.example pairs (tested).
+  - Re-ran process-inbox on the 41 local drafts: AP-00447 (Invoice HA26-2766.pdf, V052) now has VENDOR_LOOKALIKE + SENDER_LOOKALIKE_DOMAIN, as BUILD_PLAN expects. No other draft gets a sender flag: every other sender is on its vendor's AP domain.
+  - `src/lib/workflow/fraud.ts` + GET `/api/orgs/:slug/fraud` + page `/fraud` (finance manager, controller via `flag.resolve.fraud`; auditor 403). Amount at stake: invoice total in CAD unless settled; vendor-level flag = all unsettled invoices of the vendor; payment flag = payment unless sent. Page total counts each invoice once. Nav: "Fraud watch" for finance manager and controller.
+  - Surprise: paymentBlockers only looked at open flags on the invoice. It now also holds on fraud flags on the vendor alone or on the invoice's payments, and on a *confirmed* fraud flag (review.ts already promised that). Tested.
+  - The history-replay coverage test lists every check code; added the two email codes.
 - [ ] 12. Bank reconciliation per BUILD_PLAN Bonus; "Mark explained" audited.

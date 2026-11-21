@@ -83,6 +83,7 @@ export function navFor(role: Role): Array<{ label: string; href: string }> {
       return [
         { label: "Waiting for me", href: "/approvals" },
         { label: "Payments", href: "/payments" },
+        { label: "Fraud watch", href: "/fraud" },
         { label: "Invoices", href: "/invoices" },
         { label: "Vendors", href: "/vendors" },
       ];
@@ -90,6 +91,7 @@ export function navFor(role: Role): Array<{ label: string; href: string }> {
       return [
         { label: "Waiting for me", href: "/approvals" },
         { label: "Payments", href: "/payments" },
+        { label: "Fraud watch", href: "/fraud" },
         { label: "Invoices", href: "/invoices" },
         { label: "Vendors", href: "/vendors" },
         { label: "Policies", href: "/policies" },

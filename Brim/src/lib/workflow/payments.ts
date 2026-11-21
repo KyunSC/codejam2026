@@ -49,16 +49,32 @@ export async function paymentBlockers(
 ): Promise<Blocker[]> {
   const inv = await tx.invoice.findFirst({
     where: { organizationId, id: invoiceId },
-    include: { flags: { where: { status: "open" } }, payments: true },
+    include: { payments: true },
   });
   if (!inv) throw new AppError(404, "INVOICE_NOT_FOUND", `No invoice ${invoiceId}.`);
   const out: Blocker[] = [];
   if (stage === "prepare" && inv.status !== "approved") {
     out.push({ code: "NOT_APPROVED", message: `Invoice ${invoiceId} is ${inv.status}; only an approved invoice is paid.` });
   }
-  const holds = inv.flags.filter((f) => f.effect === "hold" || f.klass === "fraud");
+  // Flags on the invoice, on its payments, or on its vendor alone. An open hold or fraud flag holds the
+  // payment; so does a confirmed fraud flag (the problem is real).
+  const flags = await tx.flag.findMany({
+    where: {
+      organizationId,
+      OR: [
+        { invoiceId },
+        ...(inv.payments.length ? [{ paymentId: { in: inv.payments.map((p) => p.id) } }] : []),
+        ...(inv.vendorId ? [{ vendorId: inv.vendorId, invoiceId: null }] : []),
+      ],
+      AND: [{ OR: [{ status: "open" }, { status: "confirmed", klass: "fraud" }] }],
+    },
+  });
+  const holds = flags.filter((f) => f.status === "confirmed" || f.effect === "hold" || f.klass === "fraud");
   if (holds.length) {
-    out.push({ code: "OPEN_HOLD", message: `Open flags hold this payment: ${holds.map((f) => f.code).join(", ")}.` });
+    out.push({
+      code: "OPEN_HOLD",
+      message: `Flags hold this payment: ${holds.map((f) => (f.status === "confirmed" ? `${f.code} (confirmed fraud)` : f.code)).join(", ")}.`,
+    });
   }
   if (!inv.vendorId) {
     out.push({ code: "VENDOR_NOT_PAYABLE", message: "The invoice has no vendor." });
