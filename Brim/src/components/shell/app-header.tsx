@@ -39,6 +39,7 @@ async function HeaderSession() {
     if (roleCan(session.user.role, "invoice.decide")) items.push({ label: "Waiting for me", href: "/approvals" });
     items.push({ label: "Invoices", href: "/invoices" });
     if (["ap_clerk", "finance_manager", "controller_admin", "auditor"].includes(session.user.role)) items.push({ label: "Payments", href: "/payments" });
+    items.push({ label: "Vendors", href: "/vendors" });
     if (canManageUsers(session.user.role)) items.push({ label: "Settings", href: "/settings" });
     if (canViewAudit(session.user.role)) items.push({ label: "Audit log", href: "/audit" });
   }
