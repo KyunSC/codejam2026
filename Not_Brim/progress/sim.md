@@ -16,7 +16,7 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 - [x] S1.6 `useSimSession` (no repair), `SimFrame`, `ParamSliders`, `GenerationStatus`, teacher page with both badges. Attempts: 0
 - [x] S1.7 Playwright: pendulum → ready with 4 sliders; slider → applied; /dev/fixture error pages. Attempts: 1
 - [x] S1.8 `scripts/try-topics.ts` (stand-in run proves plumbing; real run needs key). Attempts: 1 — needs key: real run
-- [ ] S1.9 Step 1 report. Attempts: 0
+- [x] S1.9 Step 1 report. Attempts: 1
 
 ## Step 2: errors + one repair
 - [ ] S2.1 `/api/repair` and full state machine. Attempts: 0
