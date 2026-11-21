@@ -5,7 +5,7 @@ Branch: `loop/rules` · Roles and permissions, Resolution, Checks, Duplicate det
 Before starting:
 - Phase 0 (Next.js, Prisma, Vitest, `config.ts`, `APP_TODAY`) and `src/lib/types.ts` (`Extracted`, `NormalizedInvoice`) are already on `main`.
 - Branch from `main`: `git switch -c loop/rules`, then `npm install`.
-- No `.env` is needed. Tests pin `APP_TODAY` to 2026-11-02 in `vitest.config.mts`, and `npm run script -- <file>.ts` does the same for scripts.
+- No `.env` is needed. Start Claude Code with `BRIM_LOCAL_DB_ONLY=1` (below): it keeps the shared repo-root `.env` from loading, so the database tests skip instead of reaching Neon. Tests pin `APP_TODAY` to 2026-11-02 in `vitest.config.mts`, and `npm run script -- <file>.ts` does the same for scripts.
 - Run in auto mode or with an allowlist so the loop does not stall on a permission prompt.
 - This loop never connects to the database.
 - In Claude Code, open `/config` and check that auto-compact is on.
@@ -14,10 +14,10 @@ Before starting:
 
   ```bash
   tmux new -s loop-b
-  caffeinate -is claude
+  BRIM_LOCAL_DB_ONLY=1 caffeinate -is claude
   ```
 
-  On Windows use PowerToys Awake or set sleep to "Never"; on Linux use `systemd-inhibit claude`.
+  On Windows use PowerToys Awake or set sleep to "Never" (and `$env:BRIM_LOCAL_DB_ONLY=1` before `claude`); on Linux use `BRIM_LOCAL_DB_ONLY=1 systemd-inhibit claude`.
 
 Paste the block below into Claude Code:
 

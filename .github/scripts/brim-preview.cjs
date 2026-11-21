@@ -28,7 +28,7 @@ async function unrelatedToBrim(github, repo, sha) {
   async function inputs(treeSha) {
     const { data: tree } = await github.rest.git.getTree({ ...repo, tree_sha: treeSha })
     if (tree.truncated) throw new Error('Incomplete Git tree')
-    return tree.tree.filter(entry => entry.path !== 'Not_Brim' && !entry.path.endsWith('.md'))
+    return tree.tree.filter(entry => entry.path !== 'ChalkTalk' && !entry.path.endsWith('.md'))
       .map(entry => [entry.path, entry.mode, entry.sha])
   }
   const head = await github.rest.git.getCommit({ ...repo, commit_sha: sha })

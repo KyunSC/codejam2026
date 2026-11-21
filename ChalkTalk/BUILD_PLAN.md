@@ -5,12 +5,12 @@ The spec for `loops/loop-sim.md`. A teacher types what a student is confused abo
 The checklist at the end is the build order.
 
 ## Stack
-- Scaffold: `Not_Brim/` already holds this file and `loops/`, which `create-next-app` refuses to overwrite. From `Not_Brim/`, scaffold into a temp folder and move it in:
+- Scaffold: `ChalkTalk/` already holds this file and `loops/`, which `create-next-app` refuses to overwrite. From `ChalkTalk/`, scaffold into a temp folder and move it in:
   ```bash
   npx create-next-app@latest _scaffold --ts --tailwind --eslint --app --src-dir --import-alias "@/*" --use-npm --disable-git --yes
   rsync -a _scaffold/ ./ && rm -rf _scaffold
   ```
-  Then `npm install` in `Not_Brim/` to rebuild `node_modules` links after the move.
+  Then `npm install` in `ChalkTalk/` to rebuild `node_modules` links after the move.
 - Deps: `@anthropic-ai/sdk`, `server-only`. Dev deps: `vitest`, `@playwright/test` (then `npx playwright install chromium`). Nothing else without logging it.
 - Scripts:
   - `test` (vitest run), `e2e` (playwright test), `typecheck` (tsc --noEmit)
@@ -275,5 +275,5 @@ States: `idle → streaming → mounting → ready`, with `repairing` and `faile
 **Step 5: saved demos + polish**
 - [ ] `data/demos/*.json` (2 hand-made placeholders: pendulum and falling) and the "Saved demos" menu, which loads instantly with no model call (Playwright checks there's no `/api/generate` request). Add "Save as demo" and `scripts/make-demos.ts` (**needs key**).
 - [ ] Polish: Playwright screenshots at 1920×1080 and 1280×720 into `progress/screens/`. Check text is ≥ 20px, focus states are visible, and the console is clean on every e2e page.
-- [ ] Final: lint, typecheck, vitest, `next build`, e2e, and a clean grep of `.next/static` for "ANTHROPIC" and "sk-ant". Write `Not_Brim/README.md` (run, add the key, try-topics, make-demos) and the final summary in `report.md`.
+- [ ] Final: lint, typecheck, vitest, `next build`, e2e, and a clean grep of `.next/static` for "ANTHROPIC" and "sk-ant". Write `ChalkTalk/README.md` (run, add the key, try-topics, make-demos) and the final summary in `report.md`.
 

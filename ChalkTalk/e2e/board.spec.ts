@@ -91,6 +91,25 @@ test("the pen writes handwriting, grouped into one item, which can be selected a
   await expect(ink).toHaveCount(0);
 });
 
+test("the pen draws inside its own earlier handwriting", async ({ page }) => {
+  await page.goto("/new");
+  await page.getByTestId("tool-pen").click();
+  const b = (await page.getByTestId("board").boundingBox())!;
+  // A circle, then a stroke inside its box.
+  const [cx, cy, r] = [400, 350, 80];
+  await page.mouse.move(b.x + cx + r, b.y + cy);
+  await page.mouse.down();
+  for (let a = 0; a <= 360; a += 15) {
+    await page.mouse.move(b.x + cx + r * Math.cos((a * Math.PI) / 180), b.y + cy + r * Math.sin((a * Math.PI) / 180));
+  }
+  await page.mouse.up();
+  await page.mouse.move(b.x + cx - 20, b.y + cy);
+  await page.mouse.down();
+  await page.mouse.move(b.x + cx + 20, b.y + cy, { steps: 6 });
+  await page.mouse.up();
+  await expect(page.getByTestId("ink").locator("path")).toHaveCount(2);
+});
+
 test("dragging a note moves it", async ({ page }) => {
   await page.goto("/new");
   await addNote(page, "Move me");

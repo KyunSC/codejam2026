@@ -15,7 +15,7 @@ function scenario({ brimChanged = false } = {}) {
     getCommit: async () => ({ data: { tree: { sha: 'head' } } }),
     getTree: async ({ tree_sha }) => ({ data: { tree: [
       { path: 'Brim', sha: brimChanged ? tree_sha : 'same' },
-      { path: 'Not_Brim', sha: tree_sha }, { path: 'README.md', sha: tree_sha }
+      { path: 'ChalkTalk', sha: tree_sha }, { path: 'README.md', sha: tree_sha }
     ] } })
   }
   const github = { rest: { repos, git }, paginate: async () => statuses.slice() }

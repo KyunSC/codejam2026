@@ -95,6 +95,19 @@ export async function listAccessRequests(organizationId: string, f: { status?: s
   return rows.map(publicRequest);
 }
 
+/** Who each request is from, by request id, for labelling audit rows. Unknown ids are left out. */
+export async function accessRequestPeople(organizationId: string, ids: readonly string[]) {
+  if (ids.length === 0) return {};
+  const rows = await db().accessRequest.findMany({
+    where: { organizationId, id: { in: [...new Set(ids)] } },
+    select: { id: true, fullName: true, email: true },
+  });
+  return Object.fromEntries(rows.map((r) => [r.id, { fullName: r.fullName, email: r.email }])) as Record<
+    string,
+    { fullName: string; email: string }
+  >;
+}
+
 async function pending(organizationId: string, id: string) {
   const r = await db().accessRequest.findFirst({ where: { id, organizationId } });
   if (!r) throw new AppError(404, "REQUEST_NOT_FOUND", "No such request.");
