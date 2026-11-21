@@ -1,16 +1,39 @@
 import { badRequest } from "@/lib/api";
-import { BOARD_ID, boardStore, type NewBoard } from "@/lib/boards";
+import type { Board, BoardItem } from "@/lib/board";
+import { BOARD_ID, boardStore, SHARE_TOKEN, type NewBoard } from "@/lib/boards";
 import { storageErrorResponse } from "@/lib/db";
 import { demoBoardItems, listDemoBoards } from "@/lib/demo-boards";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Start a board: empty, or a copy of a demo board (`{ demo: slug }`). */
+/** A student's copy of a shared board: the same items and title, a changelog that starts fresh. */
+function copyOfShared(board: Board): NewBoard {
+  const items = board.items.map((it): BoardItem => {
+    if (it.kind !== "sim") return it;
+    // The copy doesn't inherit the teacher's saved-sim and class links.
+    const { simId: _simId, shareToken: _token, sharedClass: _cls, ...rest } = it;
+    void _simId;
+    void _token;
+    void _cls;
+    return rest;
+  });
+  return {
+    title: board.title,
+    items,
+    log: [{ at: new Date().toISOString(), author: "student", text: `The student opened their own copy of the shared board ${JSON.stringify(board.title)}.` }],
+  };
+}
+
+/** Start a board: empty, a copy of a demo board (`{ demo: slug }`), or a student's copy of a shared board (`{ share: token }`). */
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as { title?: unknown; demo?: unknown } | null;
+  const body = (await req.json().catch(() => ({}))) as { title?: unknown; demo?: unknown; share?: unknown } | null;
   let init: NewBoard = {};
-  if (typeof body?.demo === "string") {
+  if (typeof body?.share === "string") {
+    const shared = SHARE_TOKEN.test(body.share) ? await boardStore().getSharedBoard(body.share).catch(() => null) : null;
+    if (!shared) return badRequest("Unknown shared board.", 404);
+    init = copyOfShared(shared);
+  } else if (typeof body?.demo === "string") {
     const demo = await demoBoardItems(body.demo).catch(() => null);
     if (!demo) return badRequest("Unknown demo board.", 404);
     init = demo;

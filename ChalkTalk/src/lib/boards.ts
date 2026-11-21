@@ -4,6 +4,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { DEFAULT_TITLE, MAX_LOG, MAX_TITLE_CHARS, type Board, type BoardItem, type BoardSummary, type LogEntry } from "./board";
 import { assertFileStorageWritable, db, type Db } from "./db";
+import { randomUUID } from "node:crypto";
 import { newId } from "./store";
 
 export const BOARD_ID = /^[0-9a-f]{12}$/;
@@ -26,7 +27,14 @@ export interface BoardStore {
   listBoards(ids: string[]): Promise<BoardSummary[]>;
   /** Read, change and write one board atomically; the version rises by one. Null when there's no such board. */
   change(id: string, fn: BoardChange): Promise<Board | null>;
+  /** Give the board a share token (once) and return the board. Null when there's no such board. */
+  share(id: string): Promise<Board | null>;
+  getSharedBoard(token: string): Promise<Board | null>;
 }
+
+/** A share token: 32 hex characters, too many to guess. */
+export const SHARE_TOKEN = /^[0-9a-f]{32}$/;
+const newShareToken = () => randomUUID().replace(/-/g, "");
 
 const cleanTitle = (t: string | undefined) => (t ?? "").trim().slice(0, MAX_TITLE_CHARS) || DEFAULT_TITLE;
 
@@ -100,6 +108,23 @@ export function createBoardStore(file: string): BoardStore {
         .map(summary)
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     },
+    share(id) {
+      assertFileStorageWritable();
+      return locked(async () => {
+        const boards = await readAll();
+        const b = boards.find((x) => x.id === id);
+        if (!b) return null;
+        if (!b.shareToken) {
+          b.shareToken = newShareToken();
+          await writeAll(boards);
+        }
+        return b;
+      });
+    },
+    async getSharedBoard(token) {
+      await queue;
+      return (await readAll()).find((b) => b.shareToken === token) ?? null;
+    },
     change(id, fn) {
       assertFileStorageWritable();
       return locked(async () => {
@@ -129,6 +154,7 @@ interface BoardRow {
   items: BoardItem[];
   version: number | null;
   log: LogEntry[] | null;
+  share_token: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -139,6 +165,7 @@ const toBoard = (r: BoardRow): Board => ({
   items: r.items,
   version: r.version ?? 0,
   log: r.log ?? [],
+  ...(r.share_token ? { shareToken: r.share_token } : {}),
   createdAt: r.created_at.toISOString(),
   updatedAt: r.updated_at.toISOString(),
 });
@@ -172,6 +199,19 @@ export function createPgBoardStore({ pool, ready }: Db): BoardStore {
         [ids],
       );
       return rows.map((r) => summary(toBoard(r)));
+    },
+    async share(id) {
+      await ready;
+      const { rows } = await pool.query<BoardRow>(
+        "UPDATE livesim_boards SET share_token = COALESCE(share_token, $2) WHERE id = $1 RETURNING *",
+        [id, newShareToken()],
+      );
+      return rows[0] ? toBoard(rows[0]) : null;
+    },
+    async getSharedBoard(token) {
+      await ready;
+      const { rows } = await pool.query<BoardRow>("SELECT * FROM livesim_boards WHERE share_token = $1", [token]);
+      return rows[0] ? toBoard(rows[0]) : null;
     },
     async change(id, fn) {
       await ready;

@@ -30,6 +30,7 @@ import type { BoardEvent, Stage } from "@/lib/types";
 import { useStandInStatus } from "@/lib/useStandInStatus";
 import { StandInBadge } from "./Badges";
 import { rememberBoard } from "./BoardsHome";
+import { BoardShareButton } from "./ShareButton";
 import { ToolIcon } from "./ToolIcon";
 import { PetPicker } from "./PetPicker";
 import { InkView, StrokePaths } from "./board/InkView";
@@ -99,6 +100,7 @@ export function BoardApp({ board }: { board: Board }) {
   const camRef = useRef(cam);
   const [tool, setTool] = useState<Tool>("select");
   const [penColor, setPenColor] = useState(PEN_COLORS[0]);
+  const [penLeft, setPenLeft] = useState(12);
   const [selected, setSelected] = useState<string | null>(null);
   const [focusNote, setFocusNote] = useState<string | null>(null);
   const [drawing, setDrawing] = useState<number[] | null>(null);
@@ -121,6 +123,12 @@ export function BoardApp({ board }: { board: Board }) {
   const [ask, setAsk] = useState<AskState>({ state: "idle", stage: null, text: "", rejected: [] });
   const viewport = useRef<HTMLDivElement>(null);
   const header = useRef<HTMLElement>(null);
+  // The colours sit under the Pen button, wherever the bar put it (also when picked with the P key).
+  useEffect(() => {
+    if (tool !== "pen") return;
+    const r = header.current?.querySelector('[data-testid="tool-pen"]')?.getBoundingClientRect();
+    if (r) setPenLeft(Math.max(12, r.left - 6));
+  }, [tool]);
   const panel = useRef<HTMLElement>(null);
   const lastInk = useRef<{ id: string; at: number } | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -274,16 +282,14 @@ export function BoardApp({ board }: { board: Board }) {
     return { x: c.x + (clientX - (rect?.left ?? 0)) / c.s, y: c.y + (clientY - (rect?.top ?? 0)) / c.s };
   }, []);
 
-  /** The part of the board on screen, below the toolbar and left of the Ask Claude panel. */
+  /** The part of the board on screen: below the toolbox bar and above the Ask Claude bar. */
   const currentView = useCallback((): View => {
     const rect = viewport.current?.getBoundingClientRect();
     const c = camRef.current;
-    const top = Math.max(0, (header.current?.getBoundingClientRect().bottom ?? 110) - (rect?.top ?? 0));
-    // On narrow screens the panel floats over the board instead of taking a column.
-    const width = rect?.width ?? 1280;
-    const right = panel.current && width >= 900 ? panel.current.getBoundingClientRect().width + 24 : 0;
-    const w = Math.max(Math.min(width, 400), width - right) / c.s;
-    const h = Math.max(300, (rect?.height ?? 720) - top) / c.s;
+    const top = Math.max(0, (header.current?.getBoundingClientRect().bottom ?? 60) - (rect?.top ?? 0));
+    const bottom = panel.current ? panel.current.getBoundingClientRect().height + 24 : 0;
+    const w = (rect?.width ?? 1280) / c.s;
+    const h = Math.max(300, (rect?.height ?? 720) - top - bottom) / c.s;
     return { x: c.x, y: c.y + top / c.s, w, h };
   }, []);
 
@@ -708,19 +714,6 @@ export function BoardApp({ board }: { board: Board }) {
           <ToolIcon name="sim" />
           <span className="tool-label">Simulation</span>
         </button>
-        {tool === "pen"
-          ? PEN_COLORS.map((c) => (
-              <button
-                key={c}
-                type="button"
-                className="tool-swatch"
-                style={{ background: c }}
-                aria-label={`Pen colour ${c}`}
-                aria-pressed={penColor === c}
-                onClick={() => setPenColor(c)}
-              />
-            ))
-          : null}
         <span className="toolbar-sep" aria-hidden />
         <button type="button" className="tool-btn" aria-label="Zoom out" title="Zoom out" onClick={() => zoomAt(1 / 1.25)}>
           <ToolIcon name="minus" />
@@ -731,13 +724,15 @@ export function BoardApp({ board }: { board: Board }) {
         <button type="button" className="tool-btn" aria-label="Zoom in" title="Zoom in" onClick={() => zoomAt(1.25)}>
           <ToolIcon name="plus" />
         </button>
+        <span className="toolbar-sep" aria-hidden />
+        <BoardShareButton boardId={board.id} />
         <span className="flex-1" />
         {full ? (
           <span className="kicker text-danger" data-testid="board-full" title={`Board full (${MAX_ITEMS} items): delete something to add more`}>
             Full
           </span>
         ) : null}
-        <StandInBadge standIn={standIn} />
+        <StandInBadge standIn={standIn} compact />
         <span
           className="kicker"
           data-testid="save-state"
@@ -750,7 +745,24 @@ export function BoardApp({ board }: { board: Board }) {
         <PetPicker />
       </header>
 
-      <dialog ref={simDialog} className="card m-auto w-[min(34rem,calc(100vw-2rem))] p-0 backdrop:bg-black/40" data-testid="sim-dialog">
+      {tool === "pen" ? (
+        // The colours hang under the bar, so picking the pen never pushes the bar's other buttons out of view.
+        <div className="toolbar absolute top-[3.6rem] z-10" style={{ left: penLeft }} role="group" aria-label="Pen colour" data-testid="pen-colours">
+          {PEN_COLORS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              className="tool-swatch"
+              style={{ background: c }}
+              aria-label={`Pen colour ${c}`}
+              aria-pressed={penColor === c}
+              onClick={() => setPenColor(c)}
+            />
+          ))}
+        </div>
+      ) : null}
+
+      <dialog ref={simDialog} className="card m-auto w-[min(34rem,calc(100vw-2rem))] p-0 text-text backdrop:bg-black/40" data-testid="sim-dialog">
         <form
           className="flex flex-col gap-3 p-4"
           onSubmit={(e) => {
@@ -790,47 +802,39 @@ export function BoardApp({ board }: { board: Board }) {
 
       <aside
         ref={panel}
-        className="card absolute bottom-3 right-3 flex w-[min(26rem,calc(100vw-1.5rem))] flex-col gap-2 p-3 shadow-[6px_6px_0_var(--blue)]"
+        className="toolbar absolute bottom-3 right-3 w-[min(24rem,calc(100vw-1.5rem))] flex-col !flex-nowrap !items-stretch !overflow-visible shadow-[4px_4px_0_var(--blue)]"
         aria-label="Ask Claude"
         data-scrolls="1"
       >
         <form
-          className="flex flex-col gap-2"
+          className="flex gap-1.5"
           onSubmit={(e) => {
             e.preventDefault();
             void askClaude();
           }}
         >
-          <textarea
-            className="field min-h-[3em] resize-none"
-            rows={2}
+          <input
+            className="field h-[2.1rem] min-w-0 flex-1 px-2 py-0 shadow-none"
             aria-label="Message for Claude (optional)"
             data-testid="ask-input"
-            placeholder="Ask Claude something (optional). Claude reads the whole board."
+            placeholder="Ask Claude (optional message)"
             value={message}
             onChange={(e) => setMessage(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void askClaude();
-              }
-            }}
           />
-          <button type="submit" className="btn-primary btn-gold" data-testid="ask-button" disabled={ask.state === "busy"}>
-            {ask.state === "busy" ? "Claude is working…" : "Ask Claude"}
+          <button type="submit" className="tool-btn" aria-pressed={ask.state === "busy"} data-testid="ask-button" disabled={ask.state === "busy"}>
+            {ask.state === "busy" ? "Working…" : "Ask Claude"}
           </button>
         </form>
         {askLabel ? (
           <div
-            className={`font-bold ${ask.state === "error" ? "text-danger" : "text-text"}`}
+            className={`max-h-[7rem] overflow-y-auto px-1 text-base font-semibold leading-snug ${ask.state === "error" ? "text-danger" : "text-text"}`}
             data-testid="ask-status"
             data-state={ask.state}
             role={ask.state === "error" ? "alert" : "status"}
           >
-            {ask.state === "busy" ? <span className="chip mr-2 bg-blue">Working</span> : null}
             {askLabel}
             {ask.rejected.length ? (
-              <ul className="mt-1 list-disc pl-6 font-normal text-muted">
+              <ul className="mt-1 list-disc pl-5 font-normal text-muted">
                 {ask.rejected.map((r, i) => (
                   <li key={i}>Skipped: {r}</li>
                 ))}
