@@ -2,15 +2,18 @@
 // realistic pacing so the whole pipeline can run without an API key.
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import type { Homework, HomeworkInput, SimModel, StreamEvent } from "../types";
+import type { BoardAction, BoardItem } from "../board";
+import type { BoardEvent, BoardTurnInput, Homework, HomeworkInput, SimModel, StreamEvent } from "../types";
 
 export interface StandInTiming {
   thinkMs: number;
   chunks: number;
   writeMs: number;
+  /** A whiteboard turn: time "reading" the board, then the gap between actions. */
+  boardMs: number;
 }
 
-const DEFAULT_TIMING: StandInTiming = { thinkMs: 1500, chunks: 40, writeMs: 3000 };
+const DEFAULT_TIMING: StandInTiming = { thinkMs: 1500, chunks: 40, writeMs: 3000, boardMs: 900 };
 
 const KEYWORDS: Array<[string, RegExp]> = [
   ["pendulum", /pendul|swing|\bbob\b|period/i],
@@ -44,8 +47,7 @@ export class StandInModel implements SimModel {
   pick(prompt: string): string {
     const forced = /\[\[fixture:([a-z0-9-]+)\]\]/i.exec(prompt);
     if (forced && this.has(forced[1].toLowerCase())) return forced[1].toLowerCase();
-    for (const [name, re] of KEYWORDS) if (re.test(prompt)) return name;
-    return "pendulum";
+    return matchFixture(prompt) ?? "pendulum";
   }
 
   /** The fixture name stamped in a document's header comment, if any. */
@@ -84,6 +86,26 @@ export class StandInModel implements SimModel {
     };
   }
 
+  /**
+   * A deterministic whiteboard turn. Test hooks: \`[[fixture:NAME]]\` in the message adds that sim;
+   * a message starting with "change:" edits the newest simulation box Claude made.
+   */
+  async *boardTurn(input: BoardTurnInput): AsyncGenerator<BoardEvent> {
+    const start = Date.now();
+    yield { type: "status", stage: "thinking" };
+    await sleep(this.timing.boardMs);
+    yield { type: "status", stage: "writing" };
+    for (const action of standInActions(input.items, input.message, (n) => this.has(n))) {
+      yield { type: "action", action };
+      await sleep(this.timing.boardMs / 3);
+    }
+    yield {
+      type: "done",
+      usage: { input_tokens: 1800 + JSON.stringify(input.items).length / 4, output_tokens: 120 },
+      ms: Date.now() - start,
+    };
+  }
+
   private async *replay(text: string, inputChars: number): AsyncGenerator<StreamEvent> {
     const start = Date.now();
     const { thinkMs, chunks, writeMs } = this.timing;
@@ -105,6 +127,52 @@ export class StandInModel implements SimModel {
       ms: Date.now() - start,
     };
   }
+}
+
+/** The fixture a piece of text is about, by keyword, or null. */
+export function matchFixture(text: string): string | null {
+  for (const [name, re] of KEYWORDS) if (re.test(text)) return name;
+  return null;
+}
+
+const clip = (t: string, n: number) => (t.length > n ? t.slice(0, n - 1).trimEnd() + "…" : t);
+
+/** What the stand-in does on the board: reply in a note, and add or change a sim when the words call for it. */
+export function standInActions(items: BoardItem[], message: string, has: (fixture: string) => boolean): BoardAction[] {
+  const actions: BoardAction[] = [];
+  const msg = message.trim();
+  const student = items.filter((it) => it.author === "student");
+  const notes = student.filter((it) => it.kind === "note" && it.text.trim());
+  const latestNote = notes.at(-1);
+  const anchor = student.at(-1);
+  const beside = anchor ? { x: Math.round(anchor.x + anchor.w + 24), y: Math.round(anchor.y) } : {};
+  const mySims = items.filter((it) => it.kind === "sim" && it.author === "claude" && it.code);
+
+  const change = /^change\s*:\s*([\s\S]+)$/i.exec(msg);
+  if (change && mySims.length) {
+    actions.push({ type: "edit_sim", id: mySims.at(-1)!.id, request: change[1].trim() });
+    actions.push({ type: "add_note", text: `I'm changing the simulation: ${clip(change[1].trim(), 120)}`, ...beside });
+    return actions;
+  }
+
+  const forced = /\[\[fixture:([a-z0-9-]+)\]\]/i.exec(msg);
+  const topicText = msg || (latestNote?.kind === "note" ? latestNote.text : "");
+  const fixture = forced && has(forced[1].toLowerCase()) ? forced[1].toLowerCase() : matchFixture(topicText);
+  const already = items.some((it) => it.kind === "sim" && (forced ? it.prompt === topicText : matchFixture(it.prompt) === fixture));
+  const addSim = Boolean(fixture) && !already;
+
+  const parts: string[] = [];
+  if (latestNote?.kind === "note") parts.push(`I read your note: "${clip(latestNote.text.trim(), 100)}".`);
+  else if (msg) parts.push(`You asked: "${clip(msg, 100)}".`);
+  if (student.some((it) => it.kind === "ink"))
+    parts.push("I can't read handwriting in offline mode; with an API key I read it from a picture of the board.");
+  if (addSim) parts.push("I put a simulation on the board to test it. Predict what will happen before you move a slider.");
+  else if (parts.length) parts.push("What do you predict, and how could you check it?");
+  else parts.push("The board is empty. Write what you're wondering about, then press Ask Claude.");
+
+  actions.push({ type: "add_note", text: parts.join(" "), ...beside });
+  if (addSim) actions.push({ type: "add_sim", prompt: topicText });
+  return actions;
 }
 
 /** Move a value one step up (or down at the top), staying on the step grid and in range. */

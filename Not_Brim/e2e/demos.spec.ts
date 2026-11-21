@@ -16,14 +16,13 @@ test("a saved demo loads instantly with no /api/generate request", async ({ page
   test.info().annotations.push({ type: "demo-ready-ms", description: String(Date.now() - started) });
   await expect(page.getByTestId("sim-title")).toHaveText("Two Balls Dropped Together");
   await expect(page.locator('input[type="range"]')).toHaveCount(4);
-  await expect(page.getByTestId("prompt-input")).toHaveValue("Does a heavier ball fall faster than a light one?");
-  // A demo is saved as a sim, so it can be shared, but it can't be re-saved as a demo.
+  // A demo becomes a box on the board, and is saved as a sim so it can be shared.
   await expect(page.getByTestId("share-button")).toBeEnabled();
-  await expect(page.getByTestId("save-demo-button")).toBeDisabled();
 
   await select.selectOption("pendulum");
-  await expect(page.getByTestId("sim-title")).toHaveText("Two Pendulums, Two Masses");
-  await expect(panel).toHaveAttribute("data-state", "ready");
+  await expect(page.getByTestId("sim-box")).toHaveCount(2);
+  await expect(page.getByTestId("sim-title").nth(1)).toHaveText("Two Pendulums, Two Masses");
+  await expect(panel.nth(1)).toHaveAttribute("data-state", "ready");
   expect(modelCalls).toEqual([]);
 });
 

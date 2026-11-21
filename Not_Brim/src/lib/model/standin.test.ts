@@ -1,7 +1,8 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import type { StreamEvent } from "../types";
-import { StandInModel, bumpFirstDefault, oneStep } from "./standin";
+import type { BoardItem } from "../board";
+import type { BoardEvent, StreamEvent } from "../types";
+import { StandInModel, bumpFirstDefault, oneStep, standInActions } from "./standin";
 
 const fast = new StandInModel({ timing: { thinkMs: 0, chunks: 40, writeMs: 0 } });
 
@@ -100,5 +101,56 @@ describe("helpers", () => {
 
   it("bumpFirstDefault leaves documents without params alone", () => {
     expect(bumpFirstDefault("<html></html>")).toBe("<html></html>");
+  });
+});
+
+describe("boardTurn", () => {
+  const board = new StandInModel({ timing: { boardMs: 0 } });
+  const has = (n: string) => board.has(n);
+  const studentNote = (text: string): BoardItem => ({ id: "n1", author: "student", kind: "note", text, x: 10, y: 20, w: 320, h: 200 });
+
+  it("streams status, then actions, then done", async () => {
+    const events: BoardEvent[] = [];
+    for await (const e of board.boardTurn({ items: [studentNote("Does a heavier pendulum swing faster?")], view: null, message: "", image: null }))
+      events.push(e);
+    expect(events.map((e) => e.type)).toEqual(["status", "status", "action", "action", "done"]);
+  });
+
+  it("replies beside the student's note and adds a sim when the note names a topic", () => {
+    const actions = standInActions([studentNote("Does a heavier pendulum swing faster?")], "", has);
+    expect(actions[0]).toMatchObject({ type: "add_note", x: 354, y: 20 });
+    expect(actions[0].type === "add_note" && actions[0].text).toContain('I read your note: "Does a heavier pendulum swing faster?"');
+    expect(actions[1]).toEqual({ type: "add_sim", prompt: "Does a heavier pendulum swing faster?" });
+  });
+
+  it("doesn't add a second sim on the same topic, and asks for a prediction instead", () => {
+    const items: BoardItem[] = [
+      studentNote("Does a heavier pendulum swing faster?"),
+      { id: "s1", author: "claude", kind: "sim", prompt: "pendulum mass", code: null, title: "", question: "", params: [], values: {}, x: 0, y: 0, w: 780, h: 520 },
+    ];
+    const actions = standInActions(items, "", has);
+    expect(actions).toHaveLength(1);
+    expect(actions[0].type === "add_note" && actions[0].text).toContain("What do you predict");
+  });
+
+  it("forces a fixture with [[fixture:NAME]] and edits Claude's newest sim on 'change:'", () => {
+    expect(standInActions([], "Why? [[fixture:throws-broken]]", has).at(-1)).toEqual({
+      type: "add_sim",
+      prompt: "Why? [[fixture:throws-broken]]",
+    });
+    const mine: BoardItem = {
+      id: "s9", author: "claude", kind: "sim", prompt: "p", code: "<html></html>", title: "", question: "", params: [], values: {}, x: 0, y: 0, w: 780, h: 520,
+    };
+    expect(standInActions([mine], "change: make bob B twice as heavy", has)[0]).toEqual({
+      type: "edit_sim",
+      id: "s9",
+      request: "make bob B twice as heavy",
+    });
+  });
+
+  it("says when it can't read handwriting, and what to do on an empty board", () => {
+    const ink: BoardItem = { id: "i1", author: "student", kind: "ink", strokes: [{ points: [0, 0, 5, 5], color: "#000000", width: 4 }], x: 0, y: 0, w: 40, h: 40 };
+    expect(JSON.stringify(standInActions([ink], "", has))).toContain("can't read handwriting");
+    expect(JSON.stringify(standInActions([], "", has))).toContain("The board is empty");
   });
 });

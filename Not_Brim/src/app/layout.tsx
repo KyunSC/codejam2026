@@ -7,7 +7,7 @@ const silkscreen = Silkscreen({ subsets: ["latin"], weight: ["400", "700"], vari
 
 export const metadata: Metadata = {
   title: "Live Sim",
-  description: "Turn a student's confusion into an interactive simulation.",
+  description: "A whiteboard shared by a student and Claude, with live simulations.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
