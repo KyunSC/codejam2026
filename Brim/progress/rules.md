@@ -10,7 +10,7 @@ Scripts in `scripts/` set `APP_TODAY=2026-11-02` themselves.
 
 - [x] 1. `scripts/verify-counts.ts`: verify every count in BUILD_PLAN "Tables"; log mismatches below
 - [x] 2. Refs (reference data indexes) + history adapter (InvoiceRow + lines → ResolvedInvoice) + name/number key helpers
-- [ ] 3. Roles and permissions: matrix in `src/lib/auth/permissions.ts` + invariant checks (SELF_APPROVAL, NOT_YOUR_STEP, APPROVER_CANNOT_RELEASE, RELEASE_LIMIT, FOUR_EYES, READ_ONLY_ROLE)
+- [x] 3. Roles and permissions: matrix in `src/lib/auth/permissions.ts` + invariant checks (SELF_APPROVAL, NOT_YOUR_STEP, APPROVER_CANNOT_RELEASE, RELEASE_LIMIT, FOUR_EYES, READ_ONLY_ROLE)
 - [ ] 4. Resolution: vendor (tax number → bank+similar name → normalised name → unknown with candidates)
 - [ ] 5. Resolution: province, PO + suggestions, contract, department, requester (terminated → manager), line type, currency/FX
 - [ ] 6. Checks: UNREADABLE, FIELD_UNCERTAIN, ARITHMETIC_LINE/SUBTOTAL/TOTAL, DATE_ODD, DATE_AMBIGUOUS, TERMS_MISMATCH, FX_RATE_FALLBACK, SHIP_TO_UNKNOWN
@@ -43,3 +43,10 @@ before the one being checked (`refsAsOf` for the replay: received date, then id)
 flags once, on the second arrival. History has no remittance on record, so bank checks cannot fire on it;
 terms are rebuilt as `Net (due − invoice date)`. `ResolvedInvoice` has no id, so `refs.self` carries it
 (logged in questions.md).
+
+### Item 3: roles and permissions (2026-11-21)
+`src/lib/auth/permissions.ts`: `MATRIX` (20 actions × 6 roles, scoped: own submissions, own department,
+own department or step, own step, up to limit), `VENDOR_VIEW` for bank masking, `authorize`, and the six
+invariants plus `canDecideStep` / `canRelease`. The matrix test checks all 120 cells against an independent
+transcription of BUILD_PLAN's table. APPROVER_CANNOT_RELEASE also blocks the absent approver a delegate
+approved for (the approval was on their authority).
