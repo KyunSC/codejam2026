@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS livesim_boards (
 ALTER TABLE livesim_boards ADD COLUMN IF NOT EXISTS title text;
 ALTER TABLE livesim_boards ADD COLUMN IF NOT EXISTS version integer NOT NULL DEFAULT 0;
 ALTER TABLE livesim_boards ADD COLUMN IF NOT EXISTS log jsonb NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE livesim_boards ADD COLUMN IF NOT EXISTS share_token text UNIQUE;
 CREATE TABLE IF NOT EXISTS livesim_sims (
   id text PRIMARY KEY,
   record jsonb NOT NULL,

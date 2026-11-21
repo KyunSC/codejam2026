@@ -381,8 +381,8 @@ body {
 .tool-swatch[aria-pressed="true"] { outline: 3px solid var(--blue); outline-offset: 2px; }
 .toolbar-sep { flex: none; width: 2px; height: 1.6rem; background: var(--line); margin: 0 0.15rem; }
 .board-title {
-  flex: 0 1 12rem;
-  min-width: 5rem;
+  flex: 0 1 14rem;
+  min-width: 8rem;
   height: 2.1rem;
   padding: 0 0.5rem;
   border: 2px solid transparent;
@@ -394,5 +394,11 @@ body {
 }
 .board-title:hover, .board-title:focus { border-color: var(--line); background: var(--card-soft); }
 /* Labels go on narrow screens; the icons and titles stay. */
-@media (max-width: 1440px) { .tool-label { display: none; } }
+@media (max-width: 1599px) { .tool-label { display: none; } }
 .erase-mode { cursor: cell; }
+/* On a phone the bar wraps onto a second row, so every button stays in sight. */
+@media (max-width: 640px) {
+  .toolbar { flex-wrap: wrap; overflow-x: visible; }
+  .board-title { flex: 1 1 8rem; }
+  .toolbar-sep { display: none; }
+}

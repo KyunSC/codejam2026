@@ -17,13 +17,17 @@ test("make demos", async ({ page, request }) => {
     await page.goto("/new");
     await page.getByTestId("tool-sim").click();
     await page.getByTestId("prompt-input").fill(demo.prompt);
-    // The sim is saved on ready; capture exactly what was saved.
-    const saved = page.waitForRequest((r) => r.url().endsWith("/api/sims") && r.method() === "POST", { timeout: 10 * 60_000 });
     await page.getByTestId("create-button").click();
     const panel = page.getByTestId("sim-panel");
     await expect(panel).toHaveAttribute("data-state", /^(ready|failed)$/, { timeout: 10 * 60_000 });
     if ((await panel.getAttribute("data-state")) !== "ready") throw new Error(`"${demo.prompt}" failed; demo not updated.`);
-    const body = (await saved).postDataJSON() as Record<string, unknown>;
+    // The board saves the box's code on ready; take exactly what it saved.
+    await expect(page.getByTestId("save-state")).toHaveAttribute("data-state", "saved", { timeout: 30_000 });
+    const board = (await (await request.get(`/api/boards/${page.url().split("/b/")[1]}`)).json()) as {
+      items: Array<Record<string, unknown> & { kind: string }>;
+    };
+    const sim = board.items.find((i) => i.kind === "sim")!;
+    const body = { prompt: sim.prompt, code: sim.code, title: sim.title, question: sim.question, params: sim.params };
     const res = await request.post("/api/demos", { data: { ...body, slug: demo.slug } });
     expect(res.status(), await res.text()).toBe(201);
     console.log(`saved data/demos/${demo.slug}.json: ${String(body.title)}`);

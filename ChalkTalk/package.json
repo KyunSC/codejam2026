@@ -8,7 +8,6 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "e2e": "playwright test",
     "typecheck": "next typegen && tsc --noEmit",
     "try-topics": "playwright test -c scripts/playwright.scripts.config.ts try-topics",
     "make-demos": "playwright test -c scripts/playwright.scripts.config.ts make-demos"

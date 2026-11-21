@@ -71,6 +71,8 @@ export interface Board {
   version: number;
   /** Newest last, at most MAX_LOG entries. */
   log: LogEntry[];
+  /** Set once the board is shared: the link /s/<shareToken> gives each student their own copy. */
+  shareToken?: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -1,10 +1,10 @@
 "use client";
 
-export function StandInBadge({ standIn }: { standIn: boolean | null }) {
+export function StandInBadge({ standIn, compact = false }: { standIn: boolean | null; compact?: boolean }) {
   if (!standIn) return null;
   return (
-    <span className="chip bg-gold" data-testid="stand-in-badge" title="No API key: replaying hand-made simulations">
-      Offline stand-in
+    <span className="chip shrink-0 bg-gold" data-testid="stand-in-badge" title="Offline stand-in: no API key, so Claude's replies and simulations are hand-made replays">
+      {compact ? "Offline" : "Offline stand-in"}
     </span>
   );
 }
