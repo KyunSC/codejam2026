@@ -6,8 +6,11 @@ import {
   checkItems,
   describeBoard,
   freeSpot,
+  MAX_POS,
+  MAX_PROMPT_CHARS,
   moveItem,
   parseAction,
+  promptAfterEdit,
   SIM_SIZE,
   strokesBox,
   type BoardItem,
@@ -121,9 +124,29 @@ describe("applyAction", () => {
     expect(applyAction(pending, { type: "edit_sim", id: "p", request: "x" }, null).rejected).toMatch(/still being generated/);
     expect(applyAction(board, { type: "edit_sim", id: "c1", request: "x" }, null).rejected).toMatch(/not a simulation/);
   });
+
+  it("keeps counting up after a change has run (the box keeps `change`, it doesn't clear it)", () => {
+    const ran = applyAction(board, { type: "edit_sim", id: "cs", request: "heavier" }, null);
+    // The box runs nonce 1 and leaves `change` in place; Claude's next request must be a new nonce.
+    const next = applyAction(ran.items, { type: "edit_sim", id: "cs", request: "slower" }, null);
+    expect((next.items[2] as SimItem).change).toEqual({ request: "slower", nonce: 2 });
+  });
 });
 
 describe("geometry", () => {
+  it("keeps moved items within MAX_POS", () => {
+    expect(moveItem(note("n", "student"), 10 * MAX_POS, -10 * MAX_POS)).toMatchObject({ x: MAX_POS, y: -MAX_POS });
+    const far = moveItem(ink("i"), 10 * MAX_POS, 0);
+    expect(checkItems([far]).ok).toBe(true);
+  });
+
+  it("adds an edit to a sim's prompt, within the prompt limit", () => {
+    expect(promptAfterEdit("pendulum", "make it a spring")).toBe("pendulum → make it a spring");
+    const long = promptAfterEdit("p".repeat(MAX_PROMPT_CHARS), "spring");
+    expect(long.length).toBeLessThanOrEqual(MAX_PROMPT_CHARS);
+    expect(long.endsWith(" → spring")).toBe(true);
+  });
+
   it("moves handwriting points with the item", () => {
     const moved = moveItem(ink("i"), 18, 28) as InkItem;
     expect(moved.strokes[0].points).toEqual([20, 30, 120, 90]);

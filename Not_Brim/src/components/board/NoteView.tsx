@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
-import type { NoteItem } from "@/lib/board";
+import { MAX_NOTE_CHARS, type NoteItem } from "@/lib/board";
 import { NOTE_COLORS } from "@/lib/board-image";
 
 /** A note. The student can type in their own notes; Claude's notes are read-only for the student but can be moved or deleted. */
@@ -50,6 +50,7 @@ export function NoteView({
           data-testid="note-text"
           placeholder="Write here…"
           value={item.text}
+          maxLength={MAX_NOTE_CHARS}
           onChange={(e) => onText(e.target.value)}
         />
       ) : (

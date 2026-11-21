@@ -40,7 +40,10 @@ export interface SimItem extends ItemBase {
   question: string;
   params: SimParam[];
   values: Record<string, number>;
-  /** A change asked for and not yet applied. `nonce` makes a repeated request run again. */
+  /**
+   * The latest change asked for. It is kept after it runs, so `nonce` only ever rises: a box runs a
+   * change whose nonce it hasn't handled, and on load treats the stored one as handled.
+   */
   change?: { request: string; nonce: number };
   /** The saved sim behind the box, for the student homework link. */
   simId?: string;
@@ -75,7 +78,11 @@ export const MAX_ITEMS = 400;
 export const MAX_NOTE_CHARS = 4000;
 export const MAX_STROKES = 400;
 export const MAX_POINTS = 4000;
+export const MAX_PROMPT_CHARS = 4000;
+export const MAX_REQUEST_CHARS = 2000;
 const MAX_COORD = 100_000;
+/** How far from the origin the browser lets items and the camera go, well inside MAX_COORD. */
+export const MAX_POS = MAX_COORD / 2;
 const MIN_SIZE = 40;
 
 export function newItemId(): string {
@@ -117,7 +124,7 @@ export function checkItem(raw: unknown): Checked<BoardItem> {
     return { ok: true, value: { ...base, kind: "ink", strokes } };
   }
   if (d.kind === "sim") {
-    if (typeof d.prompt !== "string" || !d.prompt.trim() || d.prompt.length > 4000) return { ok: false, reason: `sim ${d.id} has no prompt` };
+    if (typeof d.prompt !== "string" || !d.prompt.trim() || d.prompt.length > MAX_PROMPT_CHARS) return { ok: false, reason: `sim ${d.id} has no prompt` };
     let code: string | null = null;
     let params: SimParam[] = [];
     if (d.code !== null && d.code !== undefined) {
@@ -144,7 +151,7 @@ export function checkItem(raw: unknown): Checked<BoardItem> {
     };
     const c = d.change as Record<string, unknown> | undefined;
     if (c && typeof c.request === "string" && c.request.trim() && finite(c.nonce))
-      item.change = { request: c.request.slice(0, 2000), nonce: c.nonce };
+      item.change = { request: c.request.slice(0, MAX_REQUEST_CHARS), nonce: c.nonce };
     if (typeof d.simId === "string" && /^[0-9a-f]{12}$/.test(d.simId)) item.simId = d.simId;
     return { ok: true, value: item };
   }
@@ -219,7 +226,7 @@ export function parseAction(type: string, input: unknown): Checked<BoardAction> 
   switch (type) {
     case "add_note":
     case "add_sim": {
-      const text = str(type === "add_note" ? d.text : d.prompt, type === "add_note" ? MAX_NOTE_CHARS : 2000);
+      const text = str(type === "add_note" ? d.text : d.prompt, type === "add_note" ? MAX_NOTE_CHARS : MAX_REQUEST_CHARS);
       if (!text) return bad(type === "add_note" ? "needs text" : "needs a prompt");
       const x = optCoord(d.x);
       const y = optCoord(d.y);
@@ -236,7 +243,7 @@ export function parseAction(type: string, input: unknown): Checked<BoardAction> 
     }
     case "edit_sim": {
       const id = str(d.id, 24);
-      const request = str(d.request, 2000);
+      const request = str(d.request, MAX_REQUEST_CHARS);
       if (!id || !request) return bad("needs id and request");
       return { ok: true, value: { type, id, request } };
     }
@@ -339,8 +346,19 @@ export function applyAction(
   }
 }
 
-/** Move an item to (x, y). Ink points are in board coordinates, so they move with it. */
+/** A sim's prompt after an edit, so a saved sim describes what it now shows. Kept within MAX_PROMPT_CHARS. */
+export function promptAfterEdit(prompt: string, request: string): string {
+  const sep = " → ";
+  const head = prompt.slice(0, Math.max(0, MAX_PROMPT_CHARS - sep.length - request.length));
+  return `${head}${sep}${request}`.slice(0, MAX_PROMPT_CHARS);
+}
+
+const clampPos = (n: number) => Math.min(MAX_POS, Math.max(-MAX_POS, n));
+
+/** Move an item to (x, y), kept within MAX_POS. Ink points are in board coordinates, so they move with it. */
 export function moveItem(item: BoardItem, x: number, y: number): BoardItem {
+  x = clampPos(x);
+  y = clampPos(y);
   if (item.kind !== "ink") return { ...item, x, y };
   const dx = x - item.x;
   const dy = y - item.y;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import type { SimItem } from "@/lib/board";
+import { MAX_REQUEST_CHARS, promptAfterEdit, type SimItem } from "@/lib/board";
 import { useSimSession, type EditBase, type ReadyInfo } from "@/lib/useSimSession";
 import { ParamSliders } from "../ParamSliders";
 import { ShareButton } from "../ShareButton";
@@ -34,29 +34,40 @@ export function SimBox({
   const [demoNote, setDemoNote] = useState<string | null>(null);
   const last = useRef<Last | null>(null);
   const handledNonce = useRef<number | null>(null);
+  /** Counts sim saves, so only the latest version's id lands on the box. */
+  const saveSeq = useRef(0);
   const patch = useRef(onPatch);
   useEffect(() => {
     patch.current = onPatch;
   });
 
   function ready(info: ReadyInfo) {
-    patch.current({ code: info.code, title: info.title, question: info.question, params: info.params, change: undefined });
-    // Each new version is saved as a sim (for the homework link); a box loaded from the board already has one.
+    // A box loaded from the board already holds this version, and its sim once that was saved.
     if (info.kind === "load" && item.simId) return;
+    const l = last.current;
+    const prompt = info.kind === "edit" && l?.kind === "edit" ? promptAfterEdit(item.prompt, l.request) : item.prompt;
+    // The old sim id points at the previous version, so it goes until this version is saved.
+    // `change` stays: its nonce is what a later request counts up from.
+    if (info.kind !== "load")
+      patch.current({ code: info.code, title: info.title, question: info.question, params: info.params, prompt, simId: undefined });
+    // Each new version is saved as a sim, for the homework link.
+    const seq = ++saveSeq.current;
     fetch("/api/sims", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: item.prompt, code: info.code, title: info.title, question: info.question, params: info.params }),
+      body: JSON.stringify({ prompt, code: info.code, title: info.title, question: info.question, params: info.params }),
     })
       .then(async (r) => {
         const j = (await r.json()) as { id?: string; error?: string };
         if (!r.ok || !j.id) throw new Error(j.error ?? `HTTP ${r.status}`);
-        patch.current({ simId: j.id });
+        // A later version may have been saved first; its id wins.
+        if (seq === saveSeq.current) patch.current({ simId: j.id });
       })
       .catch((err: unknown) => console.warn("[board] sim save failed:", err instanceof Error ? err.message : err));
   }
 
-  // First mount: load the saved code, or generate from the prompt. A change pending from before a reload is dropped.
+  // First mount: load the saved code, or generate from the prompt. The stored change counts as handled,
+  // so one that was pending (or failed) before a reload doesn't run again.
   useEffect(() => {
     handledNonce.current = item.change?.nonce ?? null;
     if (item.code) {
@@ -69,7 +80,8 @@ export function SimBox({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per box
   }, []);
 
-  // A new change request (from Claude's edit_sim or the box's own input) runs once the sim is ready.
+  // A new change request (from Claude's edit_sim or the box's own input) runs once the sim is ready,
+  // including one that arrived while the box was busy or had failed.
   const pending = item.change;
   useEffect(() => {
     if (!pending || pending.nonce === handledNonce.current || v.state !== "ready") return;
@@ -89,11 +101,6 @@ export function SimBox({
       Object.entries(values).every(([k, n]) => item.values[k] === n);
     if (!same) patch.current({ values });
   }, [v.state, values, item.values]);
-
-  // A failed edit drops the request, so a reload doesn't run it again.
-  useEffect(() => {
-    if (v.state === "failed" && item.change) patch.current({ change: undefined });
-  }, [v.state, item.change]);
 
   async function saveAsDemo() {
     if (v.state !== "ready" || !v.code) return;
@@ -180,6 +187,7 @@ export function SimBox({
             data-testid="edit-input"
             placeholder="Ask for a change…"
             value={change}
+            maxLength={MAX_REQUEST_CHARS}
             disabled={v.state !== "ready"}
             onChange={(e) => setChange(e.target.value)}
           />

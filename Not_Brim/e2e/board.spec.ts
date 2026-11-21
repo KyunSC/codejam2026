@@ -59,6 +59,12 @@ test("Claude changes its own simulation when asked", async ({ page }) => {
   await expect(panel).toHaveAttribute("data-state", "ready", { timeout: 20_000 });
   expect(Number(await massB.inputValue())).toBeGreaterThan(before);
   await expect(page.locator('[data-testid="note"][data-author="claude"]').last()).toContainText("I'm changing the simulation");
+
+  // A second change to the same box runs too (it used to reuse the first request's nonce and be skipped).
+  await page.getByTestId("ask-input").fill("change: make bob B twice as heavy");
+  await page.keyboard.press("Enter");
+  await expect(panel).toHaveAttribute("data-state", "streaming");
+  await expect(panel).toHaveAttribute("data-state", "ready", { timeout: 20_000 });
 });
 
 test("the pen writes handwriting, grouped into one item, which can be selected and deleted", async ({ page }) => {

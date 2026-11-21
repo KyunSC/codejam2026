@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   applyAction,
+  checkItems,
   freeSpot,
+  MAX_ITEMS,
+  MAX_POS,
+  MAX_PROMPT_CHARS,
+  MAX_STROKES,
   moveItem,
   newItemId,
   NOTE_SIZE,
@@ -83,6 +88,7 @@ export function BoardApp({ board }: { board: Board }) {
   const [drawing, setDrawing] = useState<number[] | null>(null);
   const [dragging, setDragging] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("saved");
+  const [saveError, setSaveError] = useState("");
   const [simPrompt, setSimPrompt] = useState("");
   const [message, setMessage] = useState("");
   const [ask, setAsk] = useState<AskState>({ state: "idle", stage: null, text: "", rejected: [] });
@@ -97,6 +103,14 @@ export function BoardApp({ board }: { board: Board }) {
 
   const save = useCallback(async () => {
     if (saving.current) await saving.current;
+    // The server rejects the whole board if any item breaks a limit, so check here and say why.
+    const checked = checkItems(itemsRef.current);
+    if (!checked.ok) {
+      console.warn("[board] not saving:", checked.reason);
+      setSaveError(checked.reason);
+      setSaveState("error");
+      return;
+    }
     const body = JSON.stringify({ items: itemsRef.current });
     setSaveState("saving");
     const run = fetch(`/api/boards/${board.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body })
@@ -105,10 +119,12 @@ export function BoardApp({ board }: { board: Board }) {
           const j = (await r.json().catch(() => null)) as { error?: string } | null;
           throw new Error(j?.error ?? `HTTP ${r.status}`);
         }
+        setSaveError("");
         if (JSON.stringify({ items: itemsRef.current }) === body) setSaveState("saved");
       })
       .catch((err: unknown) => {
         console.warn("[board] save failed:", err instanceof Error ? err.message : err);
+        setSaveError(err instanceof Error ? err.message : "");
         setSaveState("error");
       });
     saving.current = run;
@@ -131,7 +147,12 @@ export function BoardApp({ board }: { board: Board }) {
 
   const patchItem = useCallback(
     (id: string, patch: Partial<BoardItem>) =>
-      setItems((list) => list.map((it) => (it.id === id ? ({ ...it, ...patch } as BoardItem) : it))),
+      setItems((list) => {
+        const it = list.find((i) => i.id === id);
+        // Nothing changes: keep the same list, so there's no save.
+        if (!it || Object.entries(patch).every(([k, v]) => Object.is((it as unknown as Record<string, unknown>)[k], v))) return list;
+        return list.map((i) => (i.id === id ? ({ ...i, ...patch } as BoardItem) : i));
+      }),
     [setItems],
   );
 
@@ -145,7 +166,10 @@ export function BoardApp({ board }: { board: Board }) {
 
   // ---------- camera ----------
 
-  const setCam = useCallback((next: Camera) => {
+  const setCam = useCallback((cam: Camera) => {
+    // Kept near the origin, so everything drawn stays inside what the server accepts.
+    const clamp = (n: number) => Math.min(MAX_POS, Math.max(-MAX_POS, n));
+    const next = { ...cam, x: clamp(cam.x), y: clamp(cam.y) };
     camRef.current = next;
     setCamState(next);
   }, []);
@@ -267,11 +291,12 @@ export function BoardApp({ board }: { board: Board }) {
         prev.x < box.x + box.w + JOIN_GAP &&
         box.y < prev.y + prev.h + JOIN_GAP &&
         prev.y < box.y + box.h + JOIN_GAP;
-      if (prev && prev.kind === "ink" && near) {
+      if (prev && prev.kind === "ink" && near && prev.strokes.length < MAX_STROKES) {
         const strokes = [...prev.strokes, stroke];
         lastInk.current = { id: prev.id, at: now };
         return list.map((it) => (it.id === prev.id ? { ...prev, strokes, ...strokesBox(strokes) } : it));
       }
+      if (list.length >= MAX_ITEMS) return list;
       const ink: InkItem = { id: newItemId(), author: "student", kind: "ink", strokes: [stroke], ...box };
       lastInk.current = { id: ink.id, at: now };
       return [...list, ink];
@@ -305,6 +330,7 @@ export function BoardApp({ board }: { board: Board }) {
       return;
     }
     if (tool === "note") {
+      if (full) return;
       // Without this, the click's mousedown moves focus back to the page after the new note took it.
       e.preventDefault();
       const note: BoardItem = {
@@ -367,6 +393,7 @@ export function BoardApp({ board }: { board: Board }) {
   // ---------- adding things from the toolbar ----------
 
   function addSim(fields: Pick<SimItem, "prompt"> & Partial<SimItem>) {
+    if (itemsRef.current.length >= MAX_ITEMS) return;
     const view = currentView();
     const size = simSizeFor(view);
     const spot = freeSpot(itemsRef.current, size.w, size.h, view);
@@ -448,6 +475,8 @@ export function BoardApp({ board }: { board: Board }) {
       setAsk({ state: "error", stage: null, text: err instanceof Error ? err.message : "Something went wrong.", rejected });
     }
   }
+
+  const full = items.length >= MAX_ITEMS;
 
   const askLabel =
     ask.state === "busy"
@@ -559,9 +588,10 @@ export function BoardApp({ board }: { board: Board }) {
             data-testid="prompt-input"
             placeholder="Add a simulation: e.g. “Does a heavier pendulum swing faster?”"
             value={simPrompt}
+            maxLength={MAX_PROMPT_CHARS}
             onChange={(e) => setSimPrompt(e.target.value)}
           />
-          <button type="submit" className="btn-secondary" data-testid="create-button" disabled={!simPrompt.trim()}>
+          <button type="submit" className="btn-secondary" data-testid="create-button" disabled={!simPrompt.trim() || full}>
             Add simulation
           </button>
         </form>
@@ -578,7 +608,18 @@ export function BoardApp({ board }: { board: Board }) {
           </button>
         </div>
         <StandInBadge standIn={standIn} />
-        <span className="kicker" data-testid="save-state" data-state={saveState} role="status">
+        {full ? (
+          <span className="kicker text-danger" data-testid="board-full">
+            Board full ({MAX_ITEMS} items): delete something to add more
+          </span>
+        ) : null}
+        <span
+          className="kicker"
+          data-testid="save-state"
+          data-state={saveState}
+          role="status"
+          title={saveState === "error" && saveError ? saveError : undefined}
+        >
           {saveState === "saved" ? "Saved" : saveState === "saving" ? "Saving…" : "Couldn't save"}
         </span>
       </header>

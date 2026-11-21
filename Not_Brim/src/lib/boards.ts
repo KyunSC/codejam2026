@@ -6,6 +6,8 @@ import type { Board, BoardItem } from "./board";
 import { newId } from "./store";
 
 export const BOARD_ID = /^[0-9a-f]{12}$/;
+/** Empty boards older than this are dropped when a new board is made. */
+export const EMPTY_BOARD_TTL_MS = 24 * 60 * 60 * 1000;
 
 /** Boards in one JSON file. Writes are serialised in-process and atomic on disk (tmp file + rename). */
 export function createBoardStore(file: string) {
@@ -37,9 +39,13 @@ export function createBoardStore(file: string) {
   return {
     createBoard(): Promise<Board> {
       return locked(async () => {
-        const boards = await readAll();
-        const now = new Date().toISOString();
-        const board: Board = { id: newId(), items: [], createdAt: now, updatedAt: now };
+        const now = Date.now();
+        // Boards left empty for a day were opened and abandoned; dropping them keeps the file from growing forever.
+        const boards = (await readAll()).filter(
+          (b) => b.items.length > 0 || now - Date.parse(b.updatedAt) < EMPTY_BOARD_TTL_MS,
+        );
+        const stamp = new Date(now).toISOString();
+        const board: Board = { id: newId(), items: [], createdAt: stamp, updatedAt: stamp };
         boards.push(board);
         await writeAll(boards);
         return board;

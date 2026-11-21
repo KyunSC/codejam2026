@@ -1,10 +1,9 @@
-import { redirect } from "next/navigation";
-import { boardStore } from "@/lib/boards";
+import { NewBoard } from "@/components/NewBoard";
 
-export const dynamic = "force-dynamic";
-
-/** Opening the app starts a fresh whiteboard. */
-export default async function Home() {
-  const board = await boardStore().createBoard();
-  redirect(`/b/${board.id}`);
+/**
+ * Opening the app starts a fresh whiteboard. The board is made by a POST from the browser, not while
+ * rendering this page, so crawlers, health checks and prefetches don't create boards.
+ */
+export default function Home() {
+  return <NewBoard />;
 }
