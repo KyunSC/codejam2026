@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import QRCode from "qrcode";
 
 /** Makes the homework (once), then copies the student link, or shows it selected if the clipboard is blocked. */
@@ -13,6 +13,7 @@ export function ShareButton({
   disabled?: boolean;
   onShared?: (id: string) => void;
 }) {
+  const linkId = useId();
   const [busy, setBusy] = useState(false);
   const [link, setLink] = useState<{ id: string; url: string; copied: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -58,11 +59,11 @@ export function ShareButton({
       </button>
       {shown ? (
         <div className="flex basis-full flex-wrap items-center gap-3">
-          <label htmlFor="share-link" className="kicker">
+          <label htmlFor={linkId} className="kicker">
             Student link
           </label>
           <input
-            id="share-link"
+            id={linkId}
             ref={input}
             data-testid="share-link"
             className="field min-w-0 flex-1 py-1.5"
@@ -88,6 +89,7 @@ export function ShareButton({
 /** The student link as a QR code. Click it to show it big, for the projector. */
 function ShareQr({ url }: { url: string }) {
   const [src, setSrc] = useState<{ url: string; data: string } | null>(null);
+  const titleId = useId();
   const dialog = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -117,14 +119,14 @@ function ShareQr({ url }: { url: string }) {
         ref={dialog}
         className="m-auto border-4 border-ink bg-white p-0 backdrop:bg-black/70"
         data-testid="share-qr-dialog"
-        aria-labelledby="share-qr-title"
+        aria-labelledby={titleId}
         onClick={(e) => {
           // The content wrapper fills the dialog, so only a backdrop click lands on the dialog itself.
           if (e.target === e.currentTarget) e.currentTarget.close();
         }}
       >
         <div className="flex flex-col items-center gap-3 p-5 text-ink">
-          <h2 id="share-qr-title" className="pix text-[2rem] leading-none">
+          <h2 id={titleId} className="pix text-[2rem] leading-none">
             Scan for the homework
           </h2>
           {/* eslint-disable-next-line @next/next/no-img-element -- a data: URL, nothing to optimise */}

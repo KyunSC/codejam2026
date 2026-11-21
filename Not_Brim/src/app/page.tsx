@@ -1,9 +1,9 @@
-import { TeacherApp } from "@/components/TeacherApp";
+import { NewBoard } from "@/components/NewBoard";
 
-import { store } from "@/lib/store";
-
-export default async function Home(props: PageProps<"/">) {
-  const token = (await props.searchParams).class;
-  const sim = typeof token === "string" && /^[0-9a-f]{32}$/.test(token) ? await store().getSharedSim(token) : null;
-  return <TeacherApp initialShared={sim && sim.shareToken ? { id: sim.shareToken, title: sim.title } : null} />;
+/**
+ * Opening the app starts a fresh whiteboard. The board is made by a POST from the browser, not while
+ * rendering this page, so crawlers, health checks and prefetches don't create boards.
+ */
+export default function Home() {
+  return <NewBoard />;
 }

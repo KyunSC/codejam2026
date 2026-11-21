@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useSimSession } from "@/lib/useSimSession";
 import { Logo } from "./Badges";
 import { ParamSliders } from "./ParamSliders";
+import { PetPicker } from "./PetPicker";
 import { SimPanel } from "./SimPanel";
 
 /** The student link: write a prediction first, then the sim is revealed with the homework's starting values. */
@@ -95,6 +96,7 @@ export function StudentApp({
           <Logo />
           <span className="flex-1" />
           <span className="chip bg-[#c6d0da]">Homework</span>
+          <PetPicker />
         </div>
       </header>
 

@@ -1,0 +1,682 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  applyAction,
+  checkItems,
+  freeSpot,
+  MAX_ITEMS,
+  MAX_POS,
+  MAX_PROMPT_CHARS,
+  MAX_STROKES,
+  moveItem,
+  newItemId,
+  NOTE_SIZE,
+  simSizeFor,
+  strokesBox,
+  type Board,
+  type BoardItem,
+  type InkItem,
+  type SimItem,
+  type View,
+} from "@/lib/board";
+import { renderBoardImage } from "@/lib/board-image";
+import { readNdjson } from "@/lib/ndjson";
+import type { BoardEvent, Stage } from "@/lib/types";
+import { useStandInStatus } from "@/lib/useStandInStatus";
+import { Logo, StandInBadge } from "./Badges";
+import { DemosMenu, type DemoFull } from "./DemosMenu";
+import { PetPicker } from "./PetPicker";
+import { InkView, StrokePaths } from "./board/InkView";
+import { NoteView } from "./board/NoteView";
+import { SimBox } from "./board/SimBox";
+
+type Tool = "select" | "pen" | "note";
+type SaveState = "saved" | "saving" | "error";
+interface Camera {
+  x: number;
+  y: number;
+  s: number;
+}
+interface AskState {
+  state: "idle" | "busy" | "done" | "error";
+  stage: Stage | null;
+  text: string;
+  rejected: string[];
+}
+
+const PEN_COLORS = ["#121314", "#eb4b4b", "#4b69ff", "#3fb950"];
+const PEN_WIDTH = 4;
+/** Strokes drawn this soon after, and this close to, the last handwriting join it (one word or sketch = one item). */
+const JOIN_MS = 1500;
+const JOIN_GAP = 80;
+const SAVE_DELAY_MS = 500;
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 2;
+
+const isTyping = (el: Element | null) =>
+  !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || (el as HTMLElement).isContentEditable);
+
+/** Follow a pointer until it's released. Moves are reported as screen-pixel offsets from the start. */
+function track(e: ReactPointerEvent, onMove: (dx: number, dy: number, ev: PointerEvent) => void, onUp?: () => void) {
+  const sx = e.clientX;
+  const sy = e.clientY;
+  const move = (ev: PointerEvent) => onMove(ev.clientX - sx, ev.clientY - sy, ev);
+  const up = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    window.removeEventListener("pointercancel", up);
+    onUp?.();
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
+  window.addEventListener("pointercancel", up);
+}
+
+export function BoardApp({ board }: { board: Board }) {
+  const standIn = useStandInStatus();
+  const [items, setItemsState] = useState<BoardItem[]>(board.items);
+  const itemsRef = useRef(items);
+  const [cam, setCamState] = useState<Camera>(() => {
+    if (!board.items.length) return { x: 0, y: 0, s: 1 };
+    return { x: Math.min(...board.items.map((i) => i.x)) - 40, y: Math.min(...board.items.map((i) => i.y)) - 180, s: 1 };
+  });
+  const camRef = useRef(cam);
+  const [tool, setTool] = useState<Tool>("select");
+  const [penColor, setPenColor] = useState(PEN_COLORS[0]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [focusNote, setFocusNote] = useState<string | null>(null);
+  const [drawing, setDrawing] = useState<number[] | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [saveState, setSaveState] = useState<SaveState>("saved");
+  const [saveError, setSaveError] = useState("");
+  const [simPrompt, setSimPrompt] = useState("");
+  const [message, setMessage] = useState("");
+  const [ask, setAsk] = useState<AskState>({ state: "idle", stage: null, text: "", rejected: [] });
+  const viewport = useRef<HTMLDivElement>(null);
+  const header = useRef<HTMLElement>(null);
+  const panel = useRef<HTMLElement>(null);
+  const lastInk = useRef<{ id: string; at: number } | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saving = useRef<Promise<void> | null>(null);
+
+  // ---------- saving ----------
+
+  const save = useCallback(async () => {
+    if (saving.current) await saving.current;
+    // The server rejects the whole board if any item breaks a limit, so check here and say why.
+    const checked = checkItems(itemsRef.current);
+    if (!checked.ok) {
+      console.warn("[board] not saving:", checked.reason);
+      setSaveError(checked.reason);
+      setSaveState("error");
+      return;
+    }
+    const body = JSON.stringify({ items: itemsRef.current });
+    setSaveState("saving");
+    const run = fetch(`/api/boards/${board.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body })
+      .then(async (r) => {
+        if (!r.ok) {
+          const j = (await r.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(j?.error ?? `HTTP ${r.status}`);
+        }
+        setSaveError("");
+        if (JSON.stringify({ items: itemsRef.current }) === body) setSaveState("saved");
+      })
+      .catch((err: unknown) => {
+        console.warn("[board] save failed:", err instanceof Error ? err.message : err);
+        setSaveError(err instanceof Error ? err.message : "");
+        setSaveState("error");
+      });
+    saving.current = run;
+    await run;
+    saving.current = null;
+  }, [board.id]);
+
+  const setItems = useCallback(
+    (fn: (items: BoardItem[]) => BoardItem[]) => {
+      const next = fn(itemsRef.current);
+      if (next === itemsRef.current) return;
+      itemsRef.current = next;
+      setItemsState(next);
+      setSaveState("saving");
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(() => void save(), SAVE_DELAY_MS);
+    },
+    [save],
+  );
+
+  const patchItem = useCallback(
+    (id: string, patch: Partial<BoardItem>) =>
+      setItems((list) => {
+        const it = list.find((i) => i.id === id);
+        // Nothing changes: keep the same list, so there's no save.
+        if (!it || Object.entries(patch).every(([k, v]) => Object.is((it as unknown as Record<string, unknown>)[k], v))) return list;
+        return list.map((i) => (i.id === id ? ({ ...i, ...patch } as BoardItem) : i));
+      }),
+    [setItems],
+  );
+
+  const removeItem = useCallback(
+    (id: string) => {
+      setItems((list) => list.filter((it) => it.id !== id));
+      setSelected((s) => (s === id ? null : s));
+    },
+    [setItems],
+  );
+
+  // ---------- camera ----------
+
+  const setCam = useCallback((cam: Camera) => {
+    // Kept near the origin, so everything drawn stays inside what the server accepts.
+    const clamp = (n: number) => Math.min(MAX_POS, Math.max(-MAX_POS, n));
+    const next = { ...cam, x: clamp(cam.x), y: clamp(cam.y) };
+    camRef.current = next;
+    setCamState(next);
+  }, []);
+
+  const toWorld = useCallback((clientX: number, clientY: number) => {
+    const rect = viewport.current?.getBoundingClientRect();
+    const c = camRef.current;
+    return { x: c.x + (clientX - (rect?.left ?? 0)) / c.s, y: c.y + (clientY - (rect?.top ?? 0)) / c.s };
+  }, []);
+
+  /** The part of the board on screen, below the toolbar and left of the Ask Claude panel. */
+  const currentView = useCallback((): View => {
+    const rect = viewport.current?.getBoundingClientRect();
+    const c = camRef.current;
+    const top = Math.max(0, (header.current?.getBoundingClientRect().bottom ?? 110) - (rect?.top ?? 0));
+    // On narrow screens the panel floats over the board instead of taking a column.
+    const width = rect?.width ?? 1280;
+    const right = panel.current && width >= 900 ? panel.current.getBoundingClientRect().width + 24 : 0;
+    const w = Math.max(Math.min(width, 400), width - right) / c.s;
+    const h = Math.max(300, (rect?.height ?? 720) - top) / c.s;
+    return { x: c.x, y: c.y + top / c.s, w, h };
+  }, []);
+
+  /** Pan just enough to show an item (its top-left corner, if it's bigger than the view). */
+  const reveal = useCallback(
+    (id: string) => {
+      const it = itemsRef.current.find((i) => i.id === id);
+      if (!it) return;
+      const v = currentView();
+      const c = camRef.current;
+      // Too big for the view at this zoom (small screens): zoom out until it fits, top-left first.
+      // On a phone only the width has to fit; the student pans down for the rest.
+      const narrow = (viewport.current?.getBoundingClientRect().width ?? 1280) < 640;
+      const needW = (it.w + 32 / c.s) / v.w;
+      const need = narrow ? needW : Math.max(needW, (it.h + 32 / c.s) / v.h);
+      if (need > 1) {
+        const s = Math.max(MIN_ZOOM, c.s / need);
+        const topPx = (v.y - c.y) * c.s;
+        setCam({ x: it.x - 16 / s, y: it.y - 16 / s - topPx / s, s });
+        return;
+      }
+      const m = 16 / c.s;
+      let dx = 0;
+      let dy = 0;
+      if (it.x + it.w + m > v.x + v.w) dx = it.x + it.w + m - (v.x + v.w);
+      if (it.x - m < v.x + dx) dx = it.x - m - v.x;
+      if (it.y + it.h + m > v.y + v.h) dy = it.y + it.h + m - (v.y + v.h);
+      if (it.y - m < v.y + dy) dy = it.y - m - v.y;
+      if (dx || dy) setCam({ ...camRef.current, x: camRef.current.x + dx, y: camRef.current.y + dy });
+    },
+    [currentView, setCam],
+  );
+
+  const zoomAt = useCallback(
+    (factor: number, clientX?: number, clientY?: number) => {
+      const rect = viewport.current?.getBoundingClientRect();
+      const c = camRef.current;
+      const s = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, c.s * factor));
+      const px = (clientX ?? (rect ? rect.left + rect.width / 2 : 0)) - (rect?.left ?? 0);
+      const py = (clientY ?? (rect ? rect.top + rect.height / 2 : 0)) - (rect?.top ?? 0);
+      const wx = c.x + px / c.s;
+      const wy = c.y + py / c.s;
+      setCam({ x: wx - px / s, y: wy - py / s, s });
+    },
+    [setCam],
+  );
+
+  // Wheel pans; ctrl/cmd + wheel (and trackpad pinch) zooms. Needs a non-passive listener to stop page zoom.
+  useEffect(() => {
+    const el = viewport.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if ((e.target as Element | null)?.closest?.("[data-scrolls]")) return;
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey) zoomAt(Math.exp(-e.deltaY / 300), e.clientX, e.clientY);
+      else {
+        const c = camRef.current;
+        setCam({ ...c, x: c.x + e.deltaX / c.s, y: c.y + e.deltaY / c.s });
+      }
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [setCam, zoomAt]);
+
+  // Delete removes the selected item; Escape deselects and goes back to Select.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (isTyping(document.activeElement)) return;
+      if ((e.key === "Delete" || e.key === "Backspace") && selected) {
+        e.preventDefault();
+        removeItem(selected);
+      } else if (e.key === "Escape") {
+        setSelected(null);
+        setTool("select");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected, removeItem]);
+
+  useEffect(
+    () => () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    },
+    [],
+  );
+
+  // ---------- pointer on the empty board ----------
+
+  function finishStroke(points: number[]) {
+    const stroke = { points, color: penColor, width: PEN_WIDTH };
+    const now = Date.now();
+    const box = strokesBox([stroke]);
+    setItems((list) => {
+      const prev = lastInk.current && now - lastInk.current.at < JOIN_MS ? list.find((it) => it.id === lastInk.current!.id) : undefined;
+      const near =
+        prev &&
+        box.x < prev.x + prev.w + JOIN_GAP &&
+        prev.x < box.x + box.w + JOIN_GAP &&
+        box.y < prev.y + prev.h + JOIN_GAP &&
+        prev.y < box.y + box.h + JOIN_GAP;
+      if (prev && prev.kind === "ink" && near && prev.strokes.length < MAX_STROKES) {
+        const strokes = [...prev.strokes, stroke];
+        lastInk.current = { id: prev.id, at: now };
+        return list.map((it) => (it.id === prev.id ? { ...prev, strokes, ...strokesBox(strokes) } : it));
+      }
+      if (list.length >= MAX_ITEMS) return list;
+      const ink: InkItem = { id: newItemId(), author: "student", kind: "ink", strokes: [stroke], ...box };
+      lastInk.current = { id: ink.id, at: now };
+      return [...list, ink];
+    });
+  }
+
+  function onBoardPointerDown(e: ReactPointerEvent) {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target !== viewport.current && !target.dataset.world) return;
+    const start = toWorld(e.clientX, e.clientY);
+    if (tool === "pen") {
+      e.preventDefault();
+      const points = [start.x, start.y];
+      setDrawing([...points]);
+      track(
+        e,
+        (_dx, _dy, ev) => {
+          const p = toWorld(ev.clientX, ev.clientY);
+          const lx = points[points.length - 2];
+          const ly = points[points.length - 1];
+          if (Math.hypot(p.x - lx, p.y - ly) < 1.5 / camRef.current.s || points.length >= 3998) return;
+          points.push(Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10);
+          setDrawing([...points]);
+        },
+        () => {
+          setDrawing(null);
+          finishStroke(points);
+        },
+      );
+      return;
+    }
+    if (tool === "note") {
+      if (full) return;
+      // Without this, the click's mousedown moves focus back to the page after the new note took it.
+      e.preventDefault();
+      const note: BoardItem = {
+        id: newItemId(),
+        author: "student",
+        kind: "note",
+        text: "",
+        x: Math.round(start.x - NOTE_SIZE.w / 2),
+        y: Math.round(start.y - 20),
+        ...NOTE_SIZE,
+      };
+      setItems((list) => [...list, note]);
+      setSelected(note.id);
+      setFocusNote(note.id);
+      setTool("select");
+      return;
+    }
+    setSelected(null);
+    const c0 = camRef.current;
+    track(e, (dx, dy) => setCam({ ...c0, x: c0.x - dx / c0.s, y: c0.y - dy / c0.s }));
+  }
+
+  // ---------- dragging and resizing items ----------
+
+  function startDrag(e: ReactPointerEvent, id: string) {
+    if (e.button !== 0) return;
+    if (tool === "pen") return;
+    e.stopPropagation();
+    e.preventDefault();
+    const item = itemsRef.current.find((it) => it.id === id);
+    if (!item) return;
+    setSelected(id);
+    setDragging(true);
+    const s = camRef.current.s;
+    track(
+      e,
+      (dx, dy) => setItems((list) => list.map((it) => (it.id === id ? moveItem(item, Math.round(item.x + dx / s), Math.round(item.y + dy / s)) : it))),
+      () => setDragging(false),
+    );
+  }
+
+  function startResize(e: ReactPointerEvent, id: string) {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    const item = itemsRef.current.find((it) => it.id === id);
+    if (!item || item.kind === "ink") return;
+    e.preventDefault();
+    setSelected(id);
+    setDragging(true);
+    const min = item.kind === "sim" ? { w: 480, h: 380 } : { w: 160, h: 100 };
+    const s = camRef.current.s;
+    track(
+      e,
+      (dx, dy) =>
+        patchItem(id, { w: Math.max(min.w, Math.round(item.w + dx / s)), h: Math.max(min.h, Math.round(item.h + dy / s)) }),
+      () => setDragging(false),
+    );
+  }
+
+  // ---------- adding things from the toolbar ----------
+
+  function addSim(fields: Pick<SimItem, "prompt"> & Partial<SimItem>) {
+    if (itemsRef.current.length >= MAX_ITEMS) return;
+    const view = currentView();
+    const size = simSizeFor(view);
+    const spot = freeSpot(itemsRef.current, size.w, size.h, view);
+    const sim: SimItem = {
+      id: newItemId(),
+      author: "student",
+      kind: "sim",
+      code: null,
+      title: "",
+      question: "",
+      params: [],
+      values: {},
+      ...spot,
+      ...size,
+      ...fields,
+    };
+    setItems((list) => [...list, sim]);
+    setSelected(sim.id);
+    reveal(sim.id);
+  }
+
+  function addSimFromPrompt() {
+    const prompt = simPrompt.trim();
+    if (!prompt) return;
+    setSimPrompt("");
+    addSim({ prompt });
+  }
+
+  function addDemo(demo: DemoFull) {
+    addSim({ prompt: demo.prompt, code: demo.code, title: demo.title, question: demo.question, params: demo.params });
+  }
+
+  // ---------- Ask Claude ----------
+
+  async function askClaude() {
+    if (ask.state === "busy") return;
+    const snapshot = itemsRef.current;
+    const view = currentView();
+    let image: string | null = null;
+    try {
+      image = renderBoardImage(snapshot);
+    } catch (err) {
+      console.warn("[board] couldn't draw the board picture:", err);
+    }
+    setAsk({ state: "busy", stage: null, text: "", rejected: [] });
+    const rejected: string[] = [];
+    let made = 0;
+    try {
+      const res = await fetch("/api/board-turn", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: snapshot, view, message, image }),
+      });
+      if (!res.ok || !res.body) {
+        const j = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(j?.error ?? `The server answered ${res.status}.`);
+      }
+      for await (const ev of readNdjson<BoardEvent>(res.body)) {
+        if (ev.type === "status") setAsk((a) => ({ ...a, stage: ev.stage }));
+        else if (ev.type === "action") {
+          const result = applyAction(itemsRef.current, ev.action, view);
+          if (result.rejected) rejected.push(result.rejected);
+          else {
+            made++;
+            setItems(() => result.items);
+            if (result.itemId && (ev.action.type === "add_note" || ev.action.type === "add_sim")) reveal(result.itemId);
+          }
+        } else if (ev.type === "rejected") rejected.push(ev.reason);
+        else if (ev.type === "error") throw new Error(ev.message);
+      }
+      setMessage("");
+      setAsk({
+        state: "done",
+        stage: null,
+        text: made ? `Claude made ${made} change${made === 1 ? "" : "s"} on the board.` : "Claude didn't change anything.",
+        rejected,
+      });
+    } catch (err) {
+      setAsk({ state: "error", stage: null, text: err instanceof Error ? err.message : "Something went wrong.", rejected });
+    }
+  }
+
+  const full = items.length >= MAX_ITEMS;
+
+  const askLabel =
+    ask.state === "busy"
+      ? ask.stage === "writing"
+        ? "Claude is writing on the board…"
+        : "Claude is reading the board…"
+      : ask.text;
+
+  // ---------- render ----------
+
+  return (
+    // overflow-clip, not hidden: a hidden box still scrolls when focus lands on something past its edge.
+    <div className="relative h-screen w-screen overflow-clip bg-paper" data-board-id={board.id}>
+      <div
+        ref={viewport}
+        className={`board-viewport absolute inset-0 overflow-clip ${tool === "pen" ? "pen-mode cursor-crosshair" : tool === "note" ? "cursor-copy" : "cursor-default"} ${
+          dragging ? "is-dragging" : ""
+        }`}
+        style={{ backgroundPosition: `${-cam.x * cam.s}px ${-cam.y * cam.s}px`, backgroundSize: `${40 * cam.s}px ${40 * cam.s}px` }}
+        onPointerDown={onBoardPointerDown}
+        data-testid="board"
+        data-tool={tool}
+      >
+        <div
+          data-world="1"
+          className="absolute left-0 top-0 origin-top-left"
+          style={{ transform: `translate(${-cam.x * cam.s}px, ${-cam.y * cam.s}px) scale(${cam.s})` }}
+        >
+          {items.map((it) => (
+            <div key={it.id} className="absolute" style={{ left: it.x, top: it.y, width: it.w, height: it.h }}>
+              {it.kind === "note" ? (
+                <NoteView
+                  item={it}
+                  selected={selected === it.id}
+                  autoFocus={focusNote === it.id}
+                  onText={(text) => patchItem(it.id, { text })}
+                  onDragStart={(e) => startDrag(e, it.id)}
+                  onResizeStart={(e) => startResize(e, it.id)}
+                  onDelete={() => removeItem(it.id)}
+                />
+              ) : it.kind === "ink" ? (
+                <InkView item={it} selected={selected === it.id} onDragStart={(e) => startDrag(e, it.id)} />
+              ) : (
+                <SimBox
+                  item={it}
+                  selected={selected === it.id}
+                  onPatch={(patch) => patchItem(it.id, patch)}
+                  onDragStart={(e) => startDrag(e, it.id)}
+                  onResizeStart={(e) => startResize(e, it.id)}
+                  onDelete={() => removeItem(it.id)}
+                />
+              )}
+            </div>
+          ))}
+          {drawing ? (
+            <svg className="pointer-events-none absolute left-0 top-0 overflow-visible" width="1" height="1">
+              <StrokePaths strokes={[{ points: drawing, color: penColor, width: PEN_WIDTH }]} />
+            </svg>
+          ) : null}
+        </div>
+        {!items.length ? (
+          <p className="pointer-events-none absolute inset-x-0 top-[40%] px-6 text-center text-[1.2rem] font-medium text-[#55595e]">
+            Pick Pen to write, Note to type, or describe a simulation above. Then press “Ask Claude”.
+          </p>
+        ) : null}
+      </div>
+
+      <header ref={header} className="card absolute inset-x-3 top-3 flex flex-wrap items-center gap-3 p-3">
+        <Logo />
+        <PetPicker />
+        <div className="flex gap-2" role="group" aria-label="Tools">
+          {(["select", "pen", "note"] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              className={tool === t ? "btn-primary" : "btn-secondary"}
+              aria-pressed={tool === t}
+              data-testid={`tool-${t}`}
+              onClick={() => setTool(t)}
+            >
+              {t === "select" ? "Select" : t === "pen" ? "Pen" : "Note"}
+            </button>
+          ))}
+        </div>
+        {tool === "pen" ? (
+          <div className="flex gap-2" role="group" aria-label="Pen colour">
+            {PEN_COLORS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                className={`h-9 w-9 rounded-[3px] border-2 ${penColor === c ? "outline-3 outline-offset-2 outline-[var(--blue)] border-[var(--text)]" : "border-[var(--text)]"}`}
+                style={{ background: c }}
+                aria-label={`Pen colour ${c}`}
+                aria-pressed={penColor === c}
+                onClick={() => setPenColor(c)}
+              />
+            ))}
+          </div>
+        ) : null}
+        <form
+          className="flex min-w-0 basis-full flex-wrap gap-2 sm:min-w-[20rem] sm:basis-auto sm:flex-1 sm:flex-nowrap"
+          onSubmit={(e) => {
+            e.preventDefault();
+            addSimFromPrompt();
+          }}
+        >
+          <input
+            className="field min-w-0 flex-1 basis-[16rem]"
+            aria-label="Describe a simulation"
+            data-testid="prompt-input"
+            placeholder="Add a simulation: e.g. “Does a heavier pendulum swing faster?”"
+            value={simPrompt}
+            maxLength={MAX_PROMPT_CHARS}
+            onChange={(e) => setSimPrompt(e.target.value)}
+          />
+          <button type="submit" className="btn-secondary" data-testid="create-button" disabled={!simPrompt.trim() || full}>
+            Add simulation
+          </button>
+        </form>
+        <DemosMenu refreshKey={0} onPick={addDemo} />
+        <div className="hidden items-center gap-1 sm:flex" role="group" aria-label="Zoom">
+          <button type="button" className="btn-secondary px-3" aria-label="Zoom out" onClick={() => zoomAt(1 / 1.25)}>
+            −
+          </button>
+          <button type="button" className="btn-secondary w-20 px-2 tabular-nums" aria-label="Reset zoom" onClick={() => zoomAt(1 / cam.s)}>
+            {Math.round(cam.s * 100)}%
+          </button>
+          <button type="button" className="btn-secondary px-3" aria-label="Zoom in" onClick={() => zoomAt(1.25)}>
+            +
+          </button>
+        </div>
+        <StandInBadge standIn={standIn} />
+        {full ? (
+          <span className="kicker text-danger" data-testid="board-full">
+            Board full ({MAX_ITEMS} items): delete something to add more
+          </span>
+        ) : null}
+        <span
+          className="kicker"
+          data-testid="save-state"
+          data-state={saveState}
+          role="status"
+          title={saveState === "error" && saveError ? saveError : undefined}
+        >
+          {saveState === "saved" ? "Saved" : saveState === "saving" ? "Saving…" : "Couldn't save"}
+        </span>
+      </header>
+
+      <aside
+        ref={panel}
+        className="card absolute bottom-3 right-3 flex w-[min(26rem,calc(100vw-1.5rem))] flex-col gap-2 p-3 shadow-[6px_6px_0_var(--blue)]"
+        aria-label="Ask Claude"
+        data-scrolls="1"
+      >
+        <form
+          className="flex flex-col gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void askClaude();
+          }}
+        >
+          <textarea
+            className="field min-h-[3em] resize-none"
+            rows={2}
+            aria-label="Message for Claude (optional)"
+            data-testid="ask-input"
+            placeholder="Ask Claude something (optional). Claude reads the whole board."
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void askClaude();
+              }
+            }}
+          />
+          <button type="submit" className="btn-primary btn-gold" data-testid="ask-button" disabled={ask.state === "busy"}>
+            {ask.state === "busy" ? "Claude is working…" : "Ask Claude"}
+          </button>
+        </form>
+        {askLabel ? (
+          <div
+            className={`font-bold ${ask.state === "error" ? "text-danger" : "text-text"}`}
+            data-testid="ask-status"
+            data-state={ask.state}
+            role={ask.state === "error" ? "alert" : "status"}
+          >
+            {ask.state === "busy" ? <span className="chip mr-2 bg-blue">Working</span> : null}
+            {askLabel}
+            {ask.rejected.length ? (
+              <ul className="mt-1 list-disc pl-6 font-normal text-muted">
+                {ask.rejected.map((r, i) => (
+                  <li key={i}>Skipped: {r}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
+      </aside>
+    </div>
+  );
+}

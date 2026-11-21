@@ -43,6 +43,7 @@ next-env.d.ts
 
 # app data (demos are committed)
 /data/sims.json
+/data/boards.json
 /data/*.tmp
 
 # playwright

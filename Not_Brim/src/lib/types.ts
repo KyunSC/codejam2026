@@ -1,4 +1,5 @@
 // Shared types. Safe to import from both server and client code.
+import type { BoardAction, BoardItem, View } from "./board";
 
 export type Stage = "thinking" | "writing";
 
@@ -41,6 +42,7 @@ export interface SimModel {
   repair(code: string, error: string): AsyncIterable<StreamEvent>;
   edit(code: string, request: string): AsyncIterable<StreamEvent>;
   homework(input: HomeworkInput): Promise<Homework>;
+  boardTurn(input: BoardTurnInput): AsyncIterable<BoardEvent>;
 }
 
 /** One student's answer on a shared link: the prediction before Run, then what they saw. */
@@ -54,6 +56,23 @@ export interface Prediction {
 
 /** What the teacher's list gets: no id, so nobody can use it to overwrite a reflection. */
 export type PublicPrediction = Omit<Prediction, "id">;
+
+/** One "Ask Claude" on the whiteboard. */
+export interface BoardTurnInput {
+  items: BoardItem[];
+  view: View | null;
+  /** What the student typed next to "Ask Claude" (may be empty). */
+  message: string;
+  /** A PNG of the board, base64 without the data: prefix, so Claude can read handwriting. */
+  image: string | null;
+}
+
+export type BoardEvent =
+  | { type: "status"; stage: Stage }
+  | { type: "action"; action: BoardAction }
+  | { type: "rejected"; reason: string }
+  | { type: "done"; usage: Usage; ms: number }
+  | { type: "error"; message: string };
 
 export interface SimRecord {
   id: string;

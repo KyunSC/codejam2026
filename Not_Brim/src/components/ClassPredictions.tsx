@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type { PublicPrediction } from "@/lib/types";
 
 const POLL_MS = 3000;
@@ -68,15 +68,15 @@ export function ClassPredictions({
   list: PublicPrediction[];
   failing: boolean;
 }) {
+  const titleId = useId();
   return (
     <section
-      id="class-predictions"
       className="card flex scroll-mt-4 flex-col gap-3 p-5"
-      aria-labelledby="class-predictions-title"
+      aria-labelledby={titleId}
       data-testid="class-predictions"
     >
       <div>
-        <h2 id="class-predictions-title" className="kicker !text-ink">
+        <h2 id={titleId} className="kicker !text-ink">
           Class predictions
         </h2>
         <p className="font-bold" data-testid="predictions-for">
