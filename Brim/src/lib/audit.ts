@@ -120,6 +120,8 @@ export async function logAction(tx: Prisma.TransactionClient, input: ActionInput
 
 export interface AuditFilter {
   invoiceId?: string;
+  paymentId?: string;
+  vendorId?: string;
   actorId?: string;
   actorType?: Actor["type"];
   action?: string;
@@ -145,6 +147,8 @@ export async function listActions(organizationId: string, f: AuditFilter = {}) {
     where: {
       organizationId,
       invoiceId: f.invoiceId,
+      paymentId: f.paymentId,
+      vendorId: f.vendorId,
       actorId: f.actorId,
       actorType: f.actorType,
       action: f.action,

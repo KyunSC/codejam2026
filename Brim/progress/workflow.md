@@ -62,7 +62,12 @@ Local env for every command (never Neon): `BRIM_LOCAL_DB_ONLY=1 DATABASE_URL=pos
     - Verifying makes the new account live (old one closed, `changeRequestId` set), fixes open BANK_CHANGE_UNVERIFIED flags on the vendor's invoices (each audited) and re-checks invoices in review. Tested: V004/AP-00426 blocked until a second person verifies BC-009, then clear.
     - Decision: rejecting a change whose account is already the one on file (BC-009, imported that way) puts the vendor on hold, since the old full account is unknown (Loop A's note). In questions.md.
   - [x] 7b. `/vendors` (all roles; nav link): pending/held vendors first, bank column masked by role, search, onboarding form for the AP clerk. `/vendors/[id]`: status, bank by role, approve / hold / release-hold with reason, open flags on its invoices, bank change history with Verify (callback checkbox + note) / Reject, "Request a bank change" for the clerk, AP invoices and card charges in one dated table.
-- [ ] 8. Audit: pack per payment, global log filters, CSV export (auditor read-only server-side), verify chain.
+- [x] 8. Audit: pack per payment, global log filters, CSV export (auditor read-only server-side), verify chain.
+  - `src/lib/workflow/audit-pack.ts`: `auditPack` (payment, invoice + document, approvals with delegate, coding with overrides, posting, flags with resolutions, bank paid to, every audit event for the invoice and payment), `auditCsv`, `verifyAuditChain`, `posting` (pure: expense lines with BC PST folded into goods lines, 1160 GST/HST, 1165 QST, 2100 total).
+  - Routes `GET audit/pack/[paymentId]`, `GET audit/export.csv`, `GET audit/verify`, all matrix `audit.read` (controller, auditor) on the server; none has a write path.
+  - Pages: `/audit/pack/[paymentId]`; `/audit` gains the workflow actions and records in its filters, invoice and payment filters, "Export these entries (CSV)" with the current filters, "Verify the chain", an auditor read-only banner, links from payment/vendor rows. Invoice screen links each payment to its pack for controller/auditor.
+  - History payments have no bank snapshot; the pack shows the account on file on the paid date and says so.
+  - Tested: history pack (PAY-00096 / AP-00100), new-payment pack with snapshot, CSV refused to the AP clerk, chain verifies and names the tampered row (in a rolled-back transaction).
 - [ ] 9. Navigation and landing pages per role; every route checks the matrix server-side.
 - [ ] 10. Policy editor for the controller with "Try on an invoice" preview (LOCKED_RULE, BAD_CONDITION).
 - [ ] 11. Fraud watch page; sender domain flags shown; open fraud flag blocks release.

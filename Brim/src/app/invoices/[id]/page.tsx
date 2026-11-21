@@ -1,9 +1,10 @@
+import Link from "next/link";
 import { Suspense } from "react";
 import { Breadcrumb, Card, SectionHeading, StateCard, Timeline } from "@/components/ui";
 import { requireUser } from "@/lib/auth/current";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { AppError } from "@/lib/http";
-import { ROLE_LABEL } from "@/lib/auth/permissions";
+import { canViewAudit, ROLE_LABEL } from "@/lib/auth/permissions";
 import { SOURCE_LABEL, statusLabel } from "@/lib/invoices/labels";
 import { getInvoiceFor } from "@/lib/invoices/service";
 import { describeAction } from "@/lib/audit-text";
@@ -334,7 +335,7 @@ async function InvoiceView({ params }: { params: Promise<{ id: string }> }) {
               <Card className="flex flex-col gap-2 p-6 text-[15px]">
                 {inv.payments.map((p) => (
                   <div key={p.id}>
-                    <b>{p.id}</b> · {p.method} · {formatMoney(p.amount, p.currency)} · {p.status}
+                    {canViewAudit(user.role) ? <Link href={`/audit/pack/${p.id}`} className="font-bold">{p.id}</Link> : <b>{p.id}</b>} · {p.method} · {formatMoney(p.amount, p.currency)} · {p.status}
                     <span className="muted"> · scheduled {formatDate(p.scheduledDate)}</span>
                     {p.reference && <span className="muted num"> · {p.reference}</span>}
                     {p.releasedById && <span className="muted"> · released by {nameOf(p.releasedById)}</span>}
