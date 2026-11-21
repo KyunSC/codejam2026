@@ -1,0 +1,51 @@
+{
+  "handMade": true,
+  "file": "papertrailoffice_2217.pdf",
+  "sha256": "c89e6b2dd30ac8a34a92b96cf07dc84be6924e041477faee5502e03f870cce68",
+  "purpose": "English, HST, early-payment discount terms; everything in the text layer",
+  "extracted": {
+    "docType": "invoice",
+    "language": "en",
+    "vendor": {
+      "name": "Paper Trail Office Supply",
+      "address": "4694 Centre St Toronto ON M2E 5M7",
+      "gstHstNumber": "807091741RT0001",
+      "qstNumber": null
+    },
+    "billTo": {
+      "name": "Harborline Logistics Inc.",
+      "address": "88 Queens Quay W, Suite 1400, Toronto ON M5J 0B8"
+    },
+    "invoiceNumber": "2217",
+    "invoiceDate": "2026-10-26",
+    "dueDate": "2026-11-25",
+    "terms": "2/10 Net 30",
+    "poNumber": null,
+    "creditNoteRef": null,
+    "currency": "CAD",
+    "lines": [
+      {
+        "description": "Printer paper cartons",
+        "quantity": "12",
+        "unitPrice": "$45.18",
+        "amount": "$542.16"
+      }
+    ],
+    "subtotal": "$542.16",
+    "taxes": [
+      {
+        "label": "HST (13%)",
+        "amount": "$70.48"
+      }
+    ],
+    "total": "$612.64",
+    "remit": {
+      "institution": "003",
+      "transit": "19916",
+      "account": "935395864",
+      "text": "EFT / virement bancaire - Paper Trail Office Supply"
+    },
+    "notes": ["2% discount if paid within 10 days."],
+    "unreadable": []
+  }
+}
