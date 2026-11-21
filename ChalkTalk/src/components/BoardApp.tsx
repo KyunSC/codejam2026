@@ -26,10 +26,9 @@ import {
 } from "@/lib/board";
 import { renderBoardImage } from "@/lib/board-image";
 import { readNdjson } from "@/lib/ndjson";
-import type { BoardEvent, Stage } from "@/lib/types";
-import { useStandInStatus } from "@/lib/useStandInStatus";
+import type { BoardEvent, ModelStatus, Stage } from "@/lib/types";
 import { capitalized, useMascotName } from "@/lib/useMascot";
-import { StandInBadge } from "./Badges";
+import { ModelBadge } from "./Badges";
 import { rememberBoard } from "./BoardsHome";
 import { BoardShareButton } from "./ShareButton";
 import { ToolIcon } from "./ToolIcon";
@@ -90,8 +89,7 @@ function track(e: ReactPointerEvent, onMove: (dx: number, dy: number, ev: Pointe
   window.addEventListener("pointercancel", up);
 }
 
-export function BoardApp({ board }: { board: Board }) {
-  const standIn = useStandInStatus();
+export function BoardApp({ board, status }: { board: Board; status: ModelStatus }) {
   // The assistant goes by the student's lab pet ("Ask Hypo"); "your pet" until one is picked.
   const mascot = useMascotName();
   const Mascot = capitalized(mascot);
@@ -736,7 +734,7 @@ export function BoardApp({ board }: { board: Board }) {
             Full
           </span>
         ) : null}
-        <StandInBadge standIn={standIn} compact />
+        <ModelBadge status={status} compact />
         <span
           className="kicker"
           data-testid="save-state"

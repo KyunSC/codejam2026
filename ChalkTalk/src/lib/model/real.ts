@@ -1,6 +1,6 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
-import { EFFORT, MAX_TOKENS, MODEL } from "../config";
+import { EFFORT, MAX_TOKENS, llmConfig } from "../config";
 import { describeBoard, describeLog } from "../board";
 import { BOARD_TOOLS } from "../board-tool-defs";
 import {
@@ -25,12 +25,15 @@ import type {
 /** Tool-use rounds in one Ask Claude, so a confused turn can't loop forever. */
 const MAX_TOOL_ROUNDS = 6;
 
-/** Claude-backed model. Only constructed when a key is present (see index.ts). */
+/** Claude-backed model (LLM_PROVIDER=anthropic). Only constructed when a key is present (see index.ts). */
 export class RealModel implements SimModel {
   private client: Anthropic;
+  private model: string;
 
   constructor() {
-    this.client = new Anthropic();
+    const c = llmConfig();
+    this.client = new Anthropic({ apiKey: c.apiKey, ...(process.env.LLM_BASE_URL?.trim() ? { baseURL: c.baseURL } : {}) });
+    this.model = c.model ?? "";
   }
 
   generate(prompt: string): AsyncIterable<StreamEvent> {
@@ -63,7 +66,7 @@ export class RealModel implements SimModel {
     };
     try {
       const response = await this.client.beta.messages.create({
-        model: MODEL,
+        model: this.model,
         max_tokens: 16000,
         thinking: { type: "adaptive" },
         output_config: { effort: EFFORT, format: { type: "json_schema", schema } },
@@ -105,7 +108,7 @@ export class RealModel implements SimModel {
     try {
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
         const stream = this.client.beta.messages.stream({
-          model: MODEL,
+          model: this.model,
           max_tokens: 16000,
           thinking: { type: "adaptive" },
           output_config: { effort: EFFORT },
@@ -162,7 +165,7 @@ export class RealModel implements SimModel {
     const start = Date.now();
     try {
       const stream = this.client.beta.messages.stream({
-        model: MODEL,
+        model: this.model,
         max_tokens: MAX_TOKENS,
         thinking: { type: "adaptive" },
         output_config: { effort: EFFORT },
@@ -203,9 +206,9 @@ export class RealModel implements SimModel {
 }
 
 export function friendlyError(err: unknown): string {
-  if (err instanceof Anthropic.AuthenticationError) return "The Anthropic API key was rejected. Check .env.local.";
+  if (err instanceof Anthropic.AuthenticationError) return "The Anthropic API key was rejected. Check LLM_API_KEY (or ANTHROPIC_API_KEY) in .env.local.";
   if (err instanceof Anthropic.PermissionDeniedError) return "This API key can't use that model.";
-  if (err instanceof Anthropic.NotFoundError) return "The model wasn't found for this API key.";
+  if (err instanceof Anthropic.NotFoundError) return "The model wasn't found for this API key. Check LLM_MODEL in .env.local.";
   if (err instanceof Anthropic.RateLimitError) return "Claude is busy right now (rate limited). Try again in a moment.";
   if (err instanceof Anthropic.BadRequestError) return `Claude rejected the request: ${err.message}`;
   if (err instanceof Anthropic.InternalServerError) return "Claude is overloaded or having trouble. Try again in a moment.";

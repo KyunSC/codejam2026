@@ -4,8 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { BoardSummary } from "@/lib/board";
-import { Logo, StandInBadge } from "./Badges";
-import { useStandInStatus } from "@/lib/useStandInStatus";
+import { Logo, ModelBadge } from "./Badges";
+import type { ModelStatus } from "@/lib/types";
 
 const KEY = "livesim.boards";
 
@@ -50,9 +50,8 @@ const ago = (iso: string) => {
 };
 
 /** "My whiteboards": the boards made or opened in this browser, a new-board button, and the demo boards. */
-export function BoardsHome() {
+export function BoardsHome({ status }: { status: ModelStatus }) {
   const router = useRouter();
-  const standIn = useStandInStatus();
   const [boards, setBoards] = useState<BoardSummary[] | null>(null);
   const [demos, setDemos] = useState<DemoBoard[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -96,7 +95,7 @@ export function BoardsHome() {
         <header className="flex flex-wrap items-center gap-4">
           <Logo />
           <span className="flex-1" />
-          <StandInBadge standIn={standIn} />
+          <ModelBadge status={status} />
         </header>
 
         <section className="flex flex-col gap-4" aria-labelledby="mine">

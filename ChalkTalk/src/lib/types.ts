@@ -1,6 +1,19 @@
 // Shared types. Safe to import from both server and client code.
 import type { Board, View } from "./board";
 
+/** What the browser may know about the model (from /api/status or the page): never the key. */
+export interface ModelStatus {
+  standIn: boolean;
+  /** The service, e.g. "OpenAI". */
+  provider: string;
+  /** Who the student asks, e.g. "Claude", "ChatGPT", "Gemini", or "AI". */
+  assistant: string;
+  /** The model id, when the real model is in use. */
+  model: string | null;
+  /** Why the stand-in is on, when the settings are the reason. */
+  reason: string | null;
+}
+
 export type Stage = "thinking" | "writing";
 
 export interface Usage {
