@@ -40,7 +40,7 @@ import { InkView, StrokePaths } from "./board/InkView";
 import { NoteView } from "./board/NoteView";
 import { SimBox } from "./board/SimBox";
 
-type Tool = "select" | "pen" | "erase" | "note";
+type Tool = "select" | "pen" | "erase" | "note" | "laser";
 type SaveState = "saved" | "saving" | "error";
 interface Camera {
   x: number;
@@ -71,11 +71,22 @@ const ERASER_RADIUS = 12;
 /** Changes this close together (typing in a note) are one undo step. */
 const UNDO_GROUP_MS = 700;
 const MAX_UNDO = 100;
+/** How long the pointer's trail takes to fade. */
+const LASER_FADE_MS = 800;
+const LASER_COLOR = "#ff3b30";
+interface LaserPoint {
+  x: number;
+  y: number;
+  t: number;
+  /** Which press the point belongs to, so separate presses aren't joined. */
+  press: number;
+}
 const TOOLS: Array<{ id: Tool; label: string; key: string }> = [
   { id: "select", label: "Select", key: "v" },
   { id: "pen", label: "Pen", key: "p" },
   { id: "erase", label: "Eraser", key: "e" },
   { id: "note", label: "Note", key: "n" },
+  { id: "laser", label: "Pointer", key: "l" },
 ];
 
 const isTyping = (el: Element | null) =>
@@ -143,6 +154,34 @@ export function BoardApp({ board, status }: { board: Board; status: ModelStatus 
   const lastInk = useRef<{ id: string; at: number } | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saving = useRef<Promise<void> | null>(null);
+  // The pointer: a red dot that follows the mouse and leaves a fading trail while pressed. Nothing is saved.
+  const [laser, setLaser] = useState<LaserPoint[]>([]);
+  const [laserDot, setLaserDot] = useState<{ x: number; y: number } | null>(null);
+  const laserPts = useRef<LaserPoint[]>([]);
+  const laserFrame = useRef<number | null>(null);
+  const laserPress = useRef(0);
+  const laserTick = useCallback(function tick() {
+    const now = performance.now();
+    laserPts.current = laserPts.current.filter((p) => now - p.t < LASER_FADE_MS);
+    setLaser(laserPts.current);
+    laserFrame.current = laserPts.current.length ? requestAnimationFrame(tick) : null;
+  }, []);
+  const laserAdd = useCallback(
+    (x: number, y: number) => {
+      laserPts.current = [...laserPts.current, { x, y, t: performance.now(), press: laserPress.current }];
+      if (laserFrame.current === null) laserFrame.current = requestAnimationFrame(laserTick);
+    },
+    [laserTick],
+  );
+  useEffect(
+    () => () => {
+      if (laserFrame.current !== null) cancelAnimationFrame(laserFrame.current);
+    },
+    [],
+  );
+  useEffect(() => {
+    if (tool !== "laser") setLaserDot(null);
+  }, [tool]);
 
   // ---------- saving ----------
 
@@ -564,6 +603,13 @@ export function BoardApp({ board, status }: { board: Board; status: ModelStatus 
       }, commitGroup);
       return;
     }
+    if (tool === "laser") {
+      e.preventDefault();
+      laserPress.current++;
+      laserAdd(e.clientX, e.clientY);
+      track(e, (_dx, _dy, ev) => laserAdd(ev.clientX, ev.clientY));
+      return;
+    }
     if (tool === "note") {
       if (full) return;
       // Without this, the click's mousedown moves focus back to the page after the new note took it.
@@ -594,7 +640,7 @@ export function BoardApp({ board, status }: { board: Board; status: ModelStatus 
 
   function startDrag(e: ReactPointerEvent, id: string) {
     if (e.button !== 0) return;
-    if (tool === "pen" || tool === "erase") return;
+    if (tool === "pen" || tool === "erase" || tool === "laser") return;
     e.stopPropagation();
     e.preventDefault();
     const item = itemsRef.current.find((it) => it.id === id);
@@ -741,12 +787,14 @@ export function BoardApp({ board, status }: { board: Board; status: ModelStatus 
       <div
         ref={viewport}
         className={`board-viewport absolute inset-0 overflow-clip ${
-          tool === "pen" ? "pen-mode cursor-crosshair" : tool === "erase" ? "pen-mode erase-mode" : tool === "note" ? "cursor-copy" : "cursor-default"
+          tool === "pen" ? "pen-mode cursor-crosshair" : tool === "erase" ? "pen-mode erase-mode" : tool === "note" ? "cursor-copy" : tool === "laser" ? "laser-mode" : "cursor-default"
         } ${
           dragging ? "is-dragging" : ""
         }`}
         style={{ backgroundPosition: `${-cam.x * cam.s}px ${-cam.y * cam.s}px`, backgroundSize: `${40 * cam.s}px ${40 * cam.s}px` }}
         onPointerDown={onBoardPointerDown}
+        onPointerMove={tool === "laser" ? (e) => setLaserDot({ x: e.clientX, y: e.clientY }) : undefined}
+        onPointerLeave={tool === "laser" ? () => setLaserDot(null) : undefined}
         data-testid="board"
         data-tool={tool}
       >
@@ -795,6 +843,33 @@ export function BoardApp({ board, status }: { board: Board; status: ModelStatus 
           </p>
         ) : null}
       </div>
+
+      {laser.length || laserDot ? (
+        // Screen coordinates: the pointer stays the same size at any zoom.
+        <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden data-testid="laser">
+          <g style={{ filter: `drop-shadow(0 0 4px ${LASER_COLOR})` }}>
+            {laser.map((p, i) => {
+              const prev = laser[i - 1];
+              if (!prev || prev.press !== p.press) return null;
+              const life = Math.max(0, 1 - (performance.now() - p.t) / LASER_FADE_MS);
+              return (
+                <line
+                  key={`${p.press}-${p.t}-${i}`}
+                  x1={prev.x}
+                  y1={prev.y}
+                  x2={p.x}
+                  y2={p.y}
+                  stroke={LASER_COLOR}
+                  strokeWidth={1 + 5 * life}
+                  strokeLinecap="round"
+                  opacity={life}
+                />
+              );
+            })}
+            {laserDot ? <circle cx={laserDot.x} cy={laserDot.y} r={5} fill={LASER_COLOR} /> : null}
+          </g>
+        </svg>
+      ) : null}
 
       <header ref={header} className="toolbar absolute left-3 right-3 top-3" role="toolbar" aria-label="Whiteboard tools">
         <Link href="/" className="tool-btn" data-testid="boards-link" title="My whiteboards">

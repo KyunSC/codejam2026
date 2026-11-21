@@ -491,6 +491,10 @@ body {
 /* Labels go on narrow screens; the icons and titles stay. */
 @media (max-width: 1599px) { .tool-label { display: none; } }
 .erase-mode { cursor: cell; }
+/* The pointer's red dot stands in for the cursor, and it points across sims and notes without grabbing them. */
+.laser-mode { cursor: none; }
+.laser-mode .board-item,
+.laser-mode iframe { pointer-events: none; }
 /* On a phone the bar wraps onto a second row, so every button stays in sight. */
 @media (max-width: 640px) {
   .toolbar { flex-wrap: wrap; overflow-x: visible; }

@@ -5,6 +5,7 @@ const PATHS: Record<string, string> = {
   pen: "M4 20l4-1 11-11-3-3L5 16zM14 6l3 3",
   erase: "M8 20h12M5 15l8-8 6 6-6 6H9z",
   note: "M5 4h14v11l-5 5H5zM14 20v-5h5",
+  laser: "M4 20l8-8M15 9h.01M15 3v2M21 9h-2M19.2 4.8l-1.4 1.4M10.8 4.8l1.4 1.4M19.2 13.2l-1.4-1.4",
   sim: "M4 19h16M7 16V9M12 16V5M17 16v-4",
   plus: "M12 5v14M5 12h14",
   minus: "M5 12h14",
