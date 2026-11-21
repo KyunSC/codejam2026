@@ -28,7 +28,7 @@ import { createExtractor, type ExtractResult, type Extractor } from "./extract";
 import { inspectDocument, type Inspection } from "./inspect";
 import { normalizeDetailed, type NormalizeResult } from "./normalize";
 import { sealedFileNames } from "./sealed";
-import { logAction } from "../audit";
+import { transitionInvoice } from "../invoices/transition";
 import { harborlineId, transactionsOn, type Db, type InTransaction } from "./tx";
 
 type Tx = Db;
@@ -201,20 +201,17 @@ export async function commit(tx: Tx, p: Prepared): Promise<RunOutcome> {
   }
   if (p.kind === "not_extracted") return out("not_extracted", p.detail);
 
-  const move = async (data: Prisma.InvoiceUncheckedUpdateManyInput) => {
-    const { count } = await tx.invoice.updateMany({
-      where: { organizationId, id: p.invoiceId, status: "received" },
-      data,
-    });
-    if (count !== 1) throw new Error(`Invoice ${p.invoiceId} is no longer received; another run moved it.`);
-    await logAction(tx, {
+  // Every status write goes through the guarded transition; it only moves a draft still `received`.
+  const move = async ({ status, ...data }: Prisma.InvoiceUncheckedUpdateManyInput & { status: "needs_review" | "extracted" }) => {
+    const current = await tx.invoice.findFirst({ where: { organizationId, id: p.invoiceId }, select: { status: true } });
+    if (current?.status !== "received") throw new Error(`Invoice ${p.invoiceId} is no longer received; another run moved it.`);
+    await transitionInvoice(tx, {
       organizationId,
+      invoiceId: p.invoiceId,
+      to: status,
       actor: { type: "system" },
       action: "invoice.processed",
-      entityType: "invoice",
-      entityId: p.invoiceId,
-      before: { status: "received" },
-      after: { status: data.status },
+      data,
     });
   };
 
