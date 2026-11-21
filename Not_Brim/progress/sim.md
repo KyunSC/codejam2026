@@ -8,7 +8,7 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 - [x] P0.2 `lib/types.ts` and `lib/config.ts`, Vitest smoke test, Playwright config, one trivial e2e loading `/`. Attempts: 0
 
 ## Step 1: generate → iframe → sliders
-- [ ] S1.1 `lib/prompts.ts` (system prompt verbatim + builders), Vitest. Attempts: 0
+- [x] S1.1 `lib/prompts.ts` (system prompt verbatim + builders), Vitest. Attempts: 0
 - [ ] S1.2 `lib/model/*` (real, stand-in, index) and all fixtures, Vitest of stand-in + model selection. Attempts: 0
 - [ ] S1.3 NDJSON helpers and `lib/sim-html.ts`, Vitest. Attempts: 0
 - [ ] S1.4 `lib/bridge.ts` and `validateParams`, Vitest. Attempts: 0
