@@ -2,6 +2,7 @@
  * Picks the extractor. Answers already in the cache (real ones only) are always used first;
  * then the real model when a key is set, else the recorded stand-in.
  */
+import { anthropicCreate, ClaudeExtractor } from "./claude";
 import { anthropicKey } from "./key";
 import { FileExtractionCache, type ExtractionCache } from "./cache";
 import { RecordedExtractor } from "./recorded";
@@ -47,7 +48,7 @@ export class CachedExtractor implements Extractor {
 export interface ExtractorOptions {
   env?: Record<string, string | undefined>;
   cache?: ExtractionCache;
-  /** Builds the real extractor from the key (item 3.10). */
+  /** Builds the real extractor from the key; defaults to Claude with the configured model. */
   claude?: (apiKey: string) => Extractor;
   recorded?: Extractor;
 }
@@ -56,8 +57,8 @@ export function createExtractor(opts: ExtractorOptions = {}): Extractor {
   const cache = opts.cache ?? new FileExtractionCache();
   const key = anthropicKey(opts.env);
   if (key) {
-    if (!opts.claude) throw new Error("ANTHROPIC_API_KEY is set but no Claude extractor was supplied.");
-    return new CachedExtractor(opts.claude(key), cache);
+    const claude = opts.claude ?? ((k: string) => new ClaudeExtractor(anthropicCreate(k)));
+    return new CachedExtractor(claude(key), cache);
   }
   return new CachedExtractor(opts.recorded ?? new RecordedExtractor(), cache);
 }
