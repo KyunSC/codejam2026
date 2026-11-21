@@ -16,3 +16,11 @@ Node here is v20.20, which has no `--experimental-strip-types`, and `tsx` isn't 
 
 ## P0.1 Fonts
 Dropped the scaffold's `next/font/google` (Geist) so builds don't need the network; the app uses system-ui like the sims. Root font size is 20px for back-row readability.
+## S1.2 Which fixture is "falling"'s fixed twin?
+The spec says "`falling` ... and its fixed twin". Read as: `falling-broken` (throws on load) repairs to `falling`, matching the `X-broken → X` rule.
+
+## S1.2 How does the stand-in know which fixture it is repairing/editing?
+Each fixture has a `<!-- hand-made fixture: NAME -->` comment; `repair()`/`edit()` read it. Code with no marker is returned unchanged by repair and gets the first-default bump on edit.
+
+## S1.2 Real-model homework schema
+`defaults` is an object whose properties are generated from the sim's param ids (all required, additionalProperties false), since structured outputs need closed objects. It's still `{question: string, defaults: object}`.
