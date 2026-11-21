@@ -8,7 +8,7 @@
  * and an expiry inside the payload. It is httpOnly, so page scripts cannot read it.
  * Every read re-loads the person from the database, so a terminated user is out at once.
  */
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { connection } from "next/server";
 import type { BrimStaff, Organization, User } from "@/generated/prisma/client";
@@ -21,10 +21,17 @@ const MAX_AGE_SECONDS = 60 * 60 * 12;
 type UserPayload = { uid: string; oid: string; exp: number };
 type StaffPayload = { sid: string; exp: number };
 
+/**
+ * The signing key: SESSION_SECRET, or, when a deployment has none configured, a key derived from
+ * DATABASE_URL. That URL holds the database password and never leaves the server, so the derived
+ * key is as private as the database itself.
+ */
 function secret(): string {
   const s = process.env.SESSION_SECRET?.trim();
-  if (!s) throw new Error("SESSION_SECRET is not set. Put a long random string in .env.");
-  return s;
+  if (s) return s;
+  const dbUrl = process.env.DATABASE_URL?.trim();
+  if (!dbUrl) throw new Error("Neither SESSION_SECRET nor DATABASE_URL is set. Put a long random string in SESSION_SECRET.");
+  return createHash("sha256").update(`brim-session-v1\n${dbUrl}`).digest("hex");
 }
 
 function sign(body: string): string {
