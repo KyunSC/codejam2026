@@ -1,9 +1,9 @@
-import { config } from "dotenv";
 import type { NextConfig } from "next";
+import { loadEnv } from "./scripts/load-env.mjs";
 
-// Next loads Brim/.env itself; also read the repo-root .env. Variables already set (shell or
-// Brim/.env) win.
-config({ path: "../.env", quiet: true });
+// Next loads Brim/.env itself; this adds the repo-root .env (skipped with BRIM_LOCAL_DB_ONLY=1).
+// Variables already set (shell or Brim/.env) win.
+loadEnv({ skipBrimEnv: true });
 
 const nextConfig: NextConfig = {
   /* config options here */

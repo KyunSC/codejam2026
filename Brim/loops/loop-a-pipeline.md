@@ -5,7 +5,7 @@ Branch: `loop/pipeline` · Phases 1 and 3 of `Brim/BUILD_PLAN.md` · Runs withou
 Before starting:
 - Phase 0 (Next.js, Prisma, Vitest, `config.ts`, `APP_TODAY`) and `src/lib/types.ts` (`Extracted`, `NormalizedInvoice`) are already on `main`.
 - Branch from `main`: `git switch -c loop/pipeline`, then `npm install`.
-- If `Brim/.env` already exists (for example one pointing at the shared Neon database), move it aside first: `mv .env .env.neon`. Move it back after the loop.
+- If `Brim/.env` already exists (for example one pointing at the shared Neon database), move it aside first: `mv .env .env.neon`. Move it back after the loop. The shared repo-root `.env` can stay: with `BRIM_LOCAL_DB_ONLY=1` it is not loaded.
 - Start a local Postgres. Docker is shown; it uses port 5433 so it can't clash with Postgres.app or Homebrew Postgres on 5432 (check with `lsof -i :5433`):
 
   ```bash
