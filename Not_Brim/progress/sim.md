@@ -33,7 +33,7 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 - [x] S4.2 Homework via `model.homework` + share route, defaults validated. Attempts: 2
 - [x] S4.3 "Share with students" copy link + fallback, `/s/[id]` student page. Attempts: 1
 - [x] S4.4 Playwright: create → share → open → Run disabled → predict → Run → ready with homework question. Attempts: 2
-- [ ] S4.5 Step 4 report. Attempts: 0
+- [x] S4.5 Step 4 report. Attempts: 1
 
 ## Step 5: saved demos + polish
 - [ ] S5.1 `data/demos/*.json` placeholders, "Saved demos" menu (no /api/generate), "Save as demo", `scripts/make-demos.ts` (needs key). Attempts: 0

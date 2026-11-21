@@ -59,3 +59,20 @@
 
 **Needs a key:** how well real edits keep the contract and the param ids (the stand-in just swaps in `pendulum-edited`, or bumps the first default).
 
+## Step 4: student links + homework
+
+**What works (stand-in):**
+- `src/lib/store.ts` stores records in `data/sims.json` (gitignored), with atomic tmp+rename writes serialised in-process and 12-hex-char ids from `crypto.randomUUID`.
+- Every ready of a generate or edit saves through `POST /api/sims`, which re-validates the html and params. `GET /api/sims` lists summaries.
+- `POST /api/sims/[id]/share` makes the homework once through `model.homework`, validates it (defaults clamped, snapped to the step grid, unknown ids dropped, missing ones filled), stores it and returns `/s/[id]`.
+- "Share with students" copies the absolute link, or shows it selected when the clipboard is blocked.
+- `/s/[id]` shows the homework question and a "Predict before you run" box. Run stays disabled until something is typed. The sim isn't mounted until Run, and then starts from the homework defaults. An unknown id gives a 404.
+
+**Tests:** lint and typecheck clean. Vitest 82/82: the store against a temp dir (including 20 concurrent saves) and validateHomework. Playwright e2e 11/11, adding create → share → open the link → Run disabled → predict → Run → ready with the homework question and moved defaults, plus the unknown-link 404.
+
+**Stand-in timings:** share (stand-in homework) is instant. The student Run reaches ready in ~1 s (no model call).
+
+**Surprise:** another session stashed the loop's work and switched the shared checkout to `main`. The loop moved to its own worktree, `../codejam2026-loop-sim`.
+
+**Needs a key:** the quality of real homework variations (a different question plus sensible new defaults).
+
