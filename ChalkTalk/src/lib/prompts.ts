@@ -59,6 +59,22 @@ and end with </html>. No markdown fences, no text before or after.
 - Text in system-ui, ≥ 20px (CSS px after the dpr transform). Labels and readouts only.
 - Compared objects get strong distinct colors (#2563eb, #dc2626, #16a34a, #d97706) and
   short labels ("A", "B").
+- Do not draw the title or the question: the host app already shows them next to the
+  canvas.
+
+# Layout (text must never overlap anything)
+- Split the canvas into fixed, non-overlapping bands computed from W and H before drawing:
+  a top band for the legend (omit it if there is no legend), the scene in the middle, and
+  a bottom band for readouts.
+  Give each band enough height for its text lines (lines × ~1.4 × font size) plus padding.
+- The scene, its axes and their tick labels stay inside the scene band. Scale the physics
+  to fit that band, not the whole canvas.
+- Put the legend on one row only if it fits the width; otherwise stack it. Measure text with
+  ctx.measureText and place items from those widths, never at guessed offsets.
+- Readouts go in a compact grid (one column per object), at most 3 rows. If the canvas is
+  short, show fewer readouts rather than shrinking text below 20px or letting it
+  spill past the edge.
+- Labels that follow moving objects must not cover the readouts or the legend.
 
 # Code style
 Compact: aim for under 200 lines of JavaScript, plain ES2020, minimal comments.
@@ -85,12 +101,13 @@ window.SIM={
 };
 function step(b,h){b.w+=-(g/p.length)*Math.sin(b.th)*h;const prev=b.th;b.th+=b.w*h;
   if(prev<0&&b.th>=0){if(b.cross!==null)b.period=t-b.cross;b.cross=t;}}
-function draw(){ctx.clearRect(0,0,W,H);const s=H*0.65/3,py=H*0.08;
+function draw(){ctx.clearRect(0,0,W,H);
+  const band=(26+22)*1.4+16,top=H-band,py=16,R=12+8*Math.cbrt(10),s=Math.max(0,(top-py-R)/3);
   bobs.forEach((b,i)=>{const px=W*(i?0.68:0.32),x=px+Math.sin(b.th)*p.length*s,y=py+Math.cos(b.th)*p.length*s;
     ctx.strokeStyle='#0f172a';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(x,y);ctx.stroke();
     ctx.fillStyle=b.color;ctx.beginPath();ctx.arc(x,y,12+8*Math.cbrt(b.mass),0,7);ctx.fill();
-    ctx.fillStyle='#0f172a';ctx.textAlign='center';ctx.font='bold 26px system-ui';ctx.fillText(b.name+': '+b.mass+' kg',px,H-72);
-    ctx.font='22px system-ui';ctx.fillText('Period: '+(b.period?b.period.toFixed(2)+' s':'measuring…'),px,H-38);});}
+    ctx.fillStyle='#0f172a';ctx.textAlign='center';ctx.font='bold 26px system-ui';ctx.fillText(b.name+': '+b.mass+' kg',px,top+34);
+    ctx.font='22px system-ui';ctx.fillText('Period: '+(b.period?b.period.toFixed(2)+' s':'measuring…'),px,top+65);});}
 let last=performance.now();
 function frame(now){const dt=Math.min((now-last)/1000,1/30);last=now;const n=8,h=dt/n;
   for(let i=0;i<n;i++){t+=h;bobs.forEach(b=>step(b,h));}draw();requestAnimationFrame(frame);}
