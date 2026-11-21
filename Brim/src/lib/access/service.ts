@@ -37,8 +37,12 @@ function role(v: unknown, field: string): Role | null {
 export async function requestAccess(input: Record<string, unknown>): Promise<PublicAccessRequest> {
   const slug = text(input.organization);
   if (!slug) throw new AppError(422, "BAD_FIELD", "organization: enter your organization's ID.");
-  const org = await getOrganization(slug).catch(() => {
-    throw new AppError(422, "BAD_FIELD", `organization: no organization with ID "${slug}".`);
+  const org = await getOrganization(slug).catch((err: unknown) => {
+    // Only "not found" becomes a form error; a database failure stays a server error.
+    if (err instanceof AppError && err.status === 404) {
+      throw new AppError(422, "BAD_FIELD", `organization: no organization with ID "${slug}".`);
+    }
+    throw err;
   });
   const fullName = text(input.fullName);
   const email = text(input.email).toLowerCase();

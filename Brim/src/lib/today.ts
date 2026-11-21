@@ -33,11 +33,14 @@ export function toIsoDate(value: string | null | undefined): IsoDate | null {
  * In a Server Component, call it after `await connection()` (or any request API) and inside
  * <Suspense>, or the page is prerendered and the date is frozen at build time.
  */
+/** The dataset's as-of date. A Vercel deployment with no APP_TODAY uses it, so the demo matches the data. */
+export const DATASET_AS_OF: IsoDate = "2026-11-02";
+
 export function today(env: Record<string, string | undefined> = process.env): IsoDate {
   if (typeof window !== "undefined") {
     throw new Error("today() is server-only. Read it on the server and pass it to the client as a prop.");
   }
-  const fixed = env.APP_TODAY?.trim();
+  const fixed = env.APP_TODAY?.trim() || (env.VERCEL === "1" ? DATASET_AS_OF : "");
   if (fixed) {
     if (!isRealIsoDate(fixed)) {
       throw new Error(`APP_TODAY must be a date written YYYY-MM-DD, got "${fixed}"`);
