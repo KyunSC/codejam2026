@@ -1,4 +1,12 @@
+import { connection } from "next/server";
+import { Suspense } from "react";
 import { today } from "@/lib/today";
+
+/** Read at request time, so the date is never frozen into the prerendered page. */
+async function AppDate() {
+  await connection();
+  return <>{today()}</>;
+}
 
 export default function Home() {
   return (
@@ -8,7 +16,12 @@ export default function Home() {
       <p className="text-zinc-600">
         Supplier invoices from inbox to payment. The app is being built; see BUILD_PLAN.md.
       </p>
-      <p className="text-sm text-zinc-500">App date: {today()}</p>
+      <p className="text-sm text-zinc-500">
+        App date:{" "}
+        <Suspense fallback="…">
+          <AppDate />
+        </Suspense>
+      </p>
     </main>
   );
 }

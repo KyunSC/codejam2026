@@ -7,6 +7,16 @@ Before starting:
 - Branch from `main`: `git switch -c loop/rules`.
 - Run in auto mode or with an allowlist so the loop does not stall on a permission prompt.
 - This loop never connects to the database.
+- In Claude Code, open `/config` and check that auto-compact is on.
+- Keep the laptop plugged in with the lid open, on a connection that won't drop overnight.
+- Start Claude Code inside `tmux` under `caffeinate`, so the machine can't sleep while the loop runs and the loop survives an accidental terminal close:
+
+  ```bash
+  tmux new -s loop-b
+  caffeinate -is claude
+  ```
+
+  On Windows use PowerToys Awake or set sleep to "Never"; on Linux use `systemd-inhibit claude`.
 
 Paste the block below into Claude Code:
 

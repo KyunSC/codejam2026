@@ -12,7 +12,11 @@ import type Decimal from "decimal.js";
 
 // ---------- Basics ----------
 
-/** A calendar date as `YYYY-MM-DD`. Dates are kept as strings to avoid timezone drift. */
+/**
+ * A calendar date as `YYYY-MM-DD`. Dates are kept as strings to avoid timezone drift.
+ * The alias accepts any string, so create values only through `toIsoDate()` (src/lib/today.ts)
+ * or the dataset loaders, which both reject impossible dates.
+ */
 export type IsoDate = string;
 
 export type Role =
@@ -196,7 +200,22 @@ export interface NormalizedInvoice {
 
 // ---------- Resolution (rules engine output, input to the checks) ----------
 
+/**
+ * A line with the account and line type it resolves to. Line type decides BC PST
+ * (BUILD_PLAN Resolution, "Line type"): from the account, except 5020 and 6630 where the
+ * description's nearest match in history decides. Null when not yet known; a check that
+ * needs it (TAX_WRONG_FOR_PROVINCE in BC) must not guess.
+ */
+export interface ResolvedLine extends NormalizedLine {
+  /** GL account number, e.g. "6110". */
+  glAccount: string | null;
+  lineType: LineType | null;
+  lineTypeSource: "account" | "description_match" | "clerk" | null;
+}
+
 export interface ResolvedInvoice extends NormalizedInvoice {
+  /** Same lines as NormalizedInvoice, in the same order, with account and line type. */
+  lines: ResolvedLine[];
   vendorId: string | null;
   /** How the vendor was found, for the review screen. */
   vendorMatchedBy: "tax_number" | "bank_account" | "name" | null;

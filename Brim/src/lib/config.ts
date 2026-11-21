@@ -61,7 +61,8 @@ export const config = {
     /** Bank statement description: "EFT PMT " + vendor name cut to this length + last 6 of the reference. */
     statementNameMaxLen: 24,
     /** An EFT account number must have one of these lengths, or the simulated payment fails. */
-    eftAccountDigits: [8, 9],
+    // Widened so `.includes(account.length)` type-checks; `as const` would make it `readonly [8, 9]`.
+    eftAccountDigits: [8, 9] as readonly number[],
   },
 } as const;
 
