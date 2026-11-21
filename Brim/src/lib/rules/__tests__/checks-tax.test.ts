@@ -56,6 +56,9 @@ describe("TAX_WRONG_FOR_PROVINCE", () => {
     ["BC goods without PST", billed("V012", "BC", ["goods"], ["GST5"]), WRONG],
     ["BC line type unknown, PST charged: not guessed", billed("V012", "BC", [null], ["GST5", "PST7_BC"]), []],
     ["BC line type unknown, no PST: not guessed", billed("V012", "BC", [null], ["GST5"]), []],
+    // An unregistered supplier (no tax number on the invoice or on file) may not charge tax; TAX_NOT_REGISTERED says so.
+    ["unregistered V054, BC, no tax (like riverbendcaterin_1739)", billed("V054", "BC", ["services"], [], { gstHstNumber: null }), []],
+    ["unregistered V054 charging HST in Alberta: still wrong", billed("V054", "AB", ["services"], ["HST13"], { gstHstNumber: null }), WRONG],
     ["insurance vendor, no tax", billed(refs.vendorList.find((v) => v.category === "Insurance")!.vendorId, "ON", ["services"], []), []],
     ["insurance vendor charging HST", billed(refs.vendorList.find((v) => v.category === "Insurance")!.vendorId, "ON", ["services"], ["HST13"]), WRONG],
     ["US vendor, no tax", billed("V016", "ON", ["services"], []), []],

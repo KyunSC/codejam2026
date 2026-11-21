@@ -60,3 +60,12 @@ Open points for the team. Loop B takes BUILD_PLAN's version and moves on.
 - **No eligible releaser** (worked example 5, and anything over $250,000): Loop B blocks with the reason, as
   BUILD_PLAN decides (Risks 2). Still worth confirming with Brim.
 - **Release ordering**: `releaseEligibility` lists finance manager first, then the controller, then the CFO.
+
+## Loop C
+
+Open points for the team. Loop C takes BUILD_PLAN's version and moves on.
+
+- **Unregistered supplier charging no tax (item 3).** BUILD_PLAN expects only `TAX_NOT_REGISTERED` on `riverbendcaterin_1739`, but `TAX_WRONG_FOR_PROVINCE` also fired. Changed the check: no tax charged and no tax number on the invoice or on file → no tax-province flag (an unregistered small supplier may not charge GST). Charging the wrong tax still fires.
+- **SPLIT_SUSPECTED on one invoice of the group (item 3).** Only the invoice that completes the group carries the flag. Its route adds the combined-amount steps; the earlier two route on their own amount. If the team wants all three held together, the submit step could look up open split groups.
+- **Workflow ids are dataset ids.** ApprovalStep, Flag resolvers and `Invoice.requesterId` use `User.externalId` (U001 …) like the imported history; people added in the app fall back to their row id.
+- **Audit chain lock.** Every audit write takes a per-organization advisory lock to link the hash chain, which serialises writers. Fine at this volume; BUILD_PLAN's "a chain per day with anchors" is the scale answer.

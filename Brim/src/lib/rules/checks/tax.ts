@@ -81,6 +81,9 @@ export const checkTaxWrongForProvince: Check = (inv, refs) => {
   const exp = expectedTax(inv, vendor);
   if (!exp) return [];
   const charged = chargedCodes(inv);
+  // A supplier with no tax number on the invoice or on file is not registered and may not charge tax;
+  // TAX_NOT_REGISTERED reports that (info), so charging nothing is not a tax error here.
+  if (charged.size === 0 && !inv.gstHstNumber && !vendor?.gstHstNumber) return [];
   const missing = [...exp.codes].filter((c) => !charged.has(c));
   const extra = [...charged].filter((c) => !exp.codes.has(c) && !exp.undecided.has(c));
   if (!missing.length && !extra.length) return [];
