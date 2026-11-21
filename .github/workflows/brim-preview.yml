@@ -27,6 +27,10 @@ jobs:
               state, description,
               target_url: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
             })
+            if (context.payload.action === 'vercel.deployment.skipped') {
+              await status('success', 'Brim unaffected; Vercel skipped the preview')
+              return
+            }
             await status('pending', 'Checking the Brim deployment')
             try {
               if (context.payload.action !== 'vercel.deployment.success') {
