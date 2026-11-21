@@ -12,7 +12,7 @@ Scripts in `scripts/` set `APP_TODAY=2026-11-02` themselves.
 - [x] 2. Refs (reference data indexes) + history adapter (InvoiceRow + lines → ResolvedInvoice) + name/number key helpers
 - [x] 3. Roles and permissions: matrix in `src/lib/auth/permissions.ts` + invariant checks (SELF_APPROVAL, NOT_YOUR_STEP, APPROVER_CANNOT_RELEASE, RELEASE_LIMIT, FOUR_EYES, READ_ONLY_ROLE)
 - [x] 4. Resolution: vendor (tax number → bank+similar name → normalised name → unknown with candidates)
-- [ ] 5. Resolution: province, PO + suggestions, contract, department, requester (terminated → manager), line type, currency/FX
+- [x] 5. Resolution: province, PO + suggestions, contract, department, requester (terminated → manager), line type, currency/FX
 - [ ] 6. Checks: UNREADABLE, FIELD_UNCERTAIN, ARITHMETIC_LINE/SUBTOTAL/TOTAL, DATE_ODD, DATE_AMBIGUOUS, TERMS_MISMATCH, FX_RATE_FALLBACK, SHIP_TO_UNKNOWN
 - [ ] 7. Checks: VENDOR_UNKNOWN, VENDOR_PENDING, VENDOR_ON_HOLD, VENDOR_NEW, VENDOR_LOOKALIKE, TAX_NUMBER_MISMATCH
 - [ ] 8. Checks: BANK_MISMATCH, BANK_CHANGE_UNVERIFIED, BANK_CHANGE_RECENT
@@ -57,3 +57,18 @@ V002/V053 share a bank account, and V001/V051, V002/V053, V026/V052 share a norm
 fall through and end as no vendor with both records offered (never chosen). Thresholds added to
 `config.resolution` (bank-match name similarity 0.5, 3 candidates, min similarity 0.2). Every master
 record resolves to itself by tax number; V054 (no tax number) by its unique name.
+
+### Item 5: resolution of the other fields (2026-11-21)
+`src/lib/rules/resolve/{fields,index}.ts`; `resolveInvoice(normalized, refs, {uploaderId, codeLine})`.
+- Province: full office address, else a standalone province code, else the city; otherwise null.
+- PO remaining = PO amount − subtotals of non-rejected invoices on it. PO-2026-0037 has $1,800.00 left, so
+  it is not offered for a $2,150.00 subtotal; PO-2026-0046 is offered for V012.
+- Department, left-one-out on history: **368 of 394** (vendor+province) and **375 of 425** (vendor alone),
+  equal to BUILD_PLAN, with ties going to the department the vendor billed first. Ties to the most recent
+  gave 360 and 381.
+- Requester: PO's or uploader's, kept as is. A terminated requester raises REQUESTER_TERMINATED (item 12),
+  and routing uses `effectiveRequester` (their manager).
+- Line type: learned from history (5020 and 6630 are the only mixed accounts, found from the data, not
+  hard-coded); the nearest description reproduces all 51 history lines on them, including the six "Tire service (units)" lines as services.
+- FX reproduces `fx_rate_to_cad` on all 34 USD invoices; after the last row it uses the last row (fallback).
+- Line accounts come from a `codeLine` hook; vendor default until smart coding (item 15).

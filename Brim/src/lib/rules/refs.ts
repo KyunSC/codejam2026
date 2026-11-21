@@ -28,6 +28,7 @@ import type {
   VendorRow,
 } from "../dataset";
 import type { Currency, InvoiceKind, IsoDate, LineType, Province, TaxCode } from "../types";
+import { buildLineTypeModel, type LineTypeModel } from "./resolve/fields";
 
 /** An invoice already in the system, as the checks need to see it. */
 export interface KnownInvoice {
@@ -87,6 +88,8 @@ export interface Refs {
   invoicesByVendor: ReadonlyMap<string, readonly KnownInvoice[]>;
   /** The invoice being checked, when it already has an id. */
   self: { invoiceId: string } | null;
+  /** Which accounts are goods, services or mixed, learned from the invoices given to buildRefs. */
+  lineTypes: LineTypeModel;
 }
 
 function groupBy<T>(rows: readonly T[], key: (r: T) => string | null): Map<string, T[]> {
@@ -128,6 +131,7 @@ export function buildRefs(ds: Dataset, invoices: readonly KnownInvoice[], today:
     invoices,
     invoicesByVendor: groupBy(invoices, (i) => i.vendorId),
     self: null,
+    lineTypes: buildLineTypeModel(invoices.flatMap((i) => i.lines)),
   };
 }
 
