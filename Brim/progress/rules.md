@@ -21,7 +21,7 @@ Scripts in `scripts/` set `APP_TODAY=2026-11-02` themselves.
 - [x] 11. Checks: CONTRACT_EXPIRED, CONTRACT_FEE_MISMATCH, CONTRACT_RATE_OVER_CAP, CONTRACT_FUEL_OVER_CAP, CONTRACT_MONTHLY_CAP, CONTRACT_PERIOD_REPEAT
 - [x] 12. Checks: SPLIT_SUSPECTED, REQUESTER_TERMINATED, SELF_APPROVAL (history), CREDIT_NOTE_ORPHAN
 - [x] 13. Duplicate detection: DUP_EXACT, DUP_NEAR, DUP_CONTENT, DUP_PAID_BY_CARD (lookalike vendors count as one)
-- [ ] 14. Checks runner (`runChecks`) + `scripts/history-replay.ts`: compare against "What is planted"; explain differences below
+- [x] 14. Checks runner (`runChecks`) + `scripts/history-replay.ts`: compare against "What is planted"; explain differences below
 - [ ] 15. Smart coding (same description at vendor → vendor default → nearest description) + `scripts/coding-accuracy.ts` (train Jan–Aug, test Sep–Oct; account and department)
 - [ ] 16. Approval routing: policy rows P01–P13, rules → steps → people (self, leave, terminated, repeats, unresolvable), release eligibility; the five worked examples as tests
 
@@ -157,3 +157,20 @@ Two readings of BUILD_PLAN needed to reproduce it:
    already matches an earlier invoice is attributed to that one. AP-00224 still gets DUP_EXACT.
 Trap test: for each of the 17 fixed-fee vendors, the next bill (same total, next number, 3 weeks later) raises
 no duplicate. Lookalike records count as one vendor (V053 reusing a V002 number → DUP_EXACT).
+
+### Item 14: checks runner and history replay (2026-11-21)
+`src/lib/rules/checks/index.ts` (`runChecks`, 42 codes), `src/lib/rules/replay.ts`, `scripts/history-replay.ts`
+(`npx tsx scripts/history-replay.ts`; sets APP_TODAY=2026-11-02 itself). **Result: the replay matches "What
+is planted", 14 of 14 rows** (13 planted rows plus the three lookalike pairs), and there are **no hold-level flags
+outside the planted table** (no false-positive holds on history).
+Differences, each explained (all info or route, never hold):
+- VENDOR_NEW ×53 (route): replay artifact. History starts in January but vendors were onboarded 2019–2024, so
+  each vendor's first replayed invoice has no approved invoice before it. With all history known, exactly
+  V052, V054, V055, V056 are new (tested).
+- BANK_CHANGE_RECENT ×5 (info): invoices within 30 days after a callback-verified bank change (tested).
+- CONTRACT_PERIOD_REPEAT ×1 (info): AP-00026, itself the planted duplicate.
+- Reconciliation rows (cheques, bank fees, PADs) are the reconciliation bonus, not the checks engine.
+Fixes made while replaying:
+- VENDOR_LOOKALIKE now needs strictly fewer invoices than the lookalike. With "at most as many", every pair's
+  first replayed invoice (0 vs 0) and V001's AP-00123 (2 vs 2) fired; now exactly V051 ×3 and V053 ×2.
+- PO status as of each invoice: a closed PO counts as open until its last history invoice is entered.

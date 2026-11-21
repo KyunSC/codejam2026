@@ -123,7 +123,9 @@ export const checkVendorLookalike: Check = (inv, refs) => {
   const flags: Flag[] = [];
   for (const other of lookalikesOf(v.vendorId, refs)) {
     const theirs = (refs.invoicesByVendor.get(other.vendorId) ?? []).length;
-    if (mine > theirs) continue;
+    // Strictly fewer: with equal history neither record is the established one (in the replay this is
+    // every pair's first invoice, since history starts in January), so neither is called the impostor.
+    if (mine >= theirs) continue;
     const diffs = [
       idKey(v.gstHstNumber) !== idKey(other.gstHstNumber) ? "tax number" : null,
       idKey(v.bankAccount) !== idKey(other.bankAccount) ? "bank account" : null,
