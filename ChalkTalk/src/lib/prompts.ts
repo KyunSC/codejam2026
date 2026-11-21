@@ -59,6 +59,21 @@ and end with </html>. No markdown fences, no text before or after.
 - Text in system-ui, ≥ 20px (CSS px after the dpr transform). Labels and readouts only.
 - Compared objects get strong distinct colors (#2563eb, #dc2626, #16a34a, #d97706) and
   short labels ("A", "B").
+- Do not draw the title or the question: the host app already shows them next to the
+  canvas.
+
+# Layout (text must never overlap anything)
+- Split the canvas into fixed, non-overlapping bands computed from W and H before drawing:
+  a top band for the legend, the scene in the middle, and a bottom band for readouts.
+  Give each band enough height for its text lines (lines × ~1.4 × font size) plus padding.
+- The scene, its axes and their tick labels stay inside the scene band. Scale the physics
+  to fit that band, not the whole canvas.
+- Put the legend on one row only if it fits the width; otherwise stack it. Measure text with
+  ctx.measureText and place items from those widths, never at guessed offsets.
+- Readouts go in a compact grid (one column per object), at most 3 rows. If the canvas is
+  short, show fewer readouts rather than shrinking text below 20px or letting it
+  spill past the edge.
+- Labels that follow moving objects must not cover the readouts or the legend.
 
 # Code style
 Compact: aim for under 200 lines of JavaScript, plain ES2020, minimal comments.

@@ -1,6 +1,6 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
-import { EFFORT, MAX_TOKENS, llmConfig } from "../config";
+import { CHAT_EFFORT, MAX_TOKENS, SIM_EFFORT, llmConfig } from "../config";
 import { describeBoard, describeLog } from "../board";
 import { BOARD_TOOLS } from "../board-tool-defs";
 import {
@@ -69,7 +69,7 @@ export class RealModel implements SimModel {
         model: this.model,
         max_tokens: 16000,
         thinking: { type: "adaptive" },
-        output_config: { effort: EFFORT, format: { type: "json_schema", schema } },
+        output_config: { effort: CHAT_EFFORT, format: { type: "json_schema", schema } },
         betas: ["server-side-fallback-2026-07-01"],
         fallbacks: "default",
         system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
@@ -111,7 +111,7 @@ export class RealModel implements SimModel {
           model: this.model,
           max_tokens: 16000,
           thinking: { type: "adaptive" },
-          output_config: { effort: EFFORT },
+          output_config: { effort: CHAT_EFFORT },
           betas: ["server-side-fallback-2026-07-01"],
           fallbacks: "default",
           tools: BOARD_TOOLS,
@@ -168,7 +168,7 @@ export class RealModel implements SimModel {
         model: this.model,
         max_tokens: MAX_TOKENS,
         thinking: { type: "adaptive" },
-        output_config: { effort: EFFORT },
+        output_config: { effort: SIM_EFFORT },
         betas: ["server-side-fallback-2026-07-01"],
         fallbacks: "default",
         system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],

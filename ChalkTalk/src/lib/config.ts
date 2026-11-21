@@ -3,7 +3,10 @@ import type { ModelStatus } from "./types";
 
 /** The Anthropic model used when LLM_MODEL is not set. */
 export const MODEL = "claude-sonnet-5-5";
-export const EFFORT = "medium" as const;
+/** Effort for short replies (homework answers, whiteboard tool turns), where speed matters most. */
+export const CHAT_EFFORT = "low" as const;
+/** Effort for simulation generation, where a broken sim costs more than a few seconds. */
+export const SIM_EFFORT = "medium" as const;
 export const MAX_TOKENS = 32000;
 
 export type ProviderId = "anthropic" | "openai" | "gemini" | "openrouter" | "groq" | "ollama" | "openai-compatible";

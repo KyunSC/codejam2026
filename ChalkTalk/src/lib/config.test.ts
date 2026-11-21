@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { EFFORT, MAX_TOKENS, MODEL, hasKey, llmConfig, useStandIn } from "./config";
+import { CHAT_EFFORT, MAX_TOKENS, SIM_EFFORT, MODEL, hasKey, llmConfig, useStandIn } from "./config";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -8,7 +8,8 @@ afterEach(() => {
 describe("config", () => {
   it("exposes the model constants", () => {
     expect(MODEL).toBe("claude-sonnet-5-5");
-    expect(EFFORT).toBe("medium");
+    expect(CHAT_EFFORT).toBe("low");
+    expect(SIM_EFFORT).toBe("medium");
     expect(MAX_TOKENS).toBe(32000);
   });
 

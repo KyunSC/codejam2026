@@ -19,7 +19,7 @@ The checklist at the end is the build order.
 - `.env.local.example` contains `ANTHROPIC_API_KEY=`. The gitignore keeps `.env*` ignored and adds `!.env.local.example`. `data/sims.json` is ignored; `data/demos/` is committed.
 - `src/lib/config.ts` imports `server-only` (so does `src/lib/model/real.ts`). Client code never imports it; the client learns stand-in mode from `GET /api/status`. It holds:
   - `MODEL = "claude-sonnet-5-5"`
-  - `EFFORT = "medium"` (the single effort constant)
+  - `CHAT_EFFORT = "low"` (homework answers, tool turns) and `SIM_EFFORT = "medium"` (simulation generation)
   - `MAX_TOKENS = 32000`
   - `hasKey()` (true when the key is set and not blank)
   - `useStandIn()` (`!hasKey() || process.env.FAKE_MODEL === "1"`).
@@ -38,7 +38,7 @@ Routes stream these as NDJSON (`application/x-ndjson`, one JSON object per line)
 - `homework({code, params, question})`, returning `Promise<{question, defaults: Record<string, number>}>`.
 
 - **`real.ts`** follows the claude-api skill:
-  - Calls `client.beta.messages.stream` with `model: MODEL`, `max_tokens: MAX_TOKENS`, `thinking: {type:"adaptive"}`, `output_config: {effort: EFFORT}`, and the system prompt as a text block with `cache_control: {type:"ephemeral"}`. It also sends `betas: ["server-side-fallback-2026-07-01"]` and `fallbacks: "default"`; if the SDK types reject them, drop them and log it.
+  - Calls `client.beta.messages.stream` with `model: MODEL`, `max_tokens: MAX_TOKENS`, `thinking: {type:"adaptive"}`, `output_config: {effort: SIM_EFFORT}`, and the system prompt as a text block with `cache_control: {type:"ephemeral"}`. It also sends `betas: ["server-side-fallback-2026-07-01"]` and `fallbacks: "default"`; if the SDK types reject them, drop them and log it.
   - A `content_block_start` of type thinking becomes `status: thinking`; of type text, `status: writing`. A `text_delta` becomes a `delta`. `finalMessage()` becomes `done`.
   - The `max_tokens` and `refusal` stop reasons become an `error`. SDK error classes are mapped to friendly messages.
   - `homework` uses structured output (`output_config.format`, a JSON schema of `{question: string, defaults: object}`). Never called tonight.
@@ -132,6 +132,21 @@ and end with </html>. No markdown fences, no text before or after.
 - Text in system-ui, ≥ 20px (CSS px after the dpr transform). Labels and readouts only.
 - Compared objects get strong distinct colors (#2563eb, #dc2626, #16a34a, #d97706) and
   short labels ("A", "B").
+- Do not draw the title or the question: the host app already shows them next to the
+  canvas.
+
+# Layout (text must never overlap anything)
+- Split the canvas into fixed, non-overlapping bands computed from W and H before drawing:
+  a top band for the legend, the scene in the middle, and a bottom band for readouts.
+  Give each band enough height for its text lines (lines × ~1.4 × font size) plus padding.
+- The scene, its axes and their tick labels stay inside the scene band. Scale the physics
+  to fit that band, not the whole canvas.
+- Put the legend on one row only if it fits the width; otherwise stack it. Measure text with
+  ctx.measureText and place items from those widths, never at guessed offsets.
+- Readouts go in a compact grid (one column per object), at most 3 rows. If the canvas is
+  short, show fewer readouts rather than shrinking text below 20px or letting it
+  spill past the edge.
+- Labels that follow moving objects must not cover the readouts or the legend.
 
 # Code style
 Compact: aim for under 200 lines of JavaScript, plain ES2020, minimal comments.
