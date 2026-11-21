@@ -1,0 +1,51 @@
+{
+  "handMade": true,
+  "file": "mapletireautofle-inv-009.pdf",
+  "sha256": "390c2b25f7816e494d81bbef99140e807c659b62e6ad4f6128b68bad863f1ea0",
+  "purpose": "Inbox file, written by hand from its text layer (checked against the rendered page)",
+  "extracted": {
+    "docType": "invoice",
+    "language": "en",
+    "vendor": {
+      "name": "Maple Tire & Auto Fleet",
+      "address": "3876 Centre St Hamilton ON N8J 8E6",
+      "gstHstNumber": "741252350RT0001",
+      "qstNumber": null
+    },
+    "billTo": {
+      "name": "Harborline Logistics Inc.",
+      "address": "1055 W Hastings St, Suite 900, Vancouver BC V6E 2E9"
+    },
+    "invoiceNumber": "1531",
+    "invoiceDate": "2026-10-23",
+    "dueDate": "2026-11-07",
+    "terms": "Net 15",
+    "poNumber": null,
+    "creditNoteRef": null,
+    "currency": "CAD",
+    "lines": [
+      {
+        "description": "Tire service (units)",
+        "quantity": "6",
+        "unitPrice": "$310.00",
+        "amount": "$1,860.00"
+      }
+    ],
+    "subtotal": "$1,860.00",
+    "taxes": [
+      {
+        "label": "GST (5%)",
+        "amount": "$93.00"
+      }
+    ],
+    "total": "$1,953.00",
+    "remit": {
+      "institution": "016",
+      "transit": "88270",
+      "account": "186877225",
+      "text": "EFT / virement bancaire - Maple Tire & Auto Fleet"
+    },
+    "notes": [],
+    "unreadable": []
+  }
+}

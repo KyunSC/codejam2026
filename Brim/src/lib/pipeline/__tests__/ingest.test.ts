@@ -38,12 +38,13 @@ describe.runIf(hasDb)("ingestInbox (rolled back)", () => {
           "EM-058": "missing_attachment",
           "EM-059": "other",
         });
-        // Seven hand-made answers; the rest wait for a key.
-        expect(r.ends).toEqual({ extracted: 7, not_extracted: 34 });
+        // A hand-made answer for every file.
+        expect(r.ends).toEqual({ extracted: 41 });
 
         expect(await tx.invoice.count({ where: { source: "inbox" } })).toBe(41);
         expect(await tx.document.count()).toBe(41);
-        expect(await tx.inboxEmail.count({ where: { label: { not: null } } })).toBe(4 + 7);
+        // The four by the labeller, the 40 with attachments by what the attachment is.
+        expect(await tx.inboxEmail.count({ where: { label: { not: null } } })).toBe(4 + 40);
 
         const again = await ingestInbox(tx, opts);
         expect(again).toMatchObject({ draftsCreated: 0, alreadyReceived: 41, labels: {} });

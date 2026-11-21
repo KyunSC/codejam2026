@@ -1,0 +1,51 @@
+{
+  "handMade": true,
+  "file": "Invoice AU26-2207.pdf",
+  "sha256": "7169da20cff4252127f3c8b2706ac44930a093878944b753b3fb097182d0973e",
+  "purpose": "Inbox file, written by hand from its text layer (checked against the rendered page)",
+  "extracted": {
+    "docType": "invoice",
+    "language": "en",
+    "vendor": {
+      "name": "Aurora Mobile Business",
+      "address": "5804 Granville St Toronto ON L4J 6S4",
+      "gstHstNumber": "511304707RT0001",
+      "qstNumber": null
+    },
+    "billTo": {
+      "name": "Harborline Logistics Inc.",
+      "address": "1055 W Hastings St, Suite 900, Vancouver BC V6E 2E9"
+    },
+    "invoiceNumber": "AU26-2207",
+    "invoiceDate": "2026-11-02",
+    "dueDate": "2026-11-23",
+    "terms": "Net 21",
+    "poNumber": null,
+    "creditNoteRef": null,
+    "currency": "CAD",
+    "lines": [
+      {
+        "description": "Business mobile plans (36 lines)",
+        "quantity": "1",
+        "unitPrice": "$2,343.50",
+        "amount": "$2,343.50"
+      }
+    ],
+    "subtotal": "$2,343.50",
+    "taxes": [
+      {
+        "label": "GST (5%)",
+        "amount": "$117.18"
+      }
+    ],
+    "total": "$2,460.68",
+    "remit": {
+      "institution": "010",
+      "transit": "26841",
+      "account": "377190807",
+      "text": "EFT / virement bancaire - Aurora Mobile Business"
+    },
+    "notes": [],
+    "unreadable": []
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "handMade": true,
+  "file": "northboundcourie_000639.pdf",
+  "sha256": "d0e7516c80fb9c9e6dafd8d6405ae4a94c67ecd0e826ade954123f23db96eece",
+  "purpose": "Inbox file, written by hand from its text layer (checked against the rendered page)",
+  "extracted": {
+    "docType": "invoice",
+    "language": "en",
+    "vendor": {
+      "name": "Northbound Couriers",
+      "address": "7735 Elm St Calgary AB T2R 5A3",
+      "gstHstNumber": "219708387RT0001",
+      "qstNumber": null
+    },
+    "billTo": {
+      "name": "Harborline Logistics Inc.",
+      "address": "250 6 Ave SW, Suite 700, Calgary AB T2P 3H7"
+    },
+    "invoiceNumber": "000639",
+    "invoiceDate": "2026-10-29",
+    "dueDate": "2026-11-28",
+    "terms": "Net 30",
+    "poNumber": null,
+    "creditNoteRef": null,
+    "currency": "CAD",
+    "lines": [
+      {
+        "description": "LTL shipment Toronto-Edmonton",
+        "quantity": "1",
+        "unitPrice": "$526.96",
+        "amount": "$526.96"
+      },
+      {
+        "description": "LTL shipment Saskatoon-Montreal",
+        "quantity": "1",
+        "unitPrice": "$911.73",
+        "amount": "$911.73"
+      },
+      {
+        "description": "LTL shipment Vancouver-Montreal",
+        "quantity": "1",
+        "unitPrice": "$188.67",
+        "amount": "$188.67"
+      },
+      {
+        "description": "LTL shipment Calgary-Edmonton",
+        "quantity": "1",
+        "unitPrice": "$389.26",
+        "amount": "$389.26"
+      },
+      {
+        "description": "Fuel surcharge (9.95%)",
+        "quantity": "1",
+        "unitPrice": "$200.65",
+        "amount": "$200.65"
+      }
+    ],
+    "subtotal": "$2,217.27",
+    "taxes": [
+      {
+        "label": "HST (13%)",
+        "amount": "$288.25"
+      }
+    ],
+    "total": "$2,505.52",
+    "remit": {
+      "institution": "004",
+      "transit": "78406",
+      "account": "941017438",
+      "text": "EFT / virement bancaire - Northbound Couriers"
+    },
+    "notes": [],
+    "unreadable": []
+  }
+}

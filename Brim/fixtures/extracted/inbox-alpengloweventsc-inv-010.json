@@ -1,0 +1,61 @@
+{
+  "handMade": true,
+  "file": "alpengloweventsc-inv-010.pdf",
+  "sha256": "5fa358cf188a47ccd9985742a212dea5f85590a9ab301c864f5bc6d37abd9117",
+  "purpose": "Inbox file, written by hand from its text layer (checked against the rendered page)",
+  "extracted": {
+    "docType": "invoice",
+    "language": "en",
+    "vendor": {
+      "name": "Alpenglow Events & Catering",
+      "address": "9412 Industrial Pkwy Vancouver BC V8K 5Y3",
+      "gstHstNumber": "238900291RT0001",
+      "qstNumber": null
+    },
+    "billTo": {
+      "name": "Harborline Logistics Inc.",
+      "address": "1250 Rene-Levesque O, Bureau 2200, Montreal QC H3B 4W8"
+    },
+    "invoiceNumber": "AL26-0689",
+    "invoiceDate": "2026-10-23",
+    "dueDate": "2026-11-22",
+    "terms": "Net 30",
+    "poNumber": null,
+    "creditNoteRef": null,
+    "currency": "CAD",
+    "lines": [
+      {
+        "description": "Venue rental",
+        "quantity": "1",
+        "unitPrice": "$1,763.98",
+        "amount": "$1,763.98"
+      },
+      {
+        "description": "Team event catering",
+        "quantity": "1",
+        "unitPrice": "$3,786.19",
+        "amount": "$3,786.19"
+      }
+    ],
+    "subtotal": "$5,550.17",
+    "taxes": [
+      {
+        "label": "GST (5%)",
+        "amount": "$277.51"
+      },
+      {
+        "label": "QST (9.975%)",
+        "amount": "$553.63"
+      }
+    ],
+    "total": "$6,381.31",
+    "remit": {
+      "institution": "001",
+      "transit": "90104",
+      "account": "967079384",
+      "text": "EFT / virement bancaire - Alpenglow Events & Catering"
+    },
+    "notes": [],
+    "unreadable": []
+  }
+}

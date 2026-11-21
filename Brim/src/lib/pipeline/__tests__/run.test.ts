@@ -88,17 +88,16 @@ describe.runIf(hasDb)("run (rolled back)", () => {
   });
 
   it("leaves a file with no answer in received, with its inspection stored, for the next run", async () => {
-    const recordedFiles = new Set([...loadRecordedAnswers().values()].map((a) => a.file));
-    const email = loadEmails().find((e) => e.attachments.length === 1 && !recordedFiles.has(e.attachments[0]))!;
-    const file = email.attachments[0];
-    expect(sealed.has(file)).toBe(false);
+    // Every unsealed inbox file has a hand-made answer, so this one is made up.
+    const text = "Test Supplies Inc.\nINVOICE\nInvoice 9003\nDate 2026-10-30\nWidgets 4 25.00 100.00\nTotal 113.00";
     await inRollback(async (tx) => {
-      const id = await draftFor(tx, file);
-      const r = await run(tx, id);
-      expect(r).toMatchObject({ end: "not_extracted", fileName: file });
+      const a = await intakeFile(tx, { fileName: "unknown.pdf", bytes: buildPdf([text]) });
+      const id = "invoiceId" in a ? a.invoiceId : "";
+      expect(await run(tx, id)).toMatchObject({ end: "not_extracted", fileName: "unknown.pdf" });
       const inv = await tx.invoice.findUnique({ where: { id }, include: { document: true } });
       expect(inv!.status).toBe("received");
-      expect(inv!.document!.textLayer!.length).toBeGreaterThan(300);
+      expect(inv!.document!.textLayer).toMatch(/Invoice 9003/);
+      expect(inv!.document!.pageCount).toBe(1);
     });
   });
 

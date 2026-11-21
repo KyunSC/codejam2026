@@ -57,12 +57,13 @@ const get = (file: string) => {
 
 describe("hand-made fixtures", () => {
   it("are all marked hand-made, match their file's hash, and avoid sealed files", () => {
-    expect(answers.size).toBe(7);
+    // One per unsealed inbox file.
+    expect(answers.size).toBe(41);
     for (const a of answers.values()) {
       expect(a.handMade).toBe(true);
       expect(results.get(a.file)!.inspection.sha256).toBe(a.sha256);
     }
-    expect(new Set([...answers.values()].map((a) => a.file)).size).toBe(7);
+    expect(new Set([...answers.values()].map((a) => a.file)).size).toBe(41);
   });
 
   it("agree with the text layer wherever there is one", () => {

@@ -1,0 +1,51 @@
+{
+  "handMade": true,
+  "file": "Invoice TR26-1042.pdf",
+  "sha256": "d8a1ecf907f6a7ec280a7371cf82c3eec07036450a4cd4f198dfdd51d9dc42a4",
+  "purpose": "Inbox file, written by hand from its text layer (checked against the rendered page)",
+  "extracted": {
+    "docType": "invoice",
+    "language": "en",
+    "vendor": {
+      "name": "Trailhead Fuel Services",
+      "address": "5650 Industrial Pkwy Toronto ON N2L 6G6",
+      "gstHstNumber": "723947408RT0001",
+      "qstNumber": null
+    },
+    "billTo": {
+      "name": "Harborline Logistics Inc.",
+      "address": "88 Queens Quay W, Suite 1400, Toronto ON M5J 0B8"
+    },
+    "invoiceNumber": "TR26-1042",
+    "invoiceDate": "2026-10-20",
+    "dueDate": "2026-11-04",
+    "terms": "Net 15",
+    "poNumber": null,
+    "creditNoteRef": null,
+    "currency": "CAD",
+    "lines": [
+      {
+        "description": "Fleet fuel card charges - October",
+        "quantity": "1",
+        "unitPrice": "$4,382.35",
+        "amount": "$4,382.35"
+      }
+    ],
+    "subtotal": "$4,382.35",
+    "taxes": [
+      {
+        "label": "HST (13%)",
+        "amount": "$569.71"
+      }
+    ],
+    "total": "$4,952.06",
+    "remit": {
+      "institution": "016",
+      "transit": "23298",
+      "account": "210444486",
+      "text": "EFT / virement bancaire - Trailhead Fuel Services"
+    },
+    "notes": [],
+    "unreadable": []
+  }
+}
