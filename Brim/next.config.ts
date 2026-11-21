@@ -1,4 +1,9 @@
+import { config } from "dotenv";
 import type { NextConfig } from "next";
+
+// Next loads Brim/.env itself; also read the repo-root .env. Variables already set (shell or
+// Brim/.env) win.
+config({ path: "../.env", quiet: true });
 
 const nextConfig: NextConfig = {
   /* config options here */
