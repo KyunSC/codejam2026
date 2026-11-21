@@ -28,7 +28,7 @@ export function DecideRequest({
 }: {
   slug: string;
   request: RequestView;
-  departments: string[];
+  departments: { id: string; name: string }[];
   managers: { id: string; label: string }[];
 }) {
   const router = useRouter();
@@ -84,7 +84,7 @@ function DecisionForm({
   onDecide: (kind: "approve" | "reject", form: HTMLFormElement) => void;
   busy: boolean;
   requestedRole: string | null;
-  departments: string[];
+  departments: { id: string; name: string }[];
   managers: { id: string; label: string }[];
 }) {
   return (
@@ -105,8 +105,8 @@ function DecisionForm({
         <Select name="departmentId" defaultValue="">
           <option value="">None</option>
           {departments.map((d) => (
-            <option key={d} value={d}>
-              {d}
+            <option key={d.id} value={d.id}>
+              {d.name}
             </option>
           ))}
         </Select>

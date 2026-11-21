@@ -34,7 +34,7 @@ export function UserForm({
   slug: string;
   initial: UserFormValues;
   people: { id: string; label: string }[];
-  departments: string[];
+  departments: { id: string; name: string }[];
 }) {
   const router = useRouter();
   const editing = !!initial.id;
@@ -102,12 +102,14 @@ export function UserForm({
           <Input name="title" defaultValue={initial.title} />
         </Field>
         <Field label="Department">
-          <Input name="departmentId" defaultValue={initial.departmentId} list="departments" />
-          <datalist id="departments">
+          <Select name="departmentId" defaultValue={initial.departmentId}>
+            <option value="">None</option>
             {departments.map((d) => (
-              <option key={d} value={d} />
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
             ))}
-          </datalist>
+          </Select>
         </Field>
         <Field label="Employee ID" hint='Your own ID for the person, e.g. "U041".'>
           <Input name="externalId" defaultValue={initial.externalId} />

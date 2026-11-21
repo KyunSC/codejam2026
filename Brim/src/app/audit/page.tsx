@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { EmptyState, TableCard } from "@/components/ui";
 import { FilterBar, FilterSelect, FilterText } from "@/components/filters";
+import { accessRequestPeople } from "@/lib/access/service";
 import { type Actor, listActions } from "@/lib/audit";
 import { actionText, actorText } from "@/lib/audit-text";
 import { canViewAudit } from "@/lib/auth/permissions";
@@ -53,6 +54,13 @@ function changedFields(before: unknown, after: unknown): string[] {
   return Object.keys(a).filter((k) => k !== "updatedAt" && JSON.stringify(a[k]) !== JSON.stringify(b[k]));
 }
 
+/** The admin's note on an approved or rejected account request, from the row's `after`. */
+function decisionNote(after: unknown): string | null {
+  if (!after || typeof after !== "object") return null;
+  const v = (after as Record<string, unknown>).decisionNote;
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
+
 async function AuditView({ searchParams }: { searchParams: SP }) {
   const { user, org } = await requireUser();
   if (!canViewAudit(user.role)) return <p className="form-error">The audit log is for controllers, admins and auditors.</p>;
@@ -84,6 +92,10 @@ async function AuditView({ searchParams }: { searchParams: SP }) {
     listUsers(org.id),
   ]);
   const names = Object.fromEntries(users.map((u) => [u.id, u.fullName]));
+  const requesters = await accessRequestPeople(
+    org.id,
+    rows.filter((r) => r.entityType === "access_request").map((r) => r.entityId),
+  );
   const older = new URLSearchParams(Object.entries({ ...f, beforeSeq: rows.at(-1)?.seq.toString() ?? "" }).filter(([, v]) => v));
 
   return (
@@ -127,19 +139,38 @@ async function AuditView({ searchParams }: { searchParams: SP }) {
             <tbody>
               {rows.map((r) => {
                 const changed = changedFields(r.before, r.after);
+                const requester = r.entityType === "access_request" ? requesters[r.entityId] : undefined;
+                // A sign-up is logged as automatic (the person has no account yet); show who signed up.
+                const selfRequest = r.action === "access_request.created" && r.actorType === "system" && requester;
+                const note = r.action.startsWith("access_request.") ? decisionNote(r.after) : null;
                 return (
                   <tr key={r.seq.toString()}>
                     <td className="num text-sm whitespace-nowrap">{formatDateTime(r.at)}</td>
                     <td className="text-sm">
-                      {actorText(r, r.actorId ? names[r.actorId] : null)}
+                      {selfRequest ? (
+                        <>
+                          {requester.fullName}
+                          <div className="muted text-xs">{requester.email} · signing up</div>
+                        </>
+                      ) : (
+                        actorText(r, r.actorId ? names[r.actorId] : null)
+                      )}
                       {r.onBehalfOfId && <div className="muted text-xs">for {names[r.onBehalfOfId] ?? r.onBehalfOfId}</div>}
                     </td>
                     <td className="text-sm">
                       {actionText(r.action)}
                       {r.reason && <div className="muted text-xs">“{r.reason}”</div>}
+                      {note && <div className="muted text-xs">Note: “{note}”</div>}
                     </td>
                     <td className="text-sm">
-                      {r.entityType === "invoice" ? (
+                      {requester ? (
+                        <Link
+                          href={`/settings?status=any&q=${encodeURIComponent(requester.email)}`}
+                          className="underline underline-offset-4"
+                        >
+                          account request from {requester.fullName}
+                        </Link>
+                      ) : r.entityType === "invoice" ? (
                         <Link href={`/invoices/${r.entityId}`} className="underline underline-offset-4">
                           invoice
                         </Link>
