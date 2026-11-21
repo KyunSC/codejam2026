@@ -73,6 +73,10 @@ Local env for every command (never Neon): `BRIM_LOCAL_DB_ONLY=1 DATABASE_URL=pos
   - Home and login send a logged-in person to their landing page. `/review` (AP clerk): invoices in review, held-by-a-check first, then flagged, then oldest; "Inbox: needs attention" for missing attachments, statements, payment questions (linked invoice), newsletters and failed labels. `/approvals` adds, for finance manager and controller: vendors to approve, bank changes to verify (marked when it is your own request), open fraud flags count. Auditor banner on every page.
   - Server side: every workflow service now checks the matrix itself (not only its route), before any state check. `matrix-services.test.ts` calls 12 services as each of the six roles: allowed roles pass the guard, every other role gets FORBIDDEN / READ_ONLY_ROLE / FLAG_CLASS. It caught `decide` and `releasePayment` checking state before role (an employee got INVALID_STATE instead of 403); fixed.
   - Nav links to `/policies` and `/fraud` land in items 10 and 11.
-- [ ] 10. Policy editor for the controller with "Try on an invoice" preview (LOCKED_RULE, BAD_CONDITION).
+- [x] 10. Policy editor for the controller with "Try on an invoice" preview (LOCKED_RULE, BAD_CONDITION).
+  - `src/lib/workflow/policies.ts`: listPolicies (admin.read: controller + auditor), updatePolicy (admin.edit, audited `policy.update` with before/after), previewPolicies (before/after via the same `previewFor` as submit, draft rules swapped into refs). Routes: GET `/policies`, PUT `/policies/:id`, POST `/policies/preview`. Page `/policies` (rows, dropdowns, multi-selects for lists, checkboxes for steps/release roles).
+  - Validation follows what `route.ts` can evaluate (the policy.ts Condition, not types.ts: no `any`/`poPresent`). A rule's effect kind cannot change (a requireSteps rule stays one). Steps are re-sorted by rank.
+  - Locked = no change at all (active, when, effect, note); an unchanged draft passes so the preview can send every rule. The auditor may run the preview (reading), not save.
+  - Not browser-tested: the dev server on :3000 isn't mine and points at `.env`.
 - [ ] 11. Fraud watch page; sender domain flags shown; open fraud flag blocks release.
 - [ ] 12. Bank reconciliation per BUILD_PLAN Bonus; "Mark explained" audited.

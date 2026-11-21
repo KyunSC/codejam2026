@@ -35,7 +35,7 @@ export const REJECTION_REASONS = [
   "Coding incorrect",
 ] as const;
 
-async function loadInvoice(tx: Tx, organizationId: string, invoiceId: string) {
+export async function loadInvoice(tx: Tx, organizationId: string, invoiceId: string) {
   const row = await tx.invoice.findFirst({
     where: { organizationId, id: invoiceId },
     include: {
