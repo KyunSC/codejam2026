@@ -36,7 +36,7 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 - [x] S4.5 Step 4 report. Attempts: 1
 
 ## Step 5: saved demos + polish
-- [ ] S5.1 `data/demos/*.json` placeholders, "Saved demos" menu (no /api/generate), "Save as demo", `scripts/make-demos.ts` (needs key). Attempts: 0
+- [x] S5.1 `data/demos/*.json` placeholders, "Saved demos" menu (no /api/generate), "Save as demo", `scripts/make-demos.ts` (needs key). Attempts: 2 — needs key: make-demos real run
 - [ ] S5.2 Polish: screenshots 1920×1080 + 1280×720, text ≥ 20px, focus visible, clean console. Attempts: 0
 - [ ] S5.3 Final: lint, typecheck, vitest, next build, e2e, grep .next/static; README; final summary. Attempts: 0
 
@@ -67,3 +67,4 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 - S4.3: on the student page the sim isn't mounted at all until Run (load(code, {initial: homework.defaults})), so a student can't peek; the panel shows a cover message meanwhile. If the link is opened before Share made homework, it falls back to the class question and defaults.
 - S4.4: first full run failed in edit.spec. The new share row pushed the sim panel's min-height (360px) over the edit form at 1280×720, so the iframe intercepted the click. Fixed: edit and share share one wrapping row, and the panel min-height is 260px. Student flow: share → link → Run disabled (even for whitespace) → predict → Run → ready ~1 s, with homework defaults applied and the same homework on re-share. Unknown /s/ id → 404.
 - S4.4: mid-item, another session stashed the uncommitted work (`stash@{0}: WIP on loop/sim`) and checked the main checkout out to `main`, to edit Brim there. Rather than switch that shared checkout back, the loop continued in a separate worktree, `../codejam2026-loop-sim` on loop/sim: `git stash apply` (the stash is left in place), the untracked student.spec.ts copied over, then `npm ci`.
+- S5.1: the first vitest run failed because slugify("Résumé") gave "re-sume" (NFKD leaves combining marks). Strip U+0300–036F. Demos are one JSON file per slug in data/demos/ (committed). The placeholders copy the hand-made pendulum and falling fixtures, with a `_comment` and `handMade: true`, and the menu labels them "(placeholder)". A loaded demo is also saved as a sim, so it can be shared. A demo loads to ready in ~0.3 s with zero /api/generate|repair|edit requests. The e2e test intercepts POST /api/demos so it never writes into the committed folder. make-demos skips itself in stand-in mode.

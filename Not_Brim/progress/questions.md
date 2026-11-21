@@ -53,3 +53,9 @@ Chose: don't mount the iframe until Run (the panel shows a message instead). Thi
 
 ## S4.4 Checkout switched under the loop
 Another session stashed loop/sim's uncommitted changes and checked the shared checkout out to `main`. The loop now works in the worktree `/Users/sunnychen/Developer/PersonalProjects/codejam2026-loop-sim` (branch loop/sim). Nothing on main was touched. Left in place: `stash@{0}` (already re-applied and committed here, so it can be dropped), and untracked leftovers in the main checkout's `Not_Brim/` (node_modules, data/, e2e/student.spec.ts, test-results/).
+
+## S5.1 needs key: make-demos
+`npm run make-demos` (with a key in `.env.local`) generates the pendulum and falling confusions through the UI and saves exactly the code that reached `ready` to `data/demos/{pendulum,falling}.json`. Without a key it skips, so the hand-made placeholders stay.
+
+## S5.1 Demo storage and "Save as demo"
+Not specified. Chose: one JSON per demo in data/demos/<slug>.json (slug from the title, or given explicitly by make-demos), validated (html, params, slug) both on read and on save. Files that fail validation are hidden from the menu.
