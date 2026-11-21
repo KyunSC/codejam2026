@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import QRCode from "qrcode";
+import { useMascotName } from "@/lib/useMascot";
 import { ToolIcon } from "./ToolIcon";
 
 /**
@@ -9,6 +10,7 @@ import { ToolIcon } from "./ToolIcon";
  * Each student who opens the link gets their own copy of the whole board.
  */
 export function BoardShareButton({ boardId }: { boardId: string }) {
+  const mascot = useMascotName();
   const linkId = useId();
   const titleId = useId();
   const dialog = useRef<HTMLDialogElement>(null);
@@ -63,7 +65,7 @@ export function BoardShareButton({ boardId }: { boardId: string }) {
           <h2 id={titleId} className="kicker">
             Share this whiteboard
           </h2>
-          <p>Each student who opens the link gets their own copy of the board, simulations included, to work on with Claude.</p>
+          <p>Each student who opens the link gets their own copy of the board, simulations included, to work on with {mascot}.</p>
           {busy ? <p className="text-muted">Making the link…</p> : null}
           {error ? (
             <p className="font-semibold text-danger" role="alert">

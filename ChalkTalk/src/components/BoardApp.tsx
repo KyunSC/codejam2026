@@ -27,9 +27,9 @@ import {
 import { renderBoardImage } from "@/lib/board-image";
 import { readNdjson } from "@/lib/ndjson";
 import { boardPetCue } from "@/lib/pets";
-import type { BoardEvent, Stage } from "@/lib/types";
-import { useStandInStatus } from "@/lib/useStandInStatus";
-import { StandInBadge } from "./Badges";
+import type { BoardEvent, ModelStatus, Stage } from "@/lib/types";
+import { capitalized, useMascotName } from "@/lib/useMascot";
+import { ModelBadge } from "./Badges";
 import { rememberBoard } from "./BoardsHome";
 import { BoardShareButton } from "./ShareButton";
 import { ToolIcon } from "./ToolIcon";
@@ -93,8 +93,10 @@ function track(e: ReactPointerEvent, onMove: (dx: number, dy: number, ev: Pointe
   window.addEventListener("pointercancel", up);
 }
 
-export function BoardApp({ board }: { board: Board }) {
-  const standIn = useStandInStatus();
+export function BoardApp({ board, status }: { board: Board; status: ModelStatus }) {
+  // The assistant goes by the student's lab pet ("Ask Hypo"); "your pet" until one is picked.
+  const mascot = useMascotName();
+  const Mascot = capitalized(mascot);
   const [items, setItemsState] = useState<BoardItem[]>(board.items);
   const itemsRef = useRef(items);
   const [cam, setCamState] = useState<Camera>(() => {
@@ -600,7 +602,7 @@ export function BoardApp({ board }: { board: Board }) {
         state: "done",
         stage: null,
         changes: made,
-        text: made ? `Claude made ${made} change${made === 1 ? "" : "s"} on the board.` : "Claude didn't change anything.",
+        text: made ? `${Mascot} made ${made} change${made === 1 ? "" : "s"} on the board.` : `${Mascot} didn't change anything.`,
         rejected,
       });
     } catch (err) {
@@ -613,8 +615,8 @@ export function BoardApp({ board }: { board: Board }) {
   const askLabel =
     ask.state === "busy"
       ? ask.stage === "writing"
-        ? "Claude is writing on the board…"
-        : "Claude is reading the board…"
+        ? `${Mascot} is writing on the board…`
+        : `${Mascot} is reading the board…`
       : ask.text;
 
   // ---------- render ----------
@@ -674,7 +676,7 @@ export function BoardApp({ board }: { board: Board }) {
         </div>
         {!items.length ? (
           <p className="pointer-events-none absolute inset-x-0 top-[40%] px-6 text-center text-[1.2rem] font-medium text-[#55595e]">
-            Write with Pen, type with Note, or add a simulation from the bar above. Then press “Ask Claude”.
+            Write with Pen, type with Note, or add a simulation from the bar above. Then press “Ask {mascot}”.
           </p>
         ) : null}
       </div>
@@ -739,7 +741,7 @@ export function BoardApp({ board }: { board: Board }) {
             Full
           </span>
         ) : null}
-        <StandInBadge standIn={standIn} compact />
+        <ModelBadge status={status} compact />
         <span
           className="kicker"
           data-testid="save-state"
@@ -810,7 +812,7 @@ export function BoardApp({ board }: { board: Board }) {
       <aside
         ref={panel}
         className="toolbar absolute bottom-3 right-3 w-[min(24rem,calc(100vw-1.5rem))] flex-col !flex-nowrap !items-stretch !overflow-visible shadow-[4px_4px_0_var(--blue)]"
-        aria-label="Ask Claude"
+        aria-label={`Ask ${mascot}`}
         data-scrolls="1"
       >
         <PetPerch className="absolute bottom-full right-3" cue={boardPetCue(ask)} fadeNear />
@@ -823,14 +825,14 @@ export function BoardApp({ board }: { board: Board }) {
         >
           <input
             className="field h-[2.1rem] min-w-0 flex-1 px-2 py-0 shadow-none"
-            aria-label="Message for Claude (optional)"
+            aria-label={`Message for ${mascot} (optional)`}
             data-testid="ask-input"
-            placeholder="Ask Claude (optional message)"
+            placeholder={`Ask ${mascot} (optional message)`}
             value={message}
             onChange={(e) => setMessage(e.target.value)}
           />
           <button type="submit" className="tool-btn" aria-pressed={ask.state === "busy"} data-testid="ask-button" disabled={ask.state === "busy"}>
-            {ask.state === "busy" ? "Working…" : "Ask Claude"}
+            {ask.state === "busy" ? "Working…" : `Ask ${mascot}`}
           </button>
         </form>
         {askLabel ? (

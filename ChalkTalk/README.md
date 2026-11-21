@@ -12,14 +12,21 @@ npm run dev                        # http://localhost:3000: your whiteboards
 
 Without a key the app runs the **offline stand-in**: it replays hand-made simulations from `fixtures/sims/` at a realistic pace, answers "Ask Claude" with a fixed reply note (plus a simulation when your words name a topic it has, like pendulums or falling objects), and the page shows an "Offline stand-in" badge. It can't read handwriting.
 
-## Add the key
+## Add a key (any provider)
 
 ```bash
 cp .env.local.example .env.local
-# then set ANTHROPIC_API_KEY=... in .env.local (it's gitignored)
+# then fill in .env.local (it's gitignored)
 ```
 
-Restart `npm run dev`. The badge disappears and Ask Claude, generate, repair, edit and homework go to Claude (`claude-sonnet-5-5`, adaptive thinking, streaming). The key is only read on the server (`src/lib/config.ts`, `src/lib/model/real.ts`). The browser only learns whether the stand-in is active, through `GET /api/status`. `FAKE_MODEL=1` forces the stand-in even when a key is set.
+| Variable | What |
+| -- | -- |
+| `LLM_PROVIDER` | `anthropic` (default), `openai`, `gemini`, `openrouter`, `groq`, `ollama`, or `openai-compatible`. Blank: picked from whichever provider key below is set. |
+| `LLM_API_KEY` | The provider's key. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY` and `GROQ_API_KEY` work too. Not needed for `ollama`. |
+| `LLM_MODEL` | The model id. Defaults: `claude-sonnet-5-5` (anthropic), `gpt-5` (openai), `gemini-2.5-flash` (gemini). Required for the others. |
+| `LLM_BASE_URL` | Endpoint override ending in `/v1`. Required for `openai-compatible`. |
+
+Restart `npm run dev`. The stand-in badge turns into a badge naming the assistant and model, and the board's button reads "Ask Claude", "Ask ChatGPT", "Ask Gemini" or "Ask AI". Anthropic goes through its SDK (adaptive thinking, streaming); every other provider goes through one OpenAI-compatible client (`src/lib/model/openai.ts`). Whiteboard turns send a picture of the board, so pick a model that takes images. The key is only read on the server (`src/lib/config.ts`, `src/lib/model/`). The browser only learns the provider, the model and whether the stand-in is active, through the page or `GET /api/status`. `FAKE_MODEL=1` forces the stand-in even when a key is set.
 
 ## Deploy (Vercel)
 
@@ -28,7 +35,7 @@ Set these in the Vercel project's Environment Variables, then redeploy:
 | Variable | Needed for |
 | -- | -- |
 | `DATABASE_URL` | Boards, older single-simulation homework links and saved demos. A Postgres connection string, e.g. a Neon pooled URL with `?sslmode=require`. The app creates its `livesim_*` tables on first use. Without it the deployed app can't save and says so. |
-| `ANTHROPIC_API_KEY` | Real Claude. Without it the app runs the offline stand-in. |
+| `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL`, `LLM_BASE_URL` | The real model (see above). Without a key the app runs the offline stand-in. |
 
 Vercel's filesystem is read-only and not shared between function instances, so the JSON files under `data/` only work locally. Locally, leave `DATABASE_URL` blank to keep using them. To run the Postgres store tests: `TEST_DATABASE_URL=postgres://… npm test`.
 

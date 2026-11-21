@@ -34,12 +34,31 @@ const post = (body: unknown) =>
 
 describe("/api/status", () => {
   it("reports stand-in mode without a key and never leaks the key", async () => {
+    vi.stubEnv("LLM_PROVIDER", "");
+    vi.stubEnv("LLM_API_KEY", "");
     vi.stubEnv("ANTHROPIC_API_KEY", "");
-    expect(await (await status()).json()).toEqual({ standIn: true });
+    expect(await (await status()).json()).toMatchObject({ standIn: true, assistant: "Claude" });
     vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-test-not-real");
     vi.stubEnv("FAKE_MODEL", "");
     const text = await (await status()).text();
-    expect(text).toBe('{"standIn":false}');
+    expect(JSON.parse(text)).toEqual({
+      standIn: false,
+      provider: "Anthropic",
+      assistant: "Claude",
+      model: "claude-sonnet-5-5",
+      reason: null,
+    });
+    expect(text).not.toContain("sk-ant");
+  });
+
+  it("names the configured provider", async () => {
+    vi.stubEnv("LLM_PROVIDER", "openai");
+    vi.stubEnv("LLM_API_KEY", "sk-test-not-real");
+    vi.stubEnv("LLM_MODEL", "");
+    vi.stubEnv("FAKE_MODEL", "");
+    const text = await (await status()).text();
+    expect(JSON.parse(text)).toMatchObject({ standIn: false, provider: "OpenAI", assistant: "ChatGPT", model: "gpt-5" });
+    expect(text).not.toContain("sk-test");
   });
 });
 
