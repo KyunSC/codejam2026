@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useSimSession } from "@/lib/useSimSession";
+import { useSimSession, type EditBase } from "@/lib/useSimSession";
 import { useStandInStatus } from "@/lib/useStandInStatus";
 import { StandInBadge, TimingBadge } from "./Badges";
 import { ParamSliders } from "./ParamSliders";
@@ -11,15 +11,33 @@ export function TeacherApp() {
   const session = useSimSession();
   const standIn = useStandInStatus();
   const [prompt, setPrompt] = useState("");
-  const [lastPrompt, setLastPrompt] = useState("");
+  const [change, setChange] = useState("");
+  const [last, setLast] = useState<{ kind: "generate"; prompt: string } | { kind: "edit"; request: string; base: EditBase } | null>(
+    null,
+  );
   const v = session.view;
   const busy = v.state === "streaming" || v.state === "mounting" || v.state === "repairing";
 
   function create() {
     const p = prompt.trim();
     if (!p || busy) return;
-    setLastPrompt(p);
+    setLast({ kind: "generate", prompt: p });
     void session.generate(p);
+  }
+
+  function askForChange() {
+    const request = change.trim();
+    const base = session.snapshot();
+    if (!request || !base || busy) return;
+    setLast({ kind: "edit", request, base });
+    setChange("");
+    void session.edit(request, base);
+  }
+
+  function retry() {
+    if (!last) return;
+    if (last.kind === "generate") void session.generate(last.prompt);
+    else void session.edit(last.request, last.base);
   }
 
   return (
@@ -64,10 +82,38 @@ export function TeacherApp() {
           <div className="min-h-0 flex-1">
             <SimPanel
               session={session}
-              onRetry={lastPrompt ? () => void session.generate(lastPrompt) : undefined}
+              onRetry={last ? retry : undefined}
               idle="Type what a student is confused about, then press “Create simulation”."
             />
           </div>
+          <form
+            className="flex items-stretch gap-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              askForChange();
+            }}
+          >
+            <label htmlFor="change" className="sr-only">
+              Ask for a change
+            </label>
+            <input
+              id="change"
+              data-testid="edit-input"
+              className="field flex-1 text-xl"
+              placeholder="Ask for a change, e.g. “make bob B twice as heavy”"
+              value={change}
+              disabled={v.state !== "ready"}
+              onChange={(e) => setChange(e.target.value)}
+            />
+            <button
+              type="submit"
+              className="btn-secondary text-xl"
+              data-testid="edit-button"
+              disabled={v.state !== "ready" || !change.trim()}
+            >
+              Ask for a change
+            </button>
+          </form>
         </section>
 
         <aside className="flex min-h-0 basis-[30%] flex-col gap-5 overflow-y-auto pr-1" aria-label="Controls">

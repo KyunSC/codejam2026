@@ -34,6 +34,12 @@ export interface ReadyInfo {
 
 export type RunKind = "generate" | "edit" | "load";
 
+export interface EditBase {
+  code: string;
+  params: SimParam[];
+  values: Record<string, number>;
+}
+
 export interface SessionView {
   state: SessionState;
   stage: Stage | null;
@@ -296,6 +302,25 @@ export function useSimSession(options: SessionOptions = {}) {
     [begin, mount, stream, update],
   );
 
+  /** What an edit starts from: the current sim, captured so a failed edit can be retried. */
+  const snapshot = useCallback((): EditBase | null => {
+    const v = viewRef.current;
+    if (v.state !== "ready" || !v.code) return null;
+    return { code: v.code, params: v.params, values: { ...v.values } };
+  }, []);
+
+  /** Ask for a change to the current sim. Untouched sliders take the new defaults; moved ones carry over. */
+  const edit = useCallback(
+    async (request: string, base: EditBase | null = snapshot()) => {
+      if (!base) return;
+      const run = begin("edit", { carry: { values: base.values, defaults: defaultValues(base.params) } });
+      update({ ...EMPTY, mountKey: viewRef.current.mountKey, state: "streaming" });
+      const text = await stream(run, "/api/edit", { code: base.code, request });
+      if (text !== null) mount(run, text);
+    },
+    [begin, mount, snapshot, stream, update],
+  );
+
   /** Mount known-good code with no model call (demos, student page). */
   const load = useCallback(
     (code: string, opts: { initial?: Record<string, number> } = {}) => {
@@ -406,7 +431,7 @@ export function useSimSession(options: SessionOptions = {}) {
     [],
   );
 
-  return { view, frameRef, generate, load, setValue, onBridge, reset };
+  return { view, frameRef, generate, edit, snapshot, load, setValue, onBridge, reset };
 }
 
 export type SimSession = ReturnType<typeof useSimSession>;

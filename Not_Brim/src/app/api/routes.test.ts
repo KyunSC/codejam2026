@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { POST as generate } from "./generate/route";
+import { POST as edit } from "./edit/route";
 import { POST as repair } from "./repair/route";
 import { GET as status } from "./status/route";
 
@@ -48,5 +49,15 @@ describe("/api/repair", () => {
     const first = new TextDecoder().decode((await reader.read()).value);
     expect(JSON.parse(first.split("\n")[0]).type).toBe("status");
     await reader.cancel();
+  });
+});
+
+describe("/api/edit", () => {
+  it("needs code and request, and streams from the stand-in", async () => {
+    vi.stubEnv("FAKE_MODEL", "1");
+    expect((await edit(post({ code: "<html></html>" }))).status).toBe(400);
+    const res = await edit(post({ code: "<html></html>", request: "make it red" }));
+    expect(res.headers.get("content-type")).toBe("application/x-ndjson");
+    await res.body!.cancel();
   });
 });

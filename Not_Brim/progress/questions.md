@@ -41,3 +41,6 @@ Node 20 has no TS stripping and tsx isn't in the dep list, so `scripts/*.ts` are
 
 ## S2.3 needs key: real repair rate
 The stand-in only proves the repair plumbing. The real first-draft failure rate and repair success rate come from `npm run try-topics` with a key (the "Repaired" column).
+
+## S3.1 "Try again" after a failed edit
+The spec only gives "Try again". Chose: it re-runs the last action. For an edit, that is the same request on the snapshot taken before the edit; the previous sim isn't restored automatically.
