@@ -4,7 +4,7 @@ import { store } from "@/lib/store";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const ID = /^[0-9a-f]{12}$/;
+const ID = /^[0-9a-f]{32}$/;
 
 /**
  * A student's prediction, posted from /s/[id] when they press Run. `observed` is optional: the student page
@@ -27,7 +27,10 @@ export async function POST(req: Request, ctx: RouteContext<"/api/sims/[id]/predi
   const observed = typeof body?.observed === "string" ? body.observed.trim() : "";
   if (observed.length > MAX_ANSWER_CHARS) return badRequest('"observed" is too long.', 413);
 
-  const entry = await store().addPrediction(id, { name: rawName || "Anonymous", prediction, observed });
+  const submissionId = body.submissionId;
+  if (submissionId !== undefined && (typeof submissionId !== "string" || !ID.test(submissionId)))
+    return badRequest("Invalid submission id.");
+  const entry = await store().addPrediction(id, { submissionId, name: rawName || "Anonymous", prediction, observed });
   if (entry === "full") return badRequest("This class already has the maximum number of predictions.", 429);
   if (!entry) return badRequest("Unknown simulation.", 404);
   return Response.json({ prediction: entry }, { status: 201 });
@@ -37,7 +40,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/sims/[id]/predi
 export async function GET(_req: Request, ctx: RouteContext<"/api/sims/[id]/predictions">) {
   const { id } = await ctx.params;
   if (!ID.test(id)) return badRequest("Unknown simulation.", 404);
-  const sim = await store().getSim(id);
+  const sim = await store().getSharedSim(id);
   if (!sim) return badRequest("Unknown simulation.", 404);
   const predictions = (sim.predictions ?? []).map(({ name, prediction, observed, createdAt }) => ({
     name,

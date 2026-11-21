@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useSimSession } from "@/lib/useSimSession";
 import { Logo } from "./Badges";
 import { ParamSliders } from "./ParamSliders";
@@ -14,7 +14,7 @@ export function StudentApp({
   question,
   initial,
 }: {
-  simId: string;
+  simId: string | null;
   code: string;
   title: string;
   question: string;
@@ -22,6 +22,7 @@ export function StudentApp({
 }) {
   const session = useSimSession();
   const [prediction, setPrediction] = useState("");
+  const submissionId = useRef<string | null>(null);
   const [name, setName] = useState("");
   const [started, setStarted] = useState(false);
   // The saved prediction's id, once the POST lands. "failed" if it couldn't be saved.
@@ -37,11 +38,14 @@ export function StudentApp({
     if (!text || started) return;
     setStarted(true);
     session.load(code, { initial });
+    if (!simId) return;
+    // getRandomValues also works on a classroom LAN served over HTTP.
+    submissionId.current = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
     // Saving never blocks the sim: the student still gets to check their prediction.
     fetch(`/api/sims/${simId}/predictions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: name.trim(), prediction: text }),
+      body: JSON.stringify({ submissionId: submissionId.current, name: name.trim(), prediction: text }),
     })
       .then(async (r) => {
         const j = (await r.json()) as { prediction?: { id: string }; error?: string };
@@ -64,7 +68,7 @@ export function StudentApp({
         const r = await fetch(`/api/sims/${simId}/predictions`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: name.trim(), prediction: prediction.trim(), observed: text }),
+          body: JSON.stringify({ submissionId: submissionId.current, name: name.trim(), prediction: prediction.trim(), observed: text }),
         });
         const j = (await r.json()) as { prediction?: { id: string } };
         if (!r.ok || !j.prediction) throw new Error(`HTTP ${r.status}`);
@@ -133,22 +137,28 @@ export function StudentApp({
                 run();
               }}
             >
-              <label htmlFor="student-name" className="font-bold">
-                Your name <span className="font-normal text-muted">(optional)</span>
-              </label>
-              <input
-                id="student-name"
-                data-testid="name-input"
-                className="field bg-card-soft py-1.5 shadow-none read-only:text-muted"
-                maxLength={60}
-                autoComplete="given-name"
-                value={name}
-                readOnly={started}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") e.preventDefault();
-                }}
-              />
+              {simId ? (
+                <>
+                  <label htmlFor="student-name" className="font-bold">
+                    Your name <span className="font-normal text-muted">(optional)</span>
+                  </label>
+                  <input
+                    id="student-name"
+                    data-testid="name-input"
+                    className="field bg-card-soft py-1.5 shadow-none read-only:text-muted"
+                    maxLength={60}
+                    autoComplete="given-name"
+                    value={name}
+                    readOnly={started}
+                    onChange={(e) => setName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") e.preventDefault();
+                    }}
+                  />
+                </>
+              ) : (
+                <p className="text-muted">Practice link. To send answers to your teacher, open the class link.</p>
+              )}
               <label htmlFor="prediction" className="font-bold">
                 Predict before you run
               </label>
@@ -176,7 +186,7 @@ export function StudentApp({
 
             {v.state === "ready" ? <ParamSliders params={v.params} values={v.values} onChange={session.setValue} /> : null}
 
-            {started && v.state === "ready" ? (
+            {simId && started && v.state === "ready" ? (
               <Reflection
                 observed={observed}
                 onChange={setObserved}

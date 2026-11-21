@@ -27,10 +27,10 @@ Restart `npm run dev`. The badge disappears and generate, repair, edit and homew
 - **Sliders**: on the right, with live values. The sim runs in a `sandbox="allow-scripts"` iframe with a strict CSP and no network access.
 - **If it breaks**: one automatic repair ("Fixing a glitch…"). If that fails too, a friendly message and "Try again".
 - **Ask for a change**: plain-language edits. Sliders you moved keep their values; the rest take the new defaults.
-- **Share with students**: makes a homework variation (a new question and new starting values) and copies a `/s/<id>` link. Click the QR code next to the link to show it big on the projector (it encodes the address the teacher's browser is using, so open the app by network IP or the deploy, not `localhost`, if phones should scan it).
+- **Share with students**: makes a homework variation (a new question and new starting values) and copies a `/s/<share-token>` link. Click the QR code next to the link to show it big on the projector (it encodes the address the teacher's browser is using, so open the app by network IP or the deploy, not `localhost`, if phones should scan it).
 - **Students**: they can add a name (optional), and must write a prediction before Run reveals the sim. After Run they answer "Were you right? What actually happened?". If saving the prediction failed, it's sent again with that answer.
 - **Class predictions**: once shared, a panel under the sliders lists every prediction and reflection, newest first, refreshed every 3 s (paused while the tab is hidden). The header chip shows the count and jumps to it. The panel is labelled with the sim it belongs to, and says so if you've since edited or made a new one. Each sim keeps up to 200 predictions.
-- **No auth, by design**: anyone with a student link can post a prediction and read the class's answers. The list never returns prediction ids, so a student can only change their own reflection.
+- **No auth, by design**: anyone with a student link can post a prediction and read the class's answers. The public sims list omits the share token. The teacher can reload or bookmark the class URL to reopen the panel. Older ID-only links open in practice mode. The predictions list never returns prediction ids, so a student can only change their own reflection.
 - **Saved demos**: loads a stored sim instantly, with no model call. **Save as demo** adds the current one.
 
 ## Scripts

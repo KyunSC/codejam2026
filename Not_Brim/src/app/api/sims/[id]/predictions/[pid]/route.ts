@@ -4,12 +4,12 @@ import { store } from "@/lib/store";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const ID = /^[0-9a-f]{12}$/;
+const ID = /^[0-9a-f]{32}$/;
 
 /** The student's reflection after Run: what actually happened. */
 export async function PATCH(req: Request, ctx: RouteContext<"/api/sims/[id]/predictions/[pid]">) {
   const { id, pid } = await ctx.params;
-  if (!ID.test(id) || !ID.test(pid)) return badRequest("Unknown prediction.", 404);
+  if (!ID.test(id) || !/^([0-9a-f]{12}|[0-9a-f]{32})$/.test(pid)) return badRequest("Unknown prediction.", 404);
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;

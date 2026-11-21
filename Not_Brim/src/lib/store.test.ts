@@ -70,14 +70,14 @@ describe("store", () => {
     const a = await s.saveSim(sim("A"));
     expect(await s.addPrediction("000000000000", { name: "x", prediction: "y" })).toBeNull();
 
-    const p1 = added(await s.addPrediction(a.id, { name: "Ana", prediction: "Same speed" }));
-    const p2 = added(await s.addPrediction(a.id, { name: "Ben", prediction: "Heavier is faster" }));
+    const p1 = added(await s.addPrediction(a.shareToken!, { name: "Ana", prediction: "Same speed" }));
+    const p2 = added(await s.addPrediction(a.shareToken!, { name: "Ben", prediction: "Heavier is faster" }));
     expect(p1.id).toMatch(/^[0-9a-f]{12}$/);
     expect(p1.id).not.toBe(p2.id);
     expect(p1).not.toHaveProperty("observed");
 
-    expect(await s.setObserved(a.id, "000000000000", "nope")).toBeNull();
-    expect((await s.setObserved(a.id, p1.id, "They matched"))?.observed).toBe("They matched");
+    expect(await s.setObserved(a.shareToken!, "000000000000", "nope")).toBeNull();
+    expect((await s.setObserved(a.shareToken!, p1.id, "They matched"))?.observed).toBe("They matched");
 
     const saved = await s.getSim(a.id);
     expect(saved?.predictions?.map((p) => [p.name, p.observed ?? null])).toEqual([
@@ -92,16 +92,16 @@ describe("store", () => {
   it("stores a reflection sent with the prediction, and refuses past the cap", async () => {
     const s = createStore(path.join(dir, "sims.json"));
     const a = await s.saveSim(sim("A"));
-    expect(added(await s.addPrediction(a.id, { name: "Cy", prediction: "p", observed: "o" })).observed).toBe("o");
-    for (let i = 1; i < MAX_PREDICTIONS; i++) await s.addPrediction(a.id, { name: "n", prediction: "p" });
-    expect(await s.addPrediction(a.id, { name: "late", prediction: "p" })).toBe("full");
+    expect(added(await s.addPrediction(a.shareToken!, { name: "Cy", prediction: "p", observed: "o" })).observed).toBe("o");
+    for (let i = 1; i < MAX_PREDICTIONS; i++) await s.addPrediction(a.shareToken!, { name: "n", prediction: "p" });
+    expect(await s.addPrediction(a.shareToken!, { name: "late", prediction: "p" })).toBe("full");
     expect((await s.getSim(a.id))?.predictions).toHaveLength(MAX_PREDICTIONS);
   });
 
   it("keeps every prediction under concurrent posts", async () => {
     const s = createStore(path.join(dir, "sims.json"));
     const a = await s.saveSim(sim("A"));
-    await Promise.all(Array.from({ length: 20 }, (_, i) => s.addPrediction(a.id, { name: `S${i}`, prediction: "p" })));
+    await Promise.all(Array.from({ length: 20 }, (_, i) => s.addPrediction(a.shareToken!, { name: `S${i}`, prediction: "p" })));
     expect((await s.getSim(a.id))?.predictions).toHaveLength(20);
   });
 });

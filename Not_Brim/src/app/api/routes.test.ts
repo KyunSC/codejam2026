@@ -75,16 +75,16 @@ describe("/api/sims/[id]/predictions", () => {
   it("404s on bad or unknown ids", async () => {
     expect((await addPrediction(body({ prediction: "p" }), ctx({ id: "../etc" }))).status).toBe(404);
     expect((await listPredictions(body({}), ctx({ id: "nothex" }))).status).toBe(404);
-    expect((await setObserved(body({ observed: "o" }), ctx({ id: "000000000000", pid: "bad" }))).status).toBe(404);
+    expect((await setObserved(body({ observed: "o" }), ctx({ id: "0".repeat(32), pid: "bad" }))).status).toBe(404);
   });
 
   it("validates the body before touching the store", async () => {
-    const id = ctx({ id: "000000000000" });
+    const id = ctx({ id: "0".repeat(32) });
     expect((await addPrediction(body("not json"), id)).status).toBe(400);
     expect((await addPrediction(body({ prediction: "   " }), id)).status).toBe(400);
     expect((await addPrediction(body({ prediction: "x".repeat(1001) }), id)).status).toBe(413);
     expect((await addPrediction(body({ prediction: "p", name: "n".repeat(61) }), id)).status).toBe(413);
-    const both = ctx({ id: "000000000000", pid: "000000000000" });
+    const both = ctx({ id: "0".repeat(32), pid: "0".repeat(32) });
     expect((await setObserved(body({ observed: "" }), both)).status).toBe(400);
     expect((await setObserved(body({ observed: "x".repeat(1001) }), both)).status).toBe(413);
   });
@@ -113,7 +113,12 @@ describe("/api/sims/[id]/predictions round trip", () => {
       question: "Q",
       params: [{ id: "m", label: "Mass", min: 1, max: 5, step: 1, value: 2 }],
     });
-    const id = ctx({ id: sim.id });
+    const id = ctx({ id: sim.shareToken! });
+
+    const publicId = ctx({ id: sim.id });
+    expect((await listPredictions(req("GET"), publicId)).status).toBe(404);
+    expect((await addPrediction(req("POST", { prediction: "p" }), publicId)).status).toBe(404);
+    expect(JSON.stringify(await store().listSims())).not.toContain(sim.shareToken!);
 
     const first = await addPrediction(req("POST", { prediction: "  Same speed  " }), id);
     expect(first.status).toBe(201);
@@ -121,7 +126,7 @@ describe("/api/sims/[id]/predictions round trip", () => {
     expect(prediction).toMatchObject({ name: "Anonymous", prediction: "Same speed" });
     expect((await addPrediction(req("POST", { name: "Ben", prediction: "Faster", observed: "Nope" }), id)).status).toBe(201);
 
-    const patched = await setObserved(req("PATCH", { observed: " They matched " }), ctx({ id: sim.id, pid: prediction.id }));
+    const patched = await setObserved(req("PATCH", { observed: " They matched " }), ctx({ id: sim.shareToken!, pid: prediction.id }));
     expect(((await patched.json()) as { prediction: { observed: string } }).prediction.observed).toBe("They matched");
 
     const list = await listPredictions(req("GET"), id);
@@ -133,7 +138,7 @@ describe("/api/sims/[id]/predictions round trip", () => {
     ]);
     for (const p of predictions) expect(p).not.toHaveProperty("id");
 
-    expect((await addPrediction(req("POST", { prediction: "p" }), ctx({ id: "000000000000" }))).status).toBe(404);
-    expect((await listPredictions(req("GET"), ctx({ id: "000000000000" }))).status).toBe(404);
+    expect((await addPrediction(req("POST", { prediction: "p" }), ctx({ id: "0".repeat(32) }))).status).toBe(404);
+    expect((await listPredictions(req("GET"), ctx({ id: "0".repeat(32) }))).status).toBe(404);
   });
 });

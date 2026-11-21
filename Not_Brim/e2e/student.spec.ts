@@ -10,7 +10,7 @@ test("create → share → open link → predict → Run → ready with the home
   await expect(share).toBeEnabled();
   await share.click();
   const linkBox = page.getByTestId("share-link");
-  await expect(linkBox).toHaveValue(/\/s\/[0-9a-f]{12}$/);
+  await expect(linkBox).toHaveValue(/\/s\/[0-9a-f]{32}$/);
   const url = await linkBox.inputValue();
 
   const student = await context.newPage();

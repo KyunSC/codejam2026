@@ -63,6 +63,7 @@ export interface SimRecord {
   params: SimParam[];
   question: string;
   homework?: Homework;
+  shareToken?: string; // Absent on simulations saved before class links were introduced.
   predictions?: Prediction[];
   createdAt: string;
 }

@@ -82,7 +82,7 @@ export function ClassPredictions({
         <p className="font-bold" data-testid="predictions-for">
           For “{shared.title}”
         </p>
-        {current !== shared.id ? (
+        {current && current !== shared.id ? (
           <p className="text-muted" data-testid="predictions-earlier">
             This is the sim you shared earlier. Share again to collect answers for the one on screen.
           </p>

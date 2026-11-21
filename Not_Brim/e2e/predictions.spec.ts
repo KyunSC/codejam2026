@@ -30,6 +30,7 @@ test("names reach the teacher; Enter in the name field after Run doesn't predict
   await s.waitForTimeout(500);
   await expect(s.getByTestId("sim-panel")).toHaveAttribute("data-state", "ready");
 
+  await page.reload();
   const list = page.getByTestId("class-predictions");
   await expect(list.getByTestId("prediction-item")).toHaveCount(1, { timeout: 10_000 });
   await expect(list).toContainText("Maya");
@@ -75,13 +76,15 @@ test.describe("save failures", () => {
     await expect(page.getByTestId("class-predictions")).toContainText("They matched.", { timeout: 10_000 });
   });
 
-  test("a prediction that failed on Run is sent with the reflection", async ({ page, context }) => {
+  test("a lost response after saving on Run is retried without duplicating the prediction", async ({ page, context }) => {
     const url = await shareSim(page);
     const s = await context.newPage();
     let fail = true;
-    await s.route("**/api/sims/*/predictions", (route) =>
-      fail && route.request().method() === "POST" ? route.fulfill({ status: 500, body: "{}" }) : route.fallback(),
-    );
+    await s.route("**/api/sims/*/predictions", async (route) => {
+      if (!fail || route.request().method() !== "POST") return route.fallback();
+      expect((await route.fetch()).status()).toBe(201);
+      await route.abort("failed");
+    });
     await s.goto(url);
     await s.getByTestId("prediction-input").fill("Same speed");
     await s.getByTestId("run-button").click();

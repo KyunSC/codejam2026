@@ -10,10 +10,11 @@ import { ParamSliders } from "./ParamSliders";
 import { ShareButton } from "./ShareButton";
 import { SimPanel } from "./SimPanel";
 
-export function TeacherApp() {
-  const [simId, setSimId] = useState<string | null>(null);
+export function TeacherApp({ initialShared }: { initialShared: SharedSim | null }) {
+  const [savedSim, setSavedSim] = useState<{ id: string; shareToken: string } | null>(null);
+  const shareToken = savedSim?.shareToken ?? null;
   // The sim whose student link went out; its predictions show in the side panel.
-  const [shared, setShared] = useState<SharedSim | null>(null);
+  const [shared, setShared] = useState<SharedSim | null>(initialShared);
   const saveSeq = useRef(0);
   const session = useSimSession({ onReady: save });
   const standIn = useStandInStatus();
@@ -32,28 +33,32 @@ export function TeacherApp() {
     const prompt = last?.kind === "edit" ? `${simPrompt} → ${last.request}` : (last?.prompt ?? simPrompt);
     setSimPrompt(prompt);
     const seq = ++saveSeq.current;
-    setSimId(null);
+    setSavedSim(null);
     fetch("/api/sims", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt, code: info.code, title: info.title, question: info.question, params: info.params }),
     })
       .then(async (r) => {
-        const j = (await r.json()) as { id?: string; error?: string };
-        if (!r.ok || !j.id) throw new Error(j.error ?? `HTTP ${r.status}`);
-        if (seq === saveSeq.current) setSimId(j.id);
+        const j = (await r.json()) as { id?: string; shareToken?: string; error?: string };
+        if (!r.ok || !j.id || !j.shareToken) throw new Error(j.error ?? `HTTP ${r.status}`);
+        if (seq === saveSeq.current) setSavedSim({ id: j.id, shareToken: j.shareToken });
       })
       .catch((err: unknown) => console.warn("[sim] save failed:", err instanceof Error ? err.message : err));
   }
   const v = session.view;
   const predictions = usePredictions(shared?.id ?? null);
   // What's on screen now, read by onShared: a share that finishes after an edit must not claim the panel.
-  const onScreen = useRef<{ simId: string | null; title: string }>({ simId: null, title: "" });
+  const onScreen = useRef<{ shareToken: string | null; title: string }>({ shareToken: null, title: "" });
   useEffect(() => {
-    onScreen.current = { simId, title: v.state === "ready" ? v.title : "" };
+    onScreen.current = { shareToken, title: v.state === "ready" ? v.title : "" };
   });
   function onShared(id: string) {
-    if (id === onScreen.current.simId) setShared({ id, title: onScreen.current.title });
+    if (id !== onScreen.current.shareToken) return;
+    setShared({ id, title: onScreen.current.title });
+    const url = new URL(window.location.href);
+    url.searchParams.set("class", id);
+    window.history.replaceState(null, "", url);
   }
   const busy = v.state === "streaming" || v.state === "mounting" || v.state === "repairing";
 
@@ -107,7 +112,7 @@ export function TeacherApp() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col lg:h-screen lg:min-h-[600px]" data-sim-id={simId ?? ""}>
+    <div className="flex min-h-screen flex-col lg:h-screen lg:min-h-[600px]" data-sim-id={savedSim?.id ?? ""}>
       <header className="border-b border-[var(--rule)]">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-6 py-2.5">
           <Logo />
@@ -210,7 +215,7 @@ export function TeacherApp() {
                 Apply
               </button>
             </form>
-            <ShareButton simId={simId} disabled={v.state !== "ready"} onShared={onShared} />
+            <ShareButton simId={shareToken} disabled={v.state !== "ready"} onShared={onShared} />
           </div>
         </section>
 
@@ -235,7 +240,7 @@ export function TeacherApp() {
           ) : null}
           {v.state === "ready" ? <ParamSliders params={v.params} values={v.values} onChange={session.setValue} /> : null}
           {shared ? (
-            <ClassPredictions shared={shared} current={simId} list={predictions.list} failing={predictions.failing} />
+            <ClassPredictions shared={shared} current={shareToken} list={predictions.list} failing={predictions.failing} />
           ) : null}
         </aside>
       </main>
