@@ -19,7 +19,7 @@ Scripts in `scripts/` set `APP_TODAY=2026-11-02` themselves.
 - [x] 9. Checks: TAX_WRONG_FOR_PROVINCE, TAX_AMOUNT, TAX_NOT_REGISTERED, CURRENCY_UNEXPECTED
 - [x] 10. Checks: PO_REQUIRED_MISSING, PO_NOT_FOUND, PO_VENDOR_MISMATCH, PO_CLOSED, PO_OVER_BALANCE
 - [x] 11. Checks: CONTRACT_EXPIRED, CONTRACT_FEE_MISMATCH, CONTRACT_RATE_OVER_CAP, CONTRACT_FUEL_OVER_CAP, CONTRACT_MONTHLY_CAP, CONTRACT_PERIOD_REPEAT
-- [ ] 12. Checks: SPLIT_SUSPECTED, REQUESTER_TERMINATED, SELF_APPROVAL (history), CREDIT_NOTE_ORPHAN
+- [x] 12. Checks: SPLIT_SUSPECTED, REQUESTER_TERMINATED, SELF_APPROVAL (history), CREDIT_NOTE_ORPHAN
 - [ ] 13. Duplicate detection: DUP_EXACT, DUP_NEAR, DUP_CONTENT, DUP_PAID_BY_CARD (lookalike vendors count as one)
 - [ ] 14. Checks runner (`runChecks`) + `scripts/history-replay.ts`: compare against "What is planted"; explain differences below
 - [ ] 15. Smart coding (same description at vendor → vendor default → nearest description) + `scripts/coding-accuracy.ts` (train Jan–Aug, test Sep–Oct; account and department)
@@ -127,3 +127,17 @@ guessing). A tax line with an unknown label skips TAX_WRONG_FOR_PROVINCE (readin
   POs). A new V044 invoice resolves to C025 and does fire, as BUILD_PLAN expects for torqueindustrial_1771.
 - No CONTRACT_RATE_OVER_CAP or CONTRACT_FUEL_OVER_CAP (none planted; history's surcharges reproduce from
   the LTL lines and max out at 12.00%).
+
+### Item 12: split, terminated requester, self-approval, orphan credit note (2026-11-21)
+`src/lib/rules/checks/people.ts`. Replay results:
+- SPLIT_SUSPECTED: exactly AP-00129/AP-00131 ($14,236.36) and AP-00200/00206/00207 ($14,070.00), as planted,
+  flagged on the invoice that crosses $10,000. Getting there took two rules beyond BUILD_PLAN's wording:
+  1. **Same requester when both are known** (PLAN.md's "same vendor + requester"). With vendor alone, AP-00120
+     (U039) joined the Deskhive pair, AP-00191 (U015, $357.92) joined the Torque trio, and AP-00303/00304
+     (Northstar, U027 and U028) showed up as a split. Incoming documents name no requester, so unknown matches anyone.
+  2. **Copies are not splits**: an earlier invoice with the same number key, or the same digits and total within
+     $1, is a duplicate. Without this, AP-00155 (reformatted duplicate of AP-00136) appeared as a split.
+- SELF_APPROVAL: exactly AP-00092, AP-00178, AP-00235 (U010). Class fraud, effect info (a past breach of the
+  four-eyes rule to review; it cannot happen to a new invoice because the service refuses it).
+- REQUESTER_TERMINATED: none in history (U015's last invoice was received 2026-09-05, before 2026-09-15).
+- CREDIT_NOTE_ORPHAN: none in history (no credit notes).

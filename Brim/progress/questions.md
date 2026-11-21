@@ -17,3 +17,8 @@ Open points for the team. Loop B takes BUILD_PLAN's version and moves on.
 - **AP-00388** (V004) was paid on 2026-10-29, two days after V004's unverified bank change (BC-009,
   2026-10-27). Its payment was scheduled on 10-26, so the check does not flag it. Was it paid to the old or
   the new account? Reconciliation may want to show this.
+- **SPLIT_SUSPECTED and requester.** BUILD_PLAN says "same vendor"; PLAN.md says "same vendor + requester".
+  Loop B requires the same requester when both are known (history then gives exactly the two planted groups;
+  vendor alone adds AP-00120, AP-00191 and AP-00303/00304). Unknown requester matches anyone, so the incoming
+  three-on-one-day case still fires.
+- **SELF_APPROVAL class/effect** as a history finding: Loop B uses fraud/info.
