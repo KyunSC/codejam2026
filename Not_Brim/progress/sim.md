@@ -21,7 +21,7 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 ## Step 2: errors + one repair
 - [x] S2.1 `/api/repair` and full state machine. Attempts: 1
 - [x] S2.2 Playwright: throws-broken → repaired → ready; throws-twice → failed. Attempts: 2
-- [ ] S2.3 Step 2 report (real repair rate needs key). Attempts: 0
+- [x] S2.3 Step 2 report (real repair rate needs key). Attempts: 1 — needs key: real repair rate
 
 ## Step 3: plain-language edits
 - [ ] S3.1 `/api/edit` and "Ask for a change", slider values carried over. Attempts: 0

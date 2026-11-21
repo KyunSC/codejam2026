@@ -38,3 +38,6 @@ The stand-in run proves the plumbing (table in report.md). Run `npm run try-topi
 
 ## S1.8 How the scripts run
 Node 20 has no TS stripping and tsx isn't in the dep list, so `scripts/*.ts` are Playwright tests run with `scripts/playwright.scripts.config.ts` (its own dev server on :3100). Timings come from a `[sim] run {...}` console line the session logs on every ready/failed.
+
+## S2.3 needs key: real repair rate
+The stand-in only proves the repair plumbing. The real first-draft failure rate and repair success rate come from `npm run try-topics` with a key (the "Repaired" column).
