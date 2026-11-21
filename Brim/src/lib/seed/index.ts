@@ -7,6 +7,7 @@
 import type { PrismaClient } from "@/generated/prisma/client";
 import { loadDataset } from "../dataset";
 import { seedBank } from "./bank";
+import { seedHistory } from "./history";
 import { seedReference } from "./reference";
 
 /** Every table in the schema. Truncated together, so foreign keys need no ordering. */
@@ -48,7 +49,8 @@ export async function seed(prisma: PrismaClient): Promise<Record<string, number>
       const counts = await seedReference(tx, ds);
       const bank = await seedBank(tx, ds);
       for (const w of bank.warnings) console.warn(`seed warning: ${w}`);
-      return { ...counts, ...bank.counts };
+      const history = await seedHistory(tx, ds);
+      return { ...counts, ...bank.counts, ...history };
     },
     { timeout: 120_000, maxWait: 10_000 },
   );
