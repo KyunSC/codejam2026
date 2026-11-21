@@ -26,6 +26,11 @@ Local env for every command (never Neon): `BRIM_LOCAL_DB_ONLY=1 DATABASE_URL=pos
     3. `cloudbarnsoftwar_INV01561` raises `DUP_CONTENT` against AP-00411 (scheduled, same fixed fee, one day apart) besides the expected `DUP_EXACT` with AP-00370. Both hold a real duplicate; left as is.
   - Surprise: with the audit-chain lock, DB test files running in parallel deadlocked on long rollback transactions. `vitest.config.mts` now sets `fileParallelism: false` (suite 33 s).
 - [ ] 4. Invoice screen: flags as sentences + resolve action, field evidence marks, line coding + reason, accept/override via PATCH If-Match.
+  - [x] 4a. API: `POST .../invoices/[id]/flags/[flagId]/resolve` and `PATCH .../invoices/[id]` (If-Match).
+    - `src/lib/workflow/review.ts`. Resolve: `override` (any class, by the class's role) or `confirm` (fraud only); reason required; 403 `FLAG_CLASS` for the wrong role, `READ_ONLY_ROLE` for the auditor. A confirmed `DUP_*` moves the invoice to `duplicate`; otherwise the checks re-run so the status follows the flags. Audited as `flag.override` / `flag.confirm`.
+    - PATCH: 428 `VERSION_REQUIRED` without If-Match, 409 `VERSION_CONFLICT`, 409 `INVALID_STATE` outside review. Edits printed fields (number, dates, totals, PO number; evidence marked confirmed), the clerk's choices (vendor, department, province, requester, PO, kept in `normalized.clerk` and applied by processInvoice on every re-run), and line coding (`accept` or `glFinal` / `departmentFinal`). One `invoice.edit` audit row with before/after per line; then the checks re-run.
+    - The invoice detail read now includes flags, taxes, approval steps and payments.
+  - [ ] 4b. The invoice screen itself.
 - [ ] 5. Approvals: submit, route-preview, approve/reject, delegation, chain on invoice screen, "Waiting for me"; five worked examples pass against the DB.
 - [ ] 6. Payments: prepare, release, simulate bank run, invoice follows payment, dashboard; day-one state.
 - [ ] 7. Vendors: list/detail, onboarding, approve/hold/release-hold (FOUR_EYES), bank changes verify/reject (CALLBACK_REQUIRED); V004 held until BC-009 verified.

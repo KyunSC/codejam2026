@@ -80,6 +80,10 @@ const detailInclude = {
   createdBy: { select: { id: true, fullName: true, role: true, externalId: true } },
   assignedTo: { select: { id: true, fullName: true, role: true, externalId: true } },
   lines: { orderBy: { lineNo: "asc" } },
+  taxes: true,
+  flags: { orderBy: { createdAt: "asc" } },
+  approvalSteps: { orderBy: { stepNo: "asc" } },
+  payments: true,
 } satisfies Prisma.InvoiceInclude;
 
 export type InvoiceDetail = Prisma.InvoiceGetPayload<{ include: typeof detailInclude }>;

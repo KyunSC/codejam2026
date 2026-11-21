@@ -56,6 +56,48 @@ export function reviveNormalized(json: unknown): NormalizedInvoice {
 const json = (v: unknown) => JSON.parse(JSON.stringify(v ?? null)) as Prisma.InputJsonValue;
 const str = (d: Decimal | null | undefined) => (d ? d.toString() : null);
 
+/** Values a person chose in review, kept in Invoice.normalized.clerk so a re-run respects them. */
+export interface ClerkChoices {
+  vendorId?: string;
+  departmentId?: string;
+  requesterId?: string;
+  shipToProvince?: ResolvedInvoice["shipToProvince"];
+  poId?: string;
+}
+
+export function clerkChoices(normalized: unknown): ClerkChoices {
+  const c = (normalized as { clerk?: ClerkChoices } | null)?.clerk;
+  return c && typeof c === "object" ? c : {};
+}
+
+/**
+ * Applies the clerk's choices over what resolution found. A chosen vendor brings its contract and
+ * its coding; a chosen PO brings its department when none was chosen.
+ */
+export function applyClerkChoices(inv: ResolvedInvoice, c: ClerkChoices, refs: Refs): ResolvedInvoice {
+  let out = inv;
+  if (c.vendorId && c.vendorId !== inv.vendorId && refs.vendors.has(c.vendorId)) {
+    const vendor = refs.vendors.get(c.vendorId)!;
+    const model = codingModelFor(refs);
+    out = {
+      ...out,
+      vendorId: c.vendorId,
+      vendorMatchedBy: null,
+      vendorCandidates: [],
+      contractId: refs.contractByVendor.get(c.vendorId)?.contractId ?? null,
+      lines: out.lines.map((l) => ({ ...l, glAccount: suggestAccount(l.description, vendor, model, refs).glAccount })),
+    };
+  }
+  if (c.poId && refs.purchaseOrders.has(c.poId)) {
+    const po = refs.purchaseOrders.get(c.poId)!;
+    out = { ...out, poId: c.poId, poNumber: out.poNumber ?? c.poId, poSuggestions: [], departmentId: po.departmentId, requesterId: out.requesterId ?? po.requesterUserId };
+  }
+  if (c.departmentId) out = { ...out, departmentId: c.departmentId };
+  if (c.requesterId) out = { ...out, requesterId: c.requesterId };
+  if (c.shipToProvince) out = { ...out, shipToProvince: c.shipToProvince };
+  return out;
+}
+
 /** Whether the flags and lines leave the invoice needing a person. */
 export function needsReview(openFlags: readonly Pick<Flag, "effect">[], lines: readonly { glAccount: string | null }[]): boolean {
   return openFlags.some((f) => f.effect === "hold") || lines.some((l) => !l.glAccount);
@@ -97,7 +139,10 @@ export async function processInvoice(tx: Tx, input: ProcessInput): Promise<Proce
   const doc = reviveNormalized(row.normalized);
   const uploaderId =
     row.createdBy && row.createdBy.role === "employee" ? (row.createdBy.externalId ?? row.createdBy.id) : null;
-  const { invoice: resolved, notes } = resolveInvoice(doc, refs, { uploaderId });
+  const base = resolveInvoice(doc, refs, { uploaderId });
+  const clerk = clerkChoices(row.normalized);
+  const resolved = applyClerkChoices(base.invoice, clerk, refs);
+  const notes = { ...base.notes, ...(clerk.vendorId ? { vendor: `Chosen by the AP clerk: ${clerk.vendorId}.` } : {}), ...(clerk.departmentId ? { department: `Chosen by the AP clerk: ${clerk.departmentId}.` } : {}) };
   const flags = runChecks(resolved, refs);
 
   // ---- Flags: keep, refresh, fix, create ----
@@ -171,7 +216,7 @@ export async function processInvoice(tx: Tx, input: ProcessInput): Promise<Proce
       poId: resolved.poId,
       contractId: resolved.contractId,
       departmentId: resolved.departmentId,
-      requesterId: row.requesterId ?? resolved.requesterId,
+      requesterId: resolved.requesterId ?? row.requesterId,
       creditOfInvoiceId: resolved.creditOfInvoiceId,
       currency: resolved.currencyResolved ?? row.currency,
       fxRateToCad: str(resolved.fxRateToCad),
