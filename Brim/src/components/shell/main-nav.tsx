@@ -2,24 +2,22 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { MAIN_NAV } from "./nav";
 
-export function MainNav() {
+export interface NavItem {
+  label: string;
+  href: string;
+}
+
+/** The links the session allows, with the current section underlined. */
+export function MainNav({ items }: { items: NavItem[] }) {
   const pathname = usePathname();
   return (
     <nav aria-label="Main" className="flex flex-auto flex-wrap gap-x-6 gap-y-1.5">
-      {MAIN_NAV.map((item) => {
-        if (!item.href) {
-          return (
-            <span key={item.label} className="muted font-medium" title="Not built yet">
-              {item.label}
-            </span>
-          );
-        }
-        const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+      {items.map((item) => {
+        const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
         return (
           <Link
-            key={item.label}
+            key={item.href}
             href={item.href}
             aria-current={active ? "page" : undefined}
             className={`font-medium decoration-2 underline-offset-4 hover:underline ${active ? "underline" : "no-underline"}`}

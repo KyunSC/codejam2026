@@ -1,0 +1,170 @@
+import Link from "next/link";
+import { Suspense } from "react";
+import { EmptyState, TableCard } from "@/components/ui";
+import { FilterBar, FilterSelect, FilterText } from "@/components/filters";
+import { type Actor, listActions } from "@/lib/audit";
+import { actionText, actorText } from "@/lib/audit-text";
+import { canViewAudit } from "@/lib/auth/permissions";
+import { requireUser } from "@/lib/auth/current";
+import { formatDateTime, param } from "@/lib/format";
+import { listUsers } from "@/lib/users/service";
+
+type SP = Promise<Record<string, string | string[] | undefined>>;
+const PAGE = 100;
+
+const ACTIONS = [
+  "invoice.received",
+  "invoice.created",
+  "email.received",
+  "user.created",
+  "user.updated",
+  "user.password_set",
+  "user.deleted",
+  "user.logged_in",
+  "access_request.created",
+  "access_request.approved",
+  "access_request.rejected",
+  "organization.created",
+  "organization.updated",
+];
+const ENTITIES = ["invoice", "email", "user", "access_request", "organization"];
+const ACTOR_TYPES: { value: Actor["type"]; label: string }[] = [
+  { value: "user", label: "A person" },
+  { value: "llm", label: "The reader (LLM)" },
+  { value: "system", label: "Brim (automatic)" },
+  { value: "brim_admin", label: "Brim staff" },
+];
+
+export default function AuditPage({ searchParams }: { searchParams: SP }) {
+  return (
+    <main className="mx-auto w-full max-w-[1240px] px-4 pt-10 pb-16 sm:px-5">
+      <Suspense fallback={<p className="muted">Loading the audit log…</p>}>
+        <AuditView searchParams={searchParams} />
+      </Suspense>
+    </main>
+  );
+}
+
+/** Field names whose value differs between before and after. */
+function changedFields(before: unknown, after: unknown): string[] {
+  if (!before || !after || typeof before !== "object" || typeof after !== "object") return [];
+  const b = before as Record<string, unknown>;
+  const a = after as Record<string, unknown>;
+  return Object.keys(a).filter((k) => k !== "updatedAt" && JSON.stringify(a[k]) !== JSON.stringify(b[k]));
+}
+
+async function AuditView({ searchParams }: { searchParams: SP }) {
+  const { user, org } = await requireUser();
+  if (!canViewAudit(user.role)) return <p className="form-error">The audit log is for controllers, admins and auditors.</p>;
+  const sp = await searchParams;
+  const f = {
+    q: param(sp.q),
+    actorId: param(sp.actorId),
+    actorType: param(sp.actorType),
+    action: param(sp.action),
+    entityType: param(sp.entityType),
+    invoiceId: param(sp.invoiceId),
+    from: param(sp.from),
+    to: param(sp.to),
+    beforeSeq: param(sp.beforeSeq),
+  };
+  const [rows, users] = await Promise.all([
+    listActions(org.id, {
+      q: f.q || undefined,
+      actorId: f.actorId || undefined,
+      actorType: (ACTOR_TYPES.find((t) => t.value === f.actorType)?.value as Actor["type"]) || undefined,
+      action: f.action || undefined,
+      entityType: f.entityType || undefined,
+      invoiceId: f.invoiceId || undefined,
+      from: f.from ? `${f.from}T00:00:00` : undefined,
+      to: f.to ? `${f.to}T23:59:59.999` : undefined,
+      beforeSeq: /^\d+$/.test(f.beforeSeq) ? BigInt(f.beforeSeq) : undefined,
+      limit: PAGE,
+    }),
+    listUsers(org.id),
+  ]);
+  const names = Object.fromEntries(users.map((u) => [u.id, u.fullName]));
+  const older = new URLSearchParams(Object.entries({ ...f, beforeSeq: rows.at(-1)?.seq.toString() ?? "" }).filter(([, v]) => v));
+
+  return (
+    <>
+      <p className="label muted m-0 mb-3 text-sm">{org.name}</p>
+      <h1 className="heading m-0 mb-3 text-[40px] leading-[.95] sm:text-[56px]">Audit log</h1>
+      <p className="muted m-0 mb-8 max-w-[60ch] text-[15px]">
+        Every action by a person, by Brim or by the reader, newest first. Entries are never edited or deleted.
+      </p>
+      <FilterBar action="/audit" resetHref="/audit">
+        <FilterText name="q" label="Search" defaultValue={f.q} placeholder="Action, record or invoice ID, reason" />
+        <FilterSelect
+          name="actorId"
+          label="Person"
+          defaultValue={f.actorId}
+          allLabel="Anyone"
+          options={users.map((u) => ({ value: u.id, label: u.fullName }))}
+        />
+        <FilterSelect name="actorType" label="Kind of actor" defaultValue={f.actorType} options={ACTOR_TYPES} />
+        <FilterSelect name="action" label="Action" defaultValue={f.action} options={ACTIONS.map((a) => ({ value: a, label: actionText(a) }))} />
+        <FilterSelect name="entityType" label="Record" defaultValue={f.entityType} options={ENTITIES.map((e) => ({ value: e, label: e.replace("_", " ") }))} />
+        <FilterText name="from" label="From" type="date" defaultValue={f.from} />
+        <FilterText name="to" label="To" type="date" defaultValue={f.to} />
+        {f.invoiceId && <input type="hidden" name="invoiceId" value={f.invoiceId} />}
+      </FilterBar>
+
+      <div className="mt-8">
+        {rows.length === 0 ? (
+          <EmptyState title="No entries match">Change or clear the filters.</EmptyState>
+        ) : (
+          <TableCard label="Audit log" minWidth={980}>
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Who</th>
+                <th>What</th>
+                <th>Record</th>
+                <th>Changed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const changed = changedFields(r.before, r.after);
+                return (
+                  <tr key={r.seq.toString()}>
+                    <td className="num text-sm whitespace-nowrap">{formatDateTime(r.at)}</td>
+                    <td className="text-sm">
+                      {actorText(r, r.actorId ? names[r.actorId] : null)}
+                      {r.onBehalfOfId && <div className="muted text-xs">for {names[r.onBehalfOfId] ?? r.onBehalfOfId}</div>}
+                    </td>
+                    <td className="text-sm">
+                      {actionText(r.action)}
+                      {r.reason && <div className="muted text-xs">“{r.reason}”</div>}
+                    </td>
+                    <td className="text-sm">
+                      {r.entityType === "invoice" ? (
+                        <Link href={`/invoices/${r.entityId}`} className="underline underline-offset-4">
+                          invoice
+                        </Link>
+                      ) : r.entityType === "user" && names[r.entityId] ? (
+                        <>user {names[r.entityId]}</>
+                      ) : (
+                        r.entityType.replace("_", " ")
+                      )}
+                      <div className="muted text-xs">{r.entityId}</div>
+                    </td>
+                    <td className="text-sm">{changed.length ? changed.join(", ") : <span className="muted">—</span>}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </TableCard>
+        )}
+        {rows.length === PAGE && (
+          <div className="mt-6">
+            <Link href={`/audit?${older}`} className="btn btn--ghost btn--sm">
+              Older entries
+            </Link>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
