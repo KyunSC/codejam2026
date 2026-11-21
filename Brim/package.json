@@ -23,9 +23,11 @@
     "dotenv": "^18.0.10",
     "next": "16.4.6",
     "papaparse": "^5.7.1",
+    "pdfjs-dist": "6.4.299",
     "prisma": "^7.10.1",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "sharp": "0.35.5"
   },
   "devDependencies": {
     "@neon/config": "^1.14.6",
