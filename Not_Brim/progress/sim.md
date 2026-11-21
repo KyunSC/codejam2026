@@ -13,7 +13,7 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 - [x] S1.3 NDJSON helpers and `lib/sim-html.ts`, Vitest. Attempts: 1
 - [x] S1.4 `lib/bridge.ts` and `validateParams`, Vitest. Attempts: 0
 - [x] S1.5 `/api/generate` and `/api/status`. Attempts: 0
-- [ ] S1.6 `useSimSession` (no repair), `SimFrame`, `ParamSliders`, `GenerationStatus`, teacher page with both badges. Attempts: 0
+- [x] S1.6 `useSimSession` (no repair), `SimFrame`, `ParamSliders`, `GenerationStatus`, teacher page with both badges. Attempts: 0
 - [ ] S1.7 Playwright: pendulum → ready with 4 sliders; slider → applied; /dev/fixture error pages. Attempts: 0
 - [ ] S1.8 `scripts/try-topics.ts` (stand-in run proves plumbing; real run needs key). Attempts: 0
 - [ ] S1.9 Step 1 report. Attempts: 0
@@ -53,3 +53,5 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 - S1.2: Fixtures carry `<!-- hand-made fixture: NAME -->` on line 2 (after the doctype, so `extractHtml` keeps it). The stand-in reads that name to decide repair/edit outputs. Added `falling-broken` as falling's broken twin.
 - S1.3: first run failed because no-sim's header comment contained the literal text "window.SIM", which satisfied validateHtml's static check. Reworded the comment; the fixture now fails validation as intended (and still fails the bridge's 3 s check when mounted directly).
 - S1.4: BRIDGE_JS and the CSP meta are injected on one line, so error line/col numbers still match the generated document. Params are JSON round-tripped inside the iframe before posting (a SIM with functions in params would otherwise throw DataCloneError). `validateParams` falls back to the id when a label is missing.
+- S1.6: The session also has a parent-side 8 s mount watchdog (a frozen sim script can stop the bridge from ever answering). Stream `error` events (API failures) go straight to `failed`; there's no code to repair.
+- S1.6: Root font-size is 20px, so Tailwind `text-base` = 20px; no `text-sm`/`text-xs` is used.

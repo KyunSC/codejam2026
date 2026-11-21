@@ -20,3 +20,74 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans);
 }
+
+.field {
+  border: 3px solid #94a3b8;
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.9rem;
+  background: #fff;
+  color: var(--foreground);
+}
+
+.btn-primary {
+  border-radius: 0.75rem;
+  padding: 0.6rem 1.4rem;
+  font-weight: 700;
+  background: #1d4ed8;
+  color: #fff;
+  border: 3px solid #1d4ed8;
+}
+.btn-primary:hover:not(:disabled) { background: #1e40af; }
+.btn-primary:disabled { background: #94a3b8; border-color: #94a3b8; cursor: not-allowed; }
+
+.btn-secondary {
+  border-radius: 0.75rem;
+  padding: 0.6rem 1.2rem;
+  font-weight: 700;
+  background: #fff;
+  color: #1d4ed8;
+  border: 3px solid #1d4ed8;
+}
+.btn-secondary:disabled { color: #64748b; border-color: #94a3b8; cursor: not-allowed; }
+
+/* Visible keyboard focus everywhere. */
+:focus-visible {
+  outline: 4px solid #f59e0b;
+  outline-offset: 3px;
+}
+
+.sim-slider {
+  appearance: none;
+  width: 100%;
+  height: 14px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  cursor: pointer;
+}
+.sim-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #1d4ed8;
+  border: 4px solid #fff;
+  box-shadow: 0 0 0 2px #1d4ed8;
+}
+.sim-slider::-moz-range-thumb {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #1d4ed8;
+  border: 4px solid #fff;
+  box-shadow: 0 0 0 2px #1d4ed8;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 6px solid #cbd5e1;
+  border-top-color: #1d4ed8;
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }

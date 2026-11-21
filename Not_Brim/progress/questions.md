@@ -24,3 +24,11 @@ Each fixture has a `<!-- hand-made fixture: NAME -->` comment; `repair()`/`edit(
 
 ## S1.2 Real-model homework schema
 `defaults` is an object whose properties are generated from the sim's param ids (all required, additionalProperties false), since structured outputs need closed objects. It's still `{question: string, defaults: object}`.
+## S1.6 Carrying slider values over on edit vs. "bob B's default has changed"
+Carrying every matching value over would hide the edited default (massB stays 5). Chose: carry over only values the teacher moved away from the previous defaults; untouched sliders take the new defaults.
+
+## S1.6 Stream errors before any code
+A model/API error in the stream (no code yet) goes to `failed` directly; repair only applies to code that was produced and then failed.
+
+## S1.6 Mount watchdog
+Not in the spec. If the bridge never answers within 8 s of mounting (e.g. an infinite loop freezes the iframe), it counts as a failure. The bridge's own 3 s SIM check still fires first in normal cases.
