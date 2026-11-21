@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useSyncExternalStore, type RefObject } from "react";
 import { asBridgeMessage } from "@/lib/bridge";
 import type { BridgeMessage } from "@/lib/types";
 
@@ -26,7 +26,8 @@ export function SimFrame({
     handler.current = onMessage;
   });
 
-  useEffect(() => {
+  // Layout effect: the listener must exist before the iframe's scripts can run.
+  useLayoutEffect(() => {
     function listen(e: MessageEvent) {
       const win = local.current?.contentWindow;
       if (!win || e.source !== win) return;
@@ -36,6 +37,10 @@ export function SimFrame({
     window.addEventListener("message", listen);
     return () => window.removeEventListener("message", listen);
   }, []);
+
+  // Never server-render the iframe: it would run (and post) before hydration attached the listener.
+  const onClient = useSyncExternalStore(noopSubscribe, () => true, () => false);
+  if (!onClient) return null;
 
   return (
     <iframe
@@ -51,3 +56,5 @@ export function SimFrame({
     />
   );
 }
+
+const noopSubscribe = () => () => {};

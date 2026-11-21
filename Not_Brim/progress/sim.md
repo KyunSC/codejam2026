@@ -14,7 +14,7 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 - [x] S1.4 `lib/bridge.ts` and `validateParams`, Vitest. Attempts: 0
 - [x] S1.5 `/api/generate` and `/api/status`. Attempts: 0
 - [x] S1.6 `useSimSession` (no repair), `SimFrame`, `ParamSliders`, `GenerationStatus`, teacher page with both badges. Attempts: 0
-- [ ] S1.7 Playwright: pendulum → ready with 4 sliders; slider → applied; /dev/fixture error pages. Attempts: 0
+- [x] S1.7 Playwright: pendulum → ready with 4 sliders; slider → applied; /dev/fixture error pages. Attempts: 1
 - [ ] S1.8 `scripts/try-topics.ts` (stand-in run proves plumbing; real run needs key). Attempts: 0
 - [ ] S1.9 Step 1 report. Attempts: 0
 
@@ -55,3 +55,5 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 - S1.4: BRIDGE_JS and the CSP meta are injected on one line, so error line/col numbers still match the generated document. Params are JSON round-tripped inside the iframe before posting (a SIM with functions in params would otherwise throw DataCloneError). `validateParams` falls back to the id when a label is missing.
 - S1.6: The session also has a parent-side 8 s mount watchdog (a frozen sim script can stop the bridge from ever answering). Stream `error` events (API failures) go straight to `failed`; there's no code to repair.
 - S1.6: Root font-size is 20px, so Tailwind `text-base` = 20px; no `text-sm`/`text-xs` is used.
+- S1.7: first e2e run: throws-broken, bad-params and external-script lost their bridge messages on /dev/fixture. The page is server-rendered, so the iframe ran and posted before React hydrated and attached the listener (no-sim passed only because its error comes at 3 s). Fix in SimFrame: never server-render the iframe (useSyncExternalStore client check), and attach the message listener in a layout effect. Timings from load: throws-broken ~0.4 s, bad-params ~0.2 s, external-script ~0.2 s (CSP violation), no-sim ~3.5 s (the 3 s SIM wait + page load).
+- S1.7: stand-in pendulum: create → ready in ~5 s (1.5 s thinking + 3 s writing + mount).
