@@ -26,6 +26,7 @@ import type { BoardEvent, Stage } from "@/lib/types";
 import { useStandInStatus } from "@/lib/useStandInStatus";
 import { Logo, StandInBadge } from "./Badges";
 import { DemosMenu, type DemoFull } from "./DemosMenu";
+import { PetPicker } from "./PetPicker";
 import { InkView, StrokePaths } from "./board/InkView";
 import { NoteView } from "./board/NoteView";
 import { SimBox } from "./board/SimBox";
@@ -546,6 +547,7 @@ export function BoardApp({ board }: { board: Board }) {
 
       <header ref={header} className="card absolute inset-x-3 top-3 flex flex-wrap items-center gap-3 p-3">
         <Logo />
+        <PetPicker />
         <div className="flex gap-2" role="group" aria-label="Tools">
           {(["select", "pen", "note"] as const).map((t) => (
             <button

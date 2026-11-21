@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { MAX_REQUEST_CHARS, promptAfterEdit, type SimItem } from "@/lib/board";
 import { useSimSession, type EditBase, type ReadyInfo } from "@/lib/useSimSession";
+import { ClassPredictions, countLabel, usePredictions } from "../ClassPredictions";
 import { ParamSliders } from "../ParamSliders";
 import { ShareButton } from "../ShareButton";
 import { SimPanel } from "../SimPanel";
@@ -30,6 +31,8 @@ export function SimBox({
 }) {
   const session = useSimSession({ onReady: ready });
   const v = session.view;
+  const predictions = usePredictions(item.sharedClass?.id ?? null);
+  const predictionsPanel = useRef<HTMLDivElement>(null);
   const [change, setChange] = useState("");
   const [demoNote, setDemoNote] = useState<string | null>(null);
   const last = useRef<Last | null>(null);
@@ -43,13 +46,13 @@ export function SimBox({
 
   function ready(info: ReadyInfo) {
     // A box loaded from the board already holds this version, and its sim once that was saved.
-    if (info.kind === "load" && item.simId) return;
+    if (info.kind === "load" && item.shareToken) return;
     const l = last.current;
     const prompt = info.kind === "edit" && l?.kind === "edit" ? promptAfterEdit(item.prompt, l.request) : item.prompt;
     // The old sim id points at the previous version, so it goes until this version is saved.
     // `change` stays: its nonce is what a later request counts up from.
     if (info.kind !== "load")
-      patch.current({ code: info.code, title: info.title, question: info.question, params: info.params, prompt, simId: undefined });
+      patch.current({ code: info.code, title: info.title, question: info.question, params: info.params, prompt, simId: undefined, shareToken: undefined });
     // Each new version is saved as a sim, for the homework link.
     const seq = ++saveSeq.current;
     fetch("/api/sims", {
@@ -58,10 +61,10 @@ export function SimBox({
       body: JSON.stringify({ prompt, code: info.code, title: info.title, question: info.question, params: info.params }),
     })
       .then(async (r) => {
-        const j = (await r.json()) as { id?: string; error?: string };
-        if (!r.ok || !j.id) throw new Error(j.error ?? `HTTP ${r.status}`);
+        const j = (await r.json()) as { id?: string; shareToken?: string; error?: string };
+        if (!r.ok || !j.id || !j.shareToken) throw new Error(j.error ?? `HTTP ${r.status}`);
         // A later version may have been saved first; its id wins.
-        if (seq === saveSeq.current) patch.current({ simId: j.id });
+        if (seq === saveSeq.current) patch.current({ simId: j.id, shareToken: j.shareToken });
       })
       .catch((err: unknown) => console.warn("[board] sim save failed:", err instanceof Error ? err.message : err));
   }
@@ -154,6 +157,13 @@ export function SimBox({
         <h2 className="pix min-w-0 flex-1 truncate text-[1.1rem]" data-testid="sim-title">
           {v.state === "ready" ? v.title : item.title || item.prompt}
         </h2>
+        {item.sharedClass && (
+          <button type="button" className="chip bg-gold" data-testid="predictions-chip"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => predictionsPanel.current?.scrollIntoView({ block: "nearest" })}>
+            {countLabel(predictions.list)}
+          </button>
+        )}
         <button type="button" className="item-x" aria-label="Delete simulation" onPointerDown={(e) => e.stopPropagation()} onClick={onDelete}>
           ×
         </button>
@@ -170,6 +180,11 @@ export function SimBox({
               </p>
             ) : null}
             <ParamSliders params={v.params} values={v.values} onChange={session.setValue} />
+            {item.sharedClass && (
+              <div ref={predictionsPanel}>
+                <ClassPredictions shared={item.sharedClass} current={item.shareToken ?? null} {...predictions} />
+              </div>
+            )}
           </div>
         ) : null}
       </div>
@@ -209,7 +224,8 @@ export function SimBox({
             {demoNote}
           </span>
         ) : null}
-        <ShareButton simId={item.simId ?? null} disabled={v.state !== "ready"} />
+        <ShareButton simId={item.shareToken ?? null} disabled={v.state !== "ready"}
+          onShared={(id) => onPatch({ sharedClass: { id, title: item.title } })} />
       </div>
       <div className="resize-handle" onPointerDown={onResizeStart} aria-hidden />
     </div>

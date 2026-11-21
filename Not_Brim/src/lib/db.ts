@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS livesim_sims (
   record jsonb NOT NULL,
   created_at timestamptz NOT NULL
 );
+CREATE INDEX IF NOT EXISTS livesim_sims_share_token ON livesim_sims ((record->>'shareToken'));
 CREATE TABLE IF NOT EXISTS livesim_demos (
   slug text PRIMARY KEY,
   demo jsonb NOT NULL

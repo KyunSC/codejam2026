@@ -45,6 +45,18 @@ export interface SimModel {
   boardTurn(input: BoardTurnInput): AsyncIterable<BoardEvent>;
 }
 
+/** One student's answer on a shared link: the prediction before Run, then what they saw. */
+export interface Prediction {
+  id: string;
+  name: string;
+  prediction: string;
+  observed?: string;
+  createdAt: string;
+}
+
+/** What the teacher's list gets: no id, so nobody can use it to overwrite a reflection. */
+export type PublicPrediction = Omit<Prediction, "id">;
+
 /** One "Ask Claude" on the whiteboard. */
 export interface BoardTurnInput {
   items: BoardItem[];
@@ -70,6 +82,8 @@ export interface SimRecord {
   params: SimParam[];
   question: string;
   homework?: Homework;
+  shareToken?: string; // Absent on simulations saved before class links were introduced.
+  predictions?: Prediction[];
   createdAt: string;
 }
 

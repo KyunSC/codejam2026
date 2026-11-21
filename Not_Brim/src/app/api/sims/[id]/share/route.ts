@@ -10,10 +10,10 @@ export const dynamic = "force-dynamic";
 /** Make (once) the homework variation for a saved sim and return its student link. */
 export async function POST(_req: Request, ctx: RouteContext<"/api/sims/[id]/share">) {
   const { id } = await ctx.params;
-  if (!/^[0-9a-f]{12}$/.test(id)) return badRequest("Unknown simulation.", 404);
+  if (!/^[0-9a-f]{32}$/.test(id)) return badRequest("Unknown simulation.", 404);
   let sim;
   try {
-    sim = await store().getSim(id);
+    sim = await store().getSharedSim(id);
   } catch (err) {
     return storageErrorResponse(err);
   }
@@ -26,7 +26,7 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/sims/[id]/shar
       const checked = validateHomework(raw, sim.params);
       if (!checked.ok) return badRequest(`The homework didn't come out right (${checked.reason}). Try again.`, 502);
       homework = checked.homework;
-      await store().updateSim(id, { homework });
+      await store().updateSim(sim.id, { homework });
     } catch (err) {
       return badRequest(err instanceof Error ? err.message : "Couldn't write the homework. Try again.", 502);
     }

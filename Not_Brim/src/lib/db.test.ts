@@ -78,6 +78,25 @@ describe.skipIf(!url)("Postgres stores", () => {
     expect(await s.updateSim("000000000000", { title: "x" })).toBeNull();
   });
 
+  it("finds a sim by its share token and keeps every prediction when students post at once", async () => {
+    const s = createPgStore(database);
+    const sim = await s.saveSim({ prompt: "why?", code: pendulum, title: "A", params, question: "Which first?" });
+    expect((await s.getSharedSim(sim.shareToken!))?.id).toBe(sim.id);
+    expect(await s.getSharedSim("0".repeat(32))).toBeNull();
+
+    const posted = await Promise.all(
+      Array.from({ length: 12 }, (_, i) => s.addPrediction(sim.shareToken!, { name: `S${i}`, prediction: `guess ${i}` })),
+    );
+    expect((await s.getSim(sim.id))?.predictions).toHaveLength(12);
+
+    const first = posted[0] as { id: string };
+    expect(await s.addPrediction(sim.shareToken!, { submissionId: first.id, name: "S0", prediction: "again" })).toMatchObject({ id: first.id });
+    expect((await s.getSim(sim.id))?.predictions).toHaveLength(12);
+    expect(await s.setObserved(sim.shareToken!, first.id, "Both together")).toMatchObject({ observed: "Both together" });
+    expect(await s.setObserved(sim.shareToken!, "nope", "x")).toBeNull();
+    expect(await s.addPrediction("0".repeat(32), { name: "x", prediction: "y" })).toBeNull();
+  });
+
   it("serves shipped demos, lets a saved one replace a shipped one, and saves into the database", async () => {
     const shipped = createDemoStore(path.join(process.cwd(), "data", "demos"), database);
     const before = await shipped.listDemos();

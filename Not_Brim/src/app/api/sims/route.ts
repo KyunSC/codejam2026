@@ -30,7 +30,7 @@ export async function POST(req: Request) {
 
   try {
     const record = await store().saveSim({ prompt: prompt.trim(), code, title, question, params: params.params });
-    return Response.json({ id: record.id }, { status: 201 });
+    return Response.json({ id: record.id, shareToken: record.shareToken }, { status: 201 });
   } catch (err) {
     return storageErrorResponse(err);
   }
