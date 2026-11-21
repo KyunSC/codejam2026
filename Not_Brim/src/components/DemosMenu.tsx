@@ -53,14 +53,14 @@ export function DemosMenu({
   }
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex min-w-0 max-w-full items-center gap-3">
       <label htmlFor="demos" className="sr-only">
         Saved demos
       </label>
       <select
         id="demos"
         data-testid="demos-select"
-        className="btn-secondary min-h-[2.2rem] cursor-pointer py-1 pl-3 pr-2 font-bold"
+        className="btn-secondary min-h-[2.2rem] min-w-0 max-w-full cursor-pointer py-1 pl-3 pr-2 font-bold"
         value=""
         disabled={disabled || list.length === 0}
         onChange={(e) => void pick(e.target.value)}

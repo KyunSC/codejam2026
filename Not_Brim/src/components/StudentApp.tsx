@@ -41,7 +41,7 @@ export function StudentApp({
 
       <main className="mx-auto flex w-full max-w-[1240px] flex-col gap-7 px-5 pb-12 pt-8">
         <section className="short-hide flex flex-wrap items-end gap-x-10 gap-y-4">
-          <h1 className="pix flex-[1_1_520px] text-[clamp(2rem,4.6vw,3.6rem)] leading-[0.95]">Did you predict before you ran it?</h1>
+          <p className="pix flex-[1_1_520px] text-[clamp(2rem,4.6vw,3.6rem)] leading-[0.95]">Did you predict before you ran it?</p>
           <span
             className="pix text-[clamp(3rem,7vw,5.4rem)] leading-[0.8] text-blue [text-shadow:5px_5px_0_var(--shadow)]"
             aria-live="polite"
@@ -63,9 +63,9 @@ export function StudentApp({
 
           <aside className="flex min-w-0 flex-[1_1_360px] flex-col gap-6" aria-label="Homework">
             <div className="card-gold p-5">
-              <p className="kicker mb-1 !text-ink" data-testid="student-title">
+              <h1 className="kicker mb-1 !text-ink" data-testid="student-title">
                 {title}
-              </p>
+              </h1>
               <p className="text-[1.2rem] font-bold leading-snug" data-testid="homework-question">
                 {question}
               </p>

@@ -95,7 +95,7 @@ export function TeacherApp() {
   }
 
   return (
-    <div className="flex h-screen min-h-[600px] flex-col" data-sim-id={simId ?? ""}>
+    <div className="flex min-h-screen flex-col lg:h-screen lg:min-h-[600px]" data-sim-id={simId ?? ""}>
       <header className="border-b border-[var(--rule)]">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-6 py-2.5">
           <Logo />
@@ -120,15 +120,15 @@ export function TeacherApp() {
         </div>
       </header>
 
-      <main className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(320px,30%)] grid-rows-[auto_minmax(0,1fr)] gap-x-7 gap-y-4 px-6 pb-4 pt-3">
+      <main className="grid min-h-0 flex-1 grid-cols-1 content-start gap-x-7 gap-y-4 px-4 pb-4 pt-3 lg:grid-cols-[minmax(0,1fr)_minmax(320px,30%)] lg:grid-rows-[auto_minmax(0,1fr)] lg:px-6">
         <form
-          className="col-span-2 grid grid-cols-subgrid gap-y-2"
+          className="grid min-w-0 gap-y-2 lg:col-span-2 lg:grid-cols-subgrid"
           onSubmit={(e) => {
             e.preventDefault();
             create();
           }}
         >
-          <label htmlFor="prompt" className="kicker short-sr col-span-2">
+          <label htmlFor="prompt" className="kicker short-sr lg:col-span-2">
             What is the class confused about?
           </label>
           <textarea
@@ -152,7 +152,7 @@ export function TeacherApp() {
         </form>
 
         <section className="flex min-h-0 flex-col gap-4" aria-label="Simulation">
-          <div className="min-h-0 flex-1">
+          <div className="h-[50svh] min-h-[260px] lg:h-auto lg:min-h-0 lg:flex-1">
             <SimPanel
               session={session}
               onRetry={last ? retry : undefined}
@@ -166,7 +166,7 @@ export function TeacherApp() {
           </div>
           <div className="flex flex-wrap items-end gap-3">
             <form
-              className="flex min-w-[20rem] flex-1 flex-wrap items-stretch gap-x-3 gap-y-1.5"
+              className="flex min-w-0 basis-full flex-wrap lg:min-w-[20rem] lg:flex-1 items-stretch gap-x-3 gap-y-1.5"
               onSubmit={(e) => {
                 e.preventDefault();
                 askForChange();

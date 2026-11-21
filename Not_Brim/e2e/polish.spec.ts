@@ -71,6 +71,8 @@ for (const size of SIZES) {
     await student.setViewportSize(size);
     await student.goto(url);
     await expect(student.getByTestId("homework-question")).toBeVisible();
+    const title = (await page.getByTestId("sim-title").textContent())!;
+    await expect(student.getByRole("heading", { level: 1, name: title, exact: true })).toBeVisible();
     expect(await smallText(student)).toEqual([]);
     await student.screenshot({ path: path.join(SCREENS, `student-before-run-${size.name}.png`) });
     await student.getByTestId("prediction-input").fill("The heavy one lands first.");
@@ -81,6 +83,17 @@ for (const size of SIZES) {
     await student.screenshot({ path: path.join(SCREENS, `student-ready-${size.name}.png`) });
   });
 }
+
+test("teacher can use the prompt and simulation on a phone", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 720 });
+  await readyPendulum(page);
+  for (const id of ["prompt-input", "sim-frame"]) {
+    const box = await page.getByTestId(id).boundingBox();
+    expect(box?.width).toBeGreaterThanOrEqual(300);
+  }
+  const fits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  expect(fits).toBe(true);
+});
 
 test("failed state screenshot", async ({ page }) => {
   await page.setViewportSize(SIZES[1]);
