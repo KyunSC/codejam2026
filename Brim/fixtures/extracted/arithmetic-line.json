@@ -1,0 +1,51 @@
+{
+  "handMade": true,
+  "file": "northstarmediabu_NO261773.pdf",
+  "sha256": "a33a9f7780b52c2634da2666fb29ccf5877fe516891a7ce1d205d63ddb00d2cd",
+  "purpose": "Quantity times unit price does not equal the line amount (a real error on the document)",
+  "extracted": {
+    "docType": "invoice",
+    "language": "en",
+    "vendor": {
+      "name": "Northstar Media Buying",
+      "address": "7965 Commerce Dr Hamilton ON M9C 6A6",
+      "gstHstNumber": "757486412RT0001",
+      "qstNumber": null
+    },
+    "billTo": {
+      "name": "Harborline Logistics Inc.",
+      "address": "88 Queens Quay W, Suite 1400, Toronto ON M5J 0B8"
+    },
+    "invoiceNumber": "NO26-1773",
+    "invoiceDate": "2026-10-27",
+    "dueDate": "2026-11-26",
+    "terms": "Net 30",
+    "poNumber": null,
+    "creditNoteRef": null,
+    "currency": "CAD",
+    "lines": [
+      {
+        "description": "Creative design services",
+        "quantity": "24",
+        "unitPrice": "$150.00",
+        "amount": "$3,800.00"
+      }
+    ],
+    "subtotal": "$3,800.00",
+    "taxes": [
+      {
+        "label": "HST (13%)",
+        "amount": "$494.00"
+      }
+    ],
+    "total": "$4,294.00",
+    "remit": {
+      "institution": "004",
+      "transit": "16163",
+      "account": "765318587",
+      "text": "EFT / virement bancaire - Northstar Media Buying"
+    },
+    "notes": [],
+    "unreadable": []
+  }
+}

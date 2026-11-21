@@ -20,6 +20,8 @@ export const config = {
     controllerAboveCad: 50_000,
     /** P04: above this a CFO step is added. */
     cfoAboveCad: 250_000,
+    /** P06: vendor categories that always add a finance manager step. */
+    financeReviewCategories: ["Legal"] as readonly string[],
   },
 
   release: {
@@ -46,6 +48,29 @@ export const config = {
     cardMerchantMaxLen: 22,
   },
 
+  tax: {
+    /** Vendor categories whose supplies are exempt in every province (history: all EXEMPT lines). */
+    exemptCategories: ["Insurance"] as readonly string[],
+  },
+
+  contracts: {
+    /** CONTRACT_FUEL_OVER_CAP: the surcharge line, and the shipment lines it is a percentage of (history reproduces the printed % from these). */
+    fuelSurchargePattern: /fuel surcharge/i,
+    shipmentPattern: /ltl shipment/i,
+    /** CONTRACT_RATE_OVER_CAP: a line billed by the hour (besides any line with quantity above 1). */
+    hourlyPattern: /\b(hours?|hrs?|hourly)\b/i,
+    /** CONTRACT_FUEL_OVER_CAP: percentage points of slack for rounding of the printed surcharge. */
+    fuelPctTolerance: 0.01,
+  },
+
+  resolution: {
+    /** Vendor step 2: a bank-account match also needs names at least this similar (word overlap, 0–1). */
+    bankNameMinSimilarity: 0.5,
+    /** VENDOR_UNKNOWN: how many closest names to offer, and the least similarity worth offering. */
+    candidateCount: 3,
+    candidateMinSimilarity: 0.2,
+  },
+
   checks: {
     /** SPLIT_SUSPECTED: invoices from one vendor within this many days. */
     splitWindowDays: 5,
@@ -53,6 +78,11 @@ export const config = {
     bankChangeRecentDays: 30,
     /** DATE_ODD: invoice dated more than this many days before it was received. */
     dateOddMaxAgeDays: 60,
+    /**
+     * VENDOR_LOOKALIKE: "little history" means at most this many known invoices. The lookalike records in
+     * the dataset have 0, 2 and 3 invoices; the records they imitate have 4 to 12.
+     */
+    lookalikeMaxHistory: 3,
   },
 
   payments: {

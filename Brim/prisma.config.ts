@@ -14,6 +14,8 @@ export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
+    // Same runner as `npm run script`: loads .env and defaults APP_TODAY.
+    seed: "node scripts/run.mjs prisma/seed.ts",
   },
   datasource: {
     // The CLI (migrate, db push, studio) needs Neon's direct connection: the pooled one is

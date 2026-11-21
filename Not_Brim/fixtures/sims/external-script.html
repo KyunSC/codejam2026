@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<!-- hand-made fixture: external-script -- Loads a script from the network, which the CSP must block. Not model output. -->
+<html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%;overflow:hidden;background:#f8fafc}canvas{display:block;width:100vw;height:100vh}</style>
+<script src="https://cdn.example.com/physics-helpers.js"></script></head>
+<body><canvas id="c"></canvas><script>
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');let W=0,H=0,p;
+function resize(){const d=devicePixelRatio||1;W=innerWidth;H=innerHeight;cv.width=W*d;cv.height=H*d;ctx.setTransform(d,0,0,d,0,0);}
+addEventListener('resize',resize);resize();
+window.SIM={
+  title:'Cooling Cups of Tea',
+  params:[{id:'start',label:'Starting temperature (°C)',min:40,max:100,step:5,value:90}],
+  question:'Does a hotter cup lose its first 10 °C faster or slower than a cooler one?',
+  reset(v){p=v;}
+};
+function frame(){ctx.clearRect(0,0,W,H);ctx.fillStyle='#0f172a';ctx.font='28px system-ui';ctx.fillText('Start: '+p.start+' °C',40,60);requestAnimationFrame(frame);}
+SIM.reset({start:90});requestAnimationFrame(frame);
+</script></body></html>

@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<!-- hand-made fixture: throws-twice -- Floating blocks of different density. Broken: calls an undefined function on load. Its "repair" (throws-twice-2) is broken too. Not model output. -->
+<html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%;overflow:hidden;background:#f8fafc}canvas{display:block;width:100vw;height:100vh}</style></head>
+<body><canvas id="c"></canvas><script>
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');let W=0,H=0;
+function resize(){const d=devicePixelRatio||1;W=innerWidth;H=innerHeight;cv.width=W*d;cv.height=H*d;ctx.setTransform(d,0,0,d,0,0);}
+addEventListener('resize',resize);resize();
+let p;
+window.SIM={
+  title:'Which Block Floats Higher?',
+  params:[
+    {id:'densityA',label:'Block A density (kg/m³)',min:100,max:1500,step:50,value:400},
+    {id:'densityB',label:'Block B density (kg/m³)',min:100,max:1500,step:50,value:800}],
+  question:'Block B is twice as dense as block A. How much deeper will it sit in the water?',
+  reset(v){p=v;setupWaterTank(p);}
+};
+SIM.reset(Object.fromEntries(SIM.params.map(q=>[q.id,q.value])));
+</script></body></html>

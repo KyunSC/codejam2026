@@ -1,0 +1,57 @@
+{
+  "handMade": true,
+  "file": "Invoice 4443.pdf",
+  "sha256": "e689cd9fd09e060ee4bc2c7740588a3f8cf882c6866980a5f9b92faf17a93a05",
+  "purpose": "Inbox file, written by hand from its text layer (checked against the rendered page)",
+  "extracted": {
+    "docType": "invoice",
+    "language": "en",
+    "vendor": {
+      "name": "Blue Heron Couriers",
+      "address": "194 Granville St Surrey BC V2J 4J1",
+      "gstHstNumber": "324978405RT0001",
+      "qstNumber": null
+    },
+    "billTo": {
+      "name": "Harborline Logistics Inc.",
+      "address": "250 6 Ave SW, Suite 700, Calgary AB T2P 3H7"
+    },
+    "invoiceNumber": "4443",
+    "invoiceDate": "2026-10-20",
+    "dueDate": "2026-11-19",
+    "terms": "Net 30",
+    "poNumber": null,
+    "creditNoteRef": null,
+    "currency": "CAD",
+    "lines": [
+      {
+        "description": "LTL shipment Vancouver-Calgary",
+        "quantity": "3",
+        "unitPrice": "$410.00",
+        "amount": "$1,230.00"
+      },
+      {
+        "description": "Fuel surcharge (9%)",
+        "quantity": "1",
+        "unitPrice": "$110.70",
+        "amount": "$110.70"
+      }
+    ],
+    "subtotal": "$1,340.70",
+    "taxes": [
+      {
+        "label": "GST (5%)",
+        "amount": "$67.04"
+      }
+    ],
+    "total": "$1,407.74",
+    "remit": {
+      "institution": "004",
+      "transit": "39446",
+      "account": "38053633",
+      "text": "EFT / virement bancaire - Blue Heron Couriers"
+    },
+    "notes": [],
+    "unreadable": []
+  }
+}

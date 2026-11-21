@@ -8,12 +8,15 @@ loadEnv({ skipBrimEnv: true });
 const nextConfig: NextConfig = {
   /* config options here */
   cacheComponents: true,
+  // PDF.js (document inspection) loads its legacy Node build and a fake worker at run time;
+  // keep it out of the server bundle and load it with Node's own import.
+  serverExternalPackages: ["pdfjs-dist"],
   partialPrefetching: true,
   // dataset.ts reads these with fs at a path built from process.cwd(), which file tracing
   // cannot follow, so ship them with every server function. incoming_invoices/ is left out:
   // invoices arrive through the intake page.
   outputFileTracingIncludes: {
-    "/**": ["./brim_ap_dataset/data/**/*", "./brim_ap_dataset/inbox/**/*"],
+    "/**": ["./brim_ap_dataset/data/**/*", "./brim_ap_dataset/inbox/emails.open.json", "./brim_ap_dataset/sealed_invoices.txt"],
   },
   turbopack: {
     rules: {

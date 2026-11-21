@@ -1,0 +1,329 @@
+@import "tailwindcss";
+
+/*
+ * Look: pale paper, near-black ink, Silkscreen pixel display type, ink-outlined
+ * cards with hard offset shadows, and a few saturated accents (blue, gold, red, green).
+ * Every visible text is at least 20px (1rem): checked by e2e/polish.spec.ts.
+ */
+:root {
+  --paper: #e9edf1;
+  --ink: #121314;
+  --text: #121314;
+  --muted: #55595e;
+  --rule: rgba(18, 19, 20, 0.15);
+  --line: #c6d0da;
+  --card: #ffffff;
+  --card-soft: #f4f6f8;
+  --border: #121314;
+  --shadow: #121314;
+  --btn-bg: #121314;
+  --btn-fg: #e9edf1;
+  --off-bg: #c6d0da;
+  --off-fg: #55595e;
+  --stage: #121314;
+  --stage-border: #121314;
+  --stage-text: #e9edf1;
+  --stage-muted: #c6d0da;
+  --blue: #4b69ff;
+  --red: #eb4b4b;
+  --gold: #e4ae39;
+  --green: #3fb950;
+  --danger: #b3261e;
+  --ok: #1a7f37;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #121314;
+    --text: #e9edf1;
+    --muted: #a6a9ad;
+    --rule: rgba(233, 237, 241, 0.14);
+    --line: #3a3d42;
+    --card: #1c1d1f;
+    --card-soft: #26282b;
+    --border: #5b6066;
+    --shadow: #000000;
+    --btn-bg: #e9edf1;
+    --btn-fg: #121314;
+    --off-bg: #2c2f33;
+    --off-fg: #8b9096;
+    --stage: #0b0c0d;
+    --stage-border: #5b6066;
+    --danger: #ff7b72;
+    --ok: #3fb950;
+  }
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-card: var(--card);
+  --color-card-soft: var(--card-soft);
+  --color-stage: var(--stage);
+  --color-blue: var(--blue);
+  --color-red: var(--red);
+  --color-gold: var(--gold);
+  --color-green: var(--green);
+  --color-danger: var(--danger);
+  --color-ok: var(--ok);
+  --font-sans: var(--font-dm-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-pixel: var(--font-silkscreen), ui-monospace, monospace;
+}
+
+html {
+  font-size: 20px;
+}
+
+body {
+  background: var(--paper);
+  color: var(--text);
+  font-family: var(--font-sans);
+  line-height: 1.4;
+}
+
+/* Component classes live in the components layer so Tailwind utilities can override them. */
+@layer components {
+  /* Pixel display type: logo, headings, numbers. */
+  .pix {
+    font-family: var(--font-pixel);
+    font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
+
+  /* Small uppercase kicker label above a field or card. */
+  .kicker {
+    font-size: 1rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+  }
+
+  /* Ink-outlined card with a hard shadow. */
+  .card {
+    background: var(--card);
+    border: 2px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 6px 6px 0 var(--shadow);
+  }
+
+  /* The gold "ask the class" card. Same colours in both themes. */
+  .card-gold {
+    background: var(--gold);
+    color: var(--ink);
+    border: 2px solid var(--ink);
+    border-radius: 6px;
+    box-shadow: 6px 6px 0 var(--shadow);
+  }
+
+  /* Small square label (badges, states). Ink on a coloured fill in both themes. */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+    min-height: 1.8rem;
+    padding: 0 0.6rem;
+    border: 2px solid var(--ink);
+    border-radius: 3px;
+    color: var(--ink);
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .field {
+    border: 2px solid var(--border);
+    border-radius: 6px;
+    padding: 0.5rem 0.9rem;
+    background: var(--card);
+    color: var(--text);
+    font-weight: 500;
+    box-shadow: 4px 4px 0 var(--shadow);
+  }
+  .field::placeholder { color: var(--muted); }
+  .field:disabled { background: var(--card-soft); color: var(--muted); box-shadow: none; cursor: not-allowed; }
+
+  .btn-primary,
+  .btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5em;
+    min-height: 2.8rem;
+    border: 2px solid var(--btn-bg);
+    border-radius: 6px;
+    padding: 0.5rem 1.2rem;
+    font-weight: 700;
+    line-height: 1.1;
+    cursor: pointer;
+    transition: transform 0.12s ease-out, box-shadow 0.12s ease-out, background-color 0.12s ease-out;
+  }
+
+  .btn-primary {
+    background: var(--btn-bg);
+    color: var(--btn-fg);
+    box-shadow: 4px 4px 0 var(--btn-accent, var(--blue));
+  }
+  .btn-primary:hover:not(:disabled) {
+    transform: translate(-2px, -2px);
+    box-shadow: 6px 6px 0 var(--btn-accent, var(--blue));
+  }
+  .btn-primary:active:not(:disabled) {
+    transform: translate(2px, 2px);
+    box-shadow: 2px 2px 0 var(--btn-accent, var(--blue));
+  }
+  .btn-gold { --btn-accent: var(--gold); }
+
+  .btn-secondary {
+    background: var(--card);
+    color: var(--text);
+    border-color: var(--text);
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background: var(--btn-bg);
+    color: var(--btn-fg);
+  }
+
+  .btn-primary:disabled,
+  .btn-secondary:disabled {
+    background: var(--off-bg);
+    color: var(--off-fg);
+    border-color: var(--off-fg);
+    border-style: dashed;
+    box-shadow: none;
+    cursor: not-allowed;
+  }
+
+  /* The dark sim stage: ink fill with a faint grid. */
+  .stage {
+    background-color: var(--stage);
+    background-image:
+      linear-gradient(#26282b 1px, transparent 1px),
+      linear-gradient(90deg, #26282b 1px, transparent 1px);
+    background-size: 25px 25px;
+    border: 2px solid var(--stage-border);
+    border-radius: 6px;
+    color: var(--stage-text);
+  }
+}
+
+/* Visible keyboard focus everywhere. */
+:focus-visible {
+  outline: 3px solid var(--blue);
+  outline-offset: 3px;
+}
+
+/* Blue fill up to the thumb comes from --fill, set inline by ParamSliders. */
+.sim-slider {
+  appearance: none;
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(var(--blue), var(--blue)) 0 / var(--fill, 0%) 100% no-repeat, var(--line);
+  cursor: pointer;
+}
+.sim-slider:disabled { cursor: not-allowed; opacity: 0.55; }
+.sim-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--muted);
+  border: 3px solid var(--card);
+  box-shadow: 0 0 0 2px var(--text);
+}
+.sim-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--muted);
+  border: 3px solid var(--card);
+  box-shadow: 0 0 0 2px var(--text);
+}
+
+/* Pixel-block spinner: four squares lighting up in turn. */
+.spinner {
+  display: grid;
+  grid-template-columns: repeat(2, 16px);
+  gap: 4px;
+  flex: none;
+}
+.spinner > i {
+  width: 16px;
+  height: 16px;
+  background: var(--stage-text);
+  animation: blink 1s steps(1) infinite;
+}
+.spinner > i:nth-child(2) { animation-delay: 0.25s; }
+.spinner > i:nth-child(4) { animation-delay: 0.5s; }
+.spinner > i:nth-child(3) { animation-delay: 0.75s; }
+@keyframes blink {
+  0%, 100% { background: var(--stage-text); }
+  25% { background: var(--blue); }
+}
+
+/* The "Ready" chip says so, then gets out of the sim's way. */
+.fade-out-late {
+  animation: fade-out 0.4s ease-out 2.5s forwards;
+}
+@keyframes fade-out {
+  to { opacity: 0; visibility: hidden; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner > i { animation: none; }
+  .btn-primary, .btn-secondary { transition: none; }
+}
+
+/* Short screens (e.g. 1280×720 projectors): keep the sliders on screen. Text stays ≥ 20px. */
+@media (max-height: 820px) {
+  .short-hide { display: none; }
+  .short-title { font-size: 1.2rem; }
+  .short-text { font-size: 1rem; }
+  .short-stack { gap: 0.6rem; }
+  .short-stack > * { gap: 0.25rem; }
+  .short-tight { padding: 0.6rem 0.9rem; }
+  .short-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+
+/* ---------- whiteboard ---------- */
+/* The board is a light surface in both themes: handwriting and notes are drawn in ink. */
+.board-viewport {
+  touch-action: none;
+  background-color: #f4f6f8;
+  background-image: radial-gradient(circle, #c6d0da 1.5px, transparent 1.5px);
+}
+/* Iframes swallow pointer events; while an item is dragged or resized they must not. */
+.is-dragging { user-select: none; }
+.is-dragging iframe,
+.is-dragging .board-item { pointer-events: none; }
+/* The pen draws over handwriting instead of grabbing it: neither the ink nor the box it sits in may catch the pointer. */
+.pen-mode .ink-slot, .pen-mode .ink-item { pointer-events: none; }
+.ink-item { cursor: grab; }
+.board-item { position: relative; }
+.item-x {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  font-size: 1.4rem;
+  line-height: 1;
+  font-weight: 700;
+  color: inherit;
+}
+.item-x:hover { background: rgba(18, 19, 20, 0.1); color: var(--ink); }
+.resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 22px;
+  height: 22px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 50%, #55595e 50%);
+  border-bottom-right-radius: 4px;
+}

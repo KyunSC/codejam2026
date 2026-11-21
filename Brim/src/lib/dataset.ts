@@ -739,7 +739,7 @@ export function parseEmails(json: string): EmailRow[] {
 
 export function loadEmails() {
   return cached("emails", () =>
-    parseEmails(readFileSync(path.join(datasetDir(), "inbox", "emails.json"), "utf8")),
+    parseEmails(readFileSync(path.join(datasetDir(), "inbox", "emails.open.json"), "utf8")),
   );
 }
 

@@ -1,0 +1,85 @@
+{
+  "handMade": true,
+  "file": "laurentianlogist_FA002399.pdf",
+  "sha256": "577c9c73cf79511dd3b8309911af4fd6014cbf82ae321e2a123ea26b2d77cf4f",
+  "purpose": "French labels, decimal commas and spaced thousands, TPS and TVQ, six lines",
+  "extracted": {
+    "docType": "invoice",
+    "language": "fr",
+    "vendor": {
+      "name": "Laurentian Logistics Inc.",
+      "address": "1502 Centre St Montreal QC G9V 5B6",
+      "gstHstNumber": "790628686RT0001",
+      "qstNumber": "1745206219TQ0001"
+    },
+    "billTo": {
+      "name": "Harborline Logistics Inc.",
+      "address": "1250 Rene-Levesque O, Bureau 2200, Montreal QC H3B 4W8"
+    },
+    "invoiceNumber": "FA-002399",
+    "invoiceDate": "2026-10-25",
+    "dueDate": "2026-11-24",
+    "terms": "Net 30",
+    "poNumber": null,
+    "creditNoteRef": null,
+    "currency": "CAD",
+    "lines": [
+      {
+        "description": "LTL shipment Ottawa-Regina",
+        "quantity": "1",
+        "unitPrice": "1 014,18 $",
+        "amount": "1 014,18 $"
+      },
+      {
+        "description": "LTL shipment Ottawa-Toronto",
+        "quantity": "1",
+        "unitPrice": "544,17 $",
+        "amount": "544,17 $"
+      },
+      {
+        "description": "LTL shipment Regina-Montreal",
+        "quantity": "1",
+        "unitPrice": "495,43 $",
+        "amount": "495,43 $"
+      },
+      {
+        "description": "LTL shipment Calgary-Edmonton",
+        "quantity": "1",
+        "unitPrice": "1 314,06 $",
+        "amount": "1 314,06 $"
+      },
+      {
+        "description": "LTL shipment Montreal-Hamilton",
+        "quantity": "1",
+        "unitPrice": "540,66 $",
+        "amount": "540,66 $"
+      },
+      {
+        "description": "Fuel surcharge (11.62%)",
+        "quantity": "1",
+        "unitPrice": "454,17 $",
+        "amount": "454,17 $"
+      }
+    ],
+    "subtotal": "4 362,67 $",
+    "taxes": [
+      {
+        "label": "TPS (5 %)",
+        "amount": "218,13 $"
+      },
+      {
+        "label": "TVQ (9,975 %)",
+        "amount": "435,18 $"
+      }
+    ],
+    "total": "5 015,98 $",
+    "remit": {
+      "institution": "001",
+      "transit": "85308",
+      "account": "177982930",
+      "text": "EFT / virement bancaire - Laurentian Logistics Inc."
+    },
+    "notes": ["Merci de votre confiance."],
+    "unreadable": []
+  }
+}

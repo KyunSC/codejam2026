@@ -1,0 +1,46 @@
+{
+  "handMade": true,
+  "file": "ironwoodpalletco-inv-048.pdf",
+  "sha256": "949e2999c5cd577e5e379a8912f500c63809cadcfc6986cb4d0112097897bab7",
+  "purpose": "Inbox file, written by hand from its text layer (checked against the rendered page)",
+  "extracted": {
+    "docType": "invoice",
+    "language": "en",
+    "vendor": {
+      "name": "Ironwood Pallet Co.",
+      "address": "1689 Harbour Rd Hamilton ON M5M 1K7",
+      "gstHstNumber": "906611224RT0001",
+      "qstNumber": null
+    },
+    "billTo": {
+      "name": "Harborline Logistics Inc.",
+      "address": "88 Queens Quay W, Suite 1400, Toronto ON M5J 0B8"
+    },
+    "invoiceNumber": "INV-02210",
+    "invoiceDate": "2026-10-30",
+    "dueDate": "2026-11-29",
+    "terms": "Net 30",
+    "poNumber": null,
+    "creditNoteRef": null,
+    "currency": "CAD",
+    "lines": [
+      {
+        "description": "Stretch wrap cases",
+        "quantity": "22",
+        "unitPrice": "$41.62",
+        "amount": "$915.64"
+      }
+    ],
+    "subtotal": "$915.64",
+    "taxes": [],
+    "total": "$915.64",
+    "remit": {
+      "institution": "003",
+      "transit": "86211",
+      "account": "974188145",
+      "text": "EFT / virement bancaire - Ironwood Pallet Co."
+    },
+    "notes": [],
+    "unreadable": []
+  }
+}
