@@ -148,6 +148,11 @@ and end with </html>. No markdown fences, no text before or after.
   short, show fewer readouts rather than shrinking text below 20px or letting it
   spill past the edge.
 - Labels that follow moving objects must not cover the readouts or the legend.
+- Keep text sparse: at most about 8 strings on screen besides axis ticks, each under ~30
+  characters. No sentences, explanations or instructions on the canvas. Use at most ~6
+  tick labels per axis, spaced so they never touch.
+- The host hides any text that overlaps earlier text or runs past the canvas edge, so
+  anything that doesn't fit simply disappears. Draw the most important text first.
 
 # Code style
 Compact: aim for under 200 lines of JavaScript, plain ES2020, minimal comments.

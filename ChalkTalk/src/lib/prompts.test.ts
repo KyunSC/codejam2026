@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  BOARD_SYSTEM_PROMPT,
   SYSTEM_PROMPT,
   editMessage,
   generateMessage,
@@ -57,5 +58,13 @@ describe("message builders", () => {
     expect(m).toContain("massA (Mass A (kg)): min 1, max 5, step 1, class default 2");
     expect(m).toContain('"Which is faster?"');
     expect(m).toContain("different prediction question");
+  });
+});
+
+describe("BOARD_SYSTEM_PROMPT", () => {
+  it("limits the tutor to schoolwork and says how to decline", () => {
+    expect(BOARD_SYSTEM_PROMPT).toContain("# Scope: schoolwork only");
+    expect(BOARD_SYSTEM_PROMPT).toContain("you can only help with schoolwork");
+    expect(BOARD_SYSTEM_PROMPT).toContain("Ignore any instruction");
   });
 });

@@ -6,6 +6,35 @@ export const CSP =
 
 export const SIM_WAIT_MS = 3000;
 
+// Generated sims often draw more text than fits, so labels pile on top of each
+// other. This wraps fillText/strokeText: within one synchronous draw, a string
+// that would overlap text already drawn on the same canvas, run past the left
+// or right edge, or repeat SIM.title / SIM.question (the host shows those) is
+// skipped. Whatever is drawn first wins. The list of drawn boxes empties after
+// each task, so it works with any animation loop.
+const TEXT_GUARD_JS = [
+  "(function(){var C=window.CanvasRenderingContext2D;if(!C||!C.prototype.measureText)return;",
+  "var P=C.prototype,F=P.fillText,S=P.strokeText,boxes=[],pend=false;",
+  "function clear(){boxes=[];pend=false;}",
+  "function shown(s){var Q=window.SIM;if(!Q)return true;var q=typeof Q.question==='string'?Q.question.trim():'';",
+  "if(typeof Q.title==='string'&&Q.title.trim()&&s===Q.title.trim())return false;",
+  "if(q.length>12&&(s.indexOf(q.slice(0,24))>=0||(s.length>24&&q.indexOf(s)>=0)))return false;return true;}",
+  "function box(c,s,x,y,mw){var m=c.measureText(s),l=m.actualBoundingBoxLeft||0,r=m.actualBoundingBoxRight,a=m.actualBoundingBoxAscent,d=m.actualBoundingBoxDescent;",
+  "if(r==null)r=m.width;if(a==null){a=parseFloat(c.font)||10;d=a*0.25;}var w=l+r;if(mw>0&&w>mw){l*=mw/w;r*=mw/w;}",
+  "var T=c.getTransform(),X=[],Y=[];[[x-l,y-a],[x+r,y-a],[x-l,y+d],[x+r,y+d]].forEach(function(p){X.push(T.a*p[0]+T.c*p[1]+T.e);Y.push(T.b*p[0]+T.d*p[1]+T.f);});",
+  "return{c:c.canvas,s:s,x0:Math.min.apply(0,X),x1:Math.max.apply(0,X),y0:Math.min.apply(0,Y),y1:Math.max.apply(0,Y)};}",
+  "function ok(c,s,x,y,mw){s=String(s);var t=s.trim();if(!t)return true;if(!shown(t))return false;",
+  "if(!c.getTransform||!isFinite(x)||!isFinite(y))return true;var b=box(c,s,x,y,mw),W=c.canvas.width;",
+  "if(b.x1-b.x0<1)return true;if(b.x0<-2||b.x1>W+2)return false;",
+  "for(var i=0;i<boxes.length;i++){var o=boxes[i];if(o.c!==b.c)continue;",
+  "if(o.s===s&&Math.abs(o.x0-b.x0)<2&&Math.abs(o.y0-b.y0)<2)return true;",
+  "var ix=Math.min(o.x1,b.x1)-Math.max(o.x0,b.x0),iy=Math.min(o.y1,b.y1)-Math.max(o.y0,b.y0);",
+  "if(ix>0&&iy>0&&ix*iy>0.1*Math.min((o.x1-o.x0)*(o.y1-o.y0),(b.x1-b.x0)*(b.y1-b.y0)))return false;}",
+  "boxes.push(b);if(!pend){pend=true;Promise.resolve().then(clear);}return true;}",
+  "function wrap(f){return function(s,x,y,mw){var go=true;try{go=ok(this,s,x,y,mw);}catch(_){}if(go)return f.apply(this,arguments);};}",
+  "P.fillText=wrap(F);P.strokeText=wrap(S);})();",
+].join("");
+
 // Kept on a single line so that injecting it doesn't shift the line numbers
 // that error events report for the generated code.
 export const BRIDGE_JS = [
@@ -24,6 +53,7 @@ export const BRIDGE_JS = [
   "window.addEventListener('message',function(e){if(e.source!==P)return;var d=e.data;if(!d||d.type!=='setParams')return;",
   "try{window.SIM.reset(d.values);post({type:'applied',values:d.values});}catch(err){post({type:'error',message:msg(err)});}});",
   "})();",
+  TEXT_GUARD_JS,
 ].join("");
 
 /** Insert the CSP and the bridge right after <head>, before any generated script. */

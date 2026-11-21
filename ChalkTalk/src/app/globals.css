@@ -383,12 +383,18 @@ body {
 
 /* ---------- whiteboard ---------- */
 /* The board is a light surface in both themes: handwriting and notes are drawn in ink. */
+/* Panning the board would otherwise select the text it sweeps over (titles, questions, slider labels),
+   and a later drag starting on that selection drops it into a field such as "Ask for a change…". */
 .board-viewport {
   touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
   background-color: #f4f6f8;
   background-image: radial-gradient(circle, #c6d0da 1.5px, transparent 1.5px);
 }
 /* Iframes swallow pointer events; while an item is dragged or resized they must not. */
+.board-viewport input,
+.board-viewport textarea { -webkit-user-select: text; user-select: text; }
 .is-dragging { user-select: none; }
 .is-dragging iframe,
 .is-dragging .board-item { pointer-events: none; }
