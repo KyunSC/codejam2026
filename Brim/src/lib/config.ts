@@ -92,6 +92,21 @@ export const config = {
     lookalikeDomainMinNameLen: 4,
   },
 
+  reconciliation: {
+    /**
+     * A cleared cheque with no payment of the exact amount may match the earliest unmatched cheque within this
+     * many dollars, shown as "amount differs by $x". History: one at $6,990.53 against $6,990.48.
+     */
+    chequeAmountTolerance: 0.25,
+    /**
+     * An EFT line whose reference matches but whose amount is off by at most this much still matches, noted.
+     * History: BK-00121, BK-00190 and BK-00230 are each one cent off their payment.
+     */
+    eftAmountTolerance: 0.05,
+    /** Bank fee lines (MONTHLY ACCOUNT FEE, WIRE FEE) are explained to this GL account. */
+    feeAccount: "7010",
+  },
+
   payments: {
     referencePrefix: { EFT: "BRIM-EFT-", CARD: "BRIM-VC-", CHEQUE: "BRIM-CHQ-" },
     referenceDigits: 8,

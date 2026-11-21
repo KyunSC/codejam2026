@@ -84,6 +84,7 @@ export function navFor(role: Role): Array<{ label: string; href: string }> {
         { label: "Waiting for me", href: "/approvals" },
         { label: "Payments", href: "/payments" },
         { label: "Fraud watch", href: "/fraud" },
+        { label: "Reconciliation", href: "/reconciliation" },
         { label: "Invoices", href: "/invoices" },
         { label: "Vendors", href: "/vendors" },
       ];
@@ -92,6 +93,7 @@ export function navFor(role: Role): Array<{ label: string; href: string }> {
         { label: "Waiting for me", href: "/approvals" },
         { label: "Payments", href: "/payments" },
         { label: "Fraud watch", href: "/fraud" },
+        { label: "Reconciliation", href: "/reconciliation" },
         { label: "Invoices", href: "/invoices" },
         { label: "Vendors", href: "/vendors" },
         { label: "Policies", href: "/policies" },
@@ -103,6 +105,7 @@ export function navFor(role: Role): Array<{ label: string; href: string }> {
         { label: "Audit log", href: "/audit" },
         { label: "Invoices", href: "/invoices" },
         { label: "Payments", href: "/payments" },
+        { label: "Reconciliation", href: "/reconciliation" },
         { label: "Vendors", href: "/vendors" },
         { label: "Policies", href: "/policies" },
       ];

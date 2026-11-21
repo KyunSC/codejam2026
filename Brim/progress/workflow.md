@@ -4,6 +4,21 @@ Branch `loop/workflow`. One item per run. Notes under each item.
 
 Local env for every command (never Neon): `BRIM_LOCAL_DB_ONLY=1 DATABASE_URL=postgresql://localhost:5432/brim DATABASE_URL_UNPOOLED=<same> APP_TODAY=2026-11-02`. The shell's values win over `.env` because dotenv never overrides. In zsh, pass them as an array (`E=(A=1 B=2); env $E npm test`): an unquoted string variable is not word-split, so `DATABASE_URL` would silently fall back to `.env` (Neon). DB tests skip unless the host is local, so a run showing "skipped" means the env is wrong.
 
+## Summary (end of loop, 2026-11-21)
+
+All 12 items ticked; `npm test` (59 files, 1038 tests), `npm run typecheck` and `npm run lint` pass on the last commit, against the local DB.
+
+**What works (service + API + page each, tested against the local DB):** guarded status transitions with audit; processInvoice from intake (41 drafts match BUILD_PLAN's expected table, differences logged under item 3); invoice screen with flag resolution and coding via If-Match; submit / approve / reject / delegation with the five worked examples; payments prepare / release / simulated bank run and the dashboard; vendors with four eyes and callback (V004 held until BC-009 verified); audit pack, CSV export, verify chain; landing pages and nav per role with the matrix enforced in every service; policy editor with draft preview; fraud watch with the new sender-domain checks; bank reconciliation with Mark explained.
+
+**What does not / not verified:** none of the pages has been clicked through in a browser (the :3000 dev server is someone else's and points at `.env`; Next refuses a second one). Commits are local on `loop/workflow`; the PR needs `gh auth login`. Resubmission replaces step rows instead of keeping rounds (questions.md). Simulated bank-run lines are reconciled by the same rules but only history was checked against expected counts.
+
+**What to demo (log in as the dataset emails, password `harborline`):**
+1. Jordan Okafor (AP clerk): Review queue, AP-00447 shows VENDOR_LOOKALIKE + SENDER_LOOKALIKE_DOMAIN; accept coding on Invoice 002935.pdf (AP-00460), route preview, submit.
+2. Approvals as the delegate / approvers down the chain; then Payments: release blocked for an approver (APPROVER_CANNOT_RELEASE), released by an eligible person, "Run bank" and the audit pack.
+3. Elise Tremblay (finance manager): Fraud watch with amount at stake; V004 / BC-009 callback verify needs a second person.
+4. Marcus Webb (controller): Policies, lower P01/P02 to $5,000 and "Try on an invoice" AP-00004 (adds a finance manager step); P07 locked. Reconciliation: 313 EFT, 20 cheques (one $0.05 off), 16 fees, 5 PREAUTH, Mark explained.
+5. Hannah Lindqvist (auditor): read-only banner, audit log CSV, Verify chain.
+
 - [x] 1. Local setup green: npm install, prisma generate, migrations + seed on local DB, ingest-inbox --run, test/typecheck pass.
   - No local Postgres existed on this machine; installed `postgresql@17` with Homebrew (`brew services start postgresql@17`), databases `brim` and `brim_test`.
   - `.env` points at Neon. `npm test` loads `.env`, so running tests without the local overrides above would point the DB tests (which `deleteMany` inside a rolled-back transaction) at Neon. Always export the local vars first.
@@ -84,4 +99,9 @@ Local env for every command (never Neon): `BRIM_LOCAL_DB_ONLY=1 DATABASE_URL=pos
   - `src/lib/workflow/fraud.ts` + GET `/api/orgs/:slug/fraud` + page `/fraud` (finance manager, controller via `flag.resolve.fraud`; auditor 403). Amount at stake: invoice total in CAD unless settled; vendor-level flag = all unsettled invoices of the vendor; payment flag = payment unless sent. Page total counts each invoice once. Nav: "Fraud watch" for finance manager and controller.
   - Surprise: paymentBlockers only looked at open flags on the invoice. It now also holds on fraud flags on the vendor alone or on the invoice's payments, and on a *confirmed* fraud flag (review.ts already promised that). Tested.
   - The history-replay coverage test lists every check code; added the two email codes.
-- [ ] 12. Bank reconciliation per BUILD_PLAN Bonus; "Mark explained" audited.
+- [x] 12. Bank reconciliation per BUILD_PLAN Bonus; "Mark explained" audited.
+  - Pure matcher `src/lib/workflow/reconcile-match.ts`, tested on the CSVs: EFT 313/313, cheques 19 exact + BK-00296 "amount differs by $0.05", fees 10 monthly + 6 wire to 7010, 5 PREAUTH unexplained, 15 payments with no line (13 EFT + 2 cheque scheduled), 20 outstanding cheques cleared. Every line accounted for once. The same counts come out of the local DB (`reconciliation.test.ts`).
+  - Surprise (dataset beats BUILD_PLAN): 3 EFT lines are one cent off their payment (BK-00121, BK-00190, BK-00230; same reference). "Amount equal" gives 310/313, so EFT matches on the reference with `config.reconciliation.eftAmountTolerance` (0.05), noted as "amount differs by $0.01".
+  - Surprise 2: cheque order matters beyond "earliest first". Exact-pass-then-tolerance-pass over all lines leaves BK-00296 (09-13) with only a cheque paid 10-06. Line by line in posting order, exact amount else within tolerance, reproduces 19 + 1.
+  - Service `reconciliation.ts`, GET `/reconciliation`, POST `/reconciliation/explain` { lineId | paymentId, note }. Read: finance manager, controller, auditor; explain: finance manager, controller (REASON_REQUIRED, ALREADY_MATCHED, ALREADY_EXPLAINED). An explanation is a Flag row (code RECON_EXPLAINED, data/info, status overridden, note as resolution) on `bankTxnId` or `paymentId`, plus an audit row `reconciliation.explain`, in one transaction. No schema change. Page `/reconciliation`, in the nav for finance manager, controller, auditor.
+  - Could not smoke the pages: Next refuses a second `next dev` in this folder while the one on :3000 (not mine, reads `.env`) runs.
