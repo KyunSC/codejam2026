@@ -91,3 +91,11 @@ body {
   animation: spin 0.9s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Short screens (e.g. 1280×720 projectors): keep the sliders on screen. Text stays ≥ 20px. */
+@media (max-height: 820px) {
+  .short-hide { display: none; }
+  .short-title { font-size: 1.5rem; }
+  .short-question { font-size: 1.25rem; padding: 0.6rem 0.8rem; }
+  .short-stack { gap: 0.75rem; }
+}

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test("pendulum → edit 'make bob B twice as heavy' → ready with a new bob B default", async ({ page }) => {
   await page.goto("/");

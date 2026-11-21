@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test("a saved demo loads instantly with no /api/generate request", async ({ page }) => {
   const modelCalls: string[] = [];

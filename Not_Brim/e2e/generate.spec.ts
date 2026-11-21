@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test("pendulum prompt reaches ready with 4 sliders, and sliders apply", async ({ page }) => {
   await page.goto("/");

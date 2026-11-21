@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 async function create(page: import("@playwright/test").Page, prompt: string) {
   await page.goto("/");

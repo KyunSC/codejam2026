@@ -16,7 +16,7 @@ export function ParamSliders({
 }) {
   if (!params.length) return null;
   return (
-    <div className="flex flex-col gap-6" data-testid="param-sliders">
+    <div className="short-stack flex flex-col gap-6" data-testid="param-sliders">
       {params.map((p) => {
         const { name, unit } = splitLabel(p.label);
         const value = values[p.id] ?? p.value;
@@ -43,7 +43,7 @@ export function ParamSliders({
               aria-label={p.label}
               onChange={(e) => onChange(p.id, Number(e.target.value))}
             />
-            <div className="flex justify-between text-base text-slate-600 tabular-nums" aria-hidden>
+            <div className="short-hide flex justify-between text-base text-slate-600 tabular-nums" aria-hidden>
               <span>{formatValue(p.min, p.step)}</span>
               <span>{formatValue(p.max, p.step)}</span>
             </div>

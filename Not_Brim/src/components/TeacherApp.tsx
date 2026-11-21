@@ -95,7 +95,8 @@ export function TeacherApp() {
   }
 
   return (
-    <div className="flex h-screen min-h-[640px] flex-col gap-4 p-5" data-sim-id={simId ?? ""}>
+    <div className="flex h-screen min-h-[600px] gap-5 p-5" data-sim-id={simId ?? ""}>
+      <div className="flex min-w-0 basis-[70%] flex-col gap-4">
       <form
         className="flex items-stretch gap-4"
         onSubmit={(e) => {
@@ -132,8 +133,7 @@ export function TeacherApp() {
         <DemosMenu refreshKey={demosKey} disabled={busy} onPick={loadDemo} />
       </div>
 
-      <div className="flex min-h-0 flex-1 gap-5">
-        <section className="flex min-h-0 basis-[70%] flex-col gap-4" aria-label="Simulation">
+        <section className="flex min-h-0 flex-1 flex-col gap-4" aria-label="Simulation">
           <div className="min-h-0 flex-1">
             <SimPanel
               session={session}
@@ -187,15 +187,16 @@ export function TeacherApp() {
             <ShareButton simId={simId} disabled={v.state !== "ready"} />
           </div>
         </section>
+      </div>
 
-        <aside className="flex min-h-0 basis-[30%] flex-col gap-5 overflow-y-auto pr-1" aria-label="Controls">
+        <aside className="short-stack flex min-h-0 basis-[30%] flex-col gap-5 overflow-y-auto pr-1" aria-label="Controls">
           {v.state === "ready" ? (
             <>
-              <h1 className="text-3xl font-bold leading-tight" data-testid="sim-title">
+              <h1 className="short-title text-3xl font-bold leading-tight" data-testid="sim-title">
                 {v.title}
               </h1>
               {v.question ? (
-                <p className="rounded-xl border-l-8 border-[#2563eb] bg-blue-50 p-4 text-2xl font-semibold leading-snug" data-testid="sim-question">
+                <p className="short-question rounded-xl border-l-8 border-[#2563eb] bg-blue-50 p-4 text-2xl font-semibold leading-snug" data-testid="sim-question">
                   {v.question}
                 </p>
               ) : null}
@@ -205,7 +206,6 @@ export function TeacherApp() {
             <h1 className="text-3xl font-bold text-slate-500">Live Sim</h1>
           )}
         </aside>
-      </div>
     </div>
   );
 }

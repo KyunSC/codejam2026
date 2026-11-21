@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test("create → share → open link → predict → Run → ready with the homework question", async ({ page, context }) => {
   await page.goto("/");
@@ -44,7 +44,10 @@ test("create → share → open link → predict → Run → ready with the home
   await expect(question).toHaveText(again.homework.question);
 });
 
-test("an unknown student link is a 404", async ({ page }) => {
+test.describe(() => {
+  test.use({ allowConsole: [/404 \(Not Found\)/] });
+  test("an unknown student link is a 404", async ({ page }) => {
   const res = await page.goto("/s/000000000000");
   expect(res?.status()).toBe(404);
+});
 });

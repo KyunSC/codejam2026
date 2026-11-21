@@ -43,9 +43,9 @@ export function StudentApp({
         </div>
       </section>
 
-      <aside className="flex min-h-0 basis-[30%] flex-col gap-5 overflow-y-auto pr-1" aria-label="Homework">
+      <aside className="short-stack flex min-h-0 basis-[30%] flex-col gap-5 overflow-y-auto pr-1" aria-label="Homework">
         <p
-          className="rounded-xl border-l-8 border-[#2563eb] bg-blue-50 p-4 text-2xl font-semibold leading-snug"
+          className="short-question rounded-xl border-l-8 border-[#2563eb] bg-blue-50 p-4 text-2xl font-semibold leading-snug"
           data-testid="homework-question"
         >
           {question}
