@@ -26,12 +26,14 @@ import {
 } from "@/lib/board";
 import { renderBoardImage } from "@/lib/board-image";
 import { readNdjson } from "@/lib/ndjson";
+import { boardPetCue } from "@/lib/pets";
 import type { BoardEvent, ModelStatus, Stage } from "@/lib/types";
 import { capitalized, useMascotName } from "@/lib/useMascot";
 import { ModelBadge } from "./Badges";
 import { rememberBoard } from "./BoardsHome";
 import { BoardShareButton } from "./ShareButton";
 import { ToolIcon } from "./ToolIcon";
+import { PetPerch } from "./PetPerch";
 import { PetPicker } from "./PetPicker";
 import { InkView, StrokePaths } from "./board/InkView";
 import { NoteView } from "./board/NoteView";
@@ -50,6 +52,8 @@ interface AskState {
   text: string;
   /** Claude's steps that didn't work, in its words or the board's. */
   rejected: string[];
+  /** How many changes Claude made, once done. */
+  changes?: number;
 }
 
 const PEN_COLORS = ["#121314", "#eb4b4b", "#4b69ff", "#3fb950"];
@@ -289,7 +293,9 @@ export function BoardApp({ board, status }: { board: Board; status: ModelStatus 
     const rect = viewport.current?.getBoundingClientRect();
     const c = camRef.current;
     const top = Math.max(0, (header.current?.getBoundingClientRect().bottom ?? 60) - (rect?.top ?? 0));
-    const bottom = panel.current ? panel.current.getBoundingClientRect().height + 24 : 0;
+    // The pet perched on the panel sticks out above it.
+    const perch = panel.current?.querySelector<HTMLElement>("[data-testid=pet-perch]")?.getBoundingClientRect().height ?? 0;
+    const bottom = panel.current ? panel.current.getBoundingClientRect().height + perch + 24 : 0;
     const w = (rect?.width ?? 1280) / c.s;
     const h = Math.max(300, (rect?.height ?? 720) - top - bottom) / c.s;
     return { x: c.x, y: c.y + top / c.s, w, h };
@@ -595,6 +601,7 @@ export function BoardApp({ board, status }: { board: Board; status: ModelStatus 
       setAsk({
         state: "done",
         stage: null,
+        changes: made,
         text: made ? `${Mascot} made ${made} change${made === 1 ? "" : "s"} on the board.` : `${Mascot} didn't change anything.`,
         rejected,
       });
@@ -808,6 +815,7 @@ export function BoardApp({ board, status }: { board: Board; status: ModelStatus 
         aria-label={`Ask ${mascot}`}
         data-scrolls="1"
       >
+        <PetPerch className="absolute bottom-full right-3" cue={boardPetCue(ask)} fadeNear />
         <form
           className="flex gap-1.5"
           onSubmit={(e) => {

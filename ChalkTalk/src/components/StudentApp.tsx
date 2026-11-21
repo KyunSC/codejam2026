@@ -4,6 +4,8 @@ import { useRef, useState } from "react";
 import { useSimSession } from "@/lib/useSimSession";
 import { Logo } from "./Badges";
 import { ParamSliders } from "./ParamSliders";
+import { studentPetCue } from "@/lib/pets";
+import { PetPerch } from "./PetPerch";
 import { PetPicker } from "./PetPicker";
 import { SimPanel } from "./SimPanel";
 
@@ -132,6 +134,11 @@ export function StudentApp({
               </p>
             </div>
 
+            {/* Sits on the form's top edge: -mb-6 cancels the aside's gap. */}
+            <PetPerch
+              className="relative -mb-6 pr-4"
+              cue={studentPetCue({ hasPrediction: !!prediction.trim(), started, reflect: reflectStatus })}
+            />
             <form
               className="card flex flex-col gap-3 p-5"
               onSubmit={(e) => {
