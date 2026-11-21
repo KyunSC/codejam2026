@@ -10,10 +10,13 @@ import { getInvoiceFor } from "@/lib/invoices/service";
 import { describeAction } from "@/lib/audit-text";
 import { roleCan } from "@/lib/auth/matrix";
 import { db } from "@/lib/db";
+import { hasAnthropicKey } from "@/lib/pipeline/extract";
 import { FLAG_KIND_RANK, flagKind } from "@/components/ui";
 import type { EvidenceItem, Flag as FlagT, FieldEvidence } from "@/lib/types";
 import { ChoicesForm, CodingTable, FlagPanel, type FlagView, type LineView } from "./review-panels";
 import { ApprovalPanel, type ChainStep } from "./approval-panel";
+import { RunChecks } from "./run-checks";
+import { CorrectFields } from "./correct-fields";
 import { REJECTION_REASONS, routePreview } from "@/lib/workflow/approvals";
 import { loadLiveRefs, personId } from "@/lib/workflow/refs";
 import { releaseEligibility } from "@/lib/rules/routing/route";
@@ -39,6 +42,37 @@ const REVIEW_STATES = ["extracted", "needs_review", "coded"];
 function flagTitle(code: string): string {
   const t = code.toLowerCase().replace(/_/g, " ");
   return t[0].toUpperCase() + t.slice(1);
+}
+
+/**
+ * Why an invoice is still `received`: nothing has checked it, so it has no flags and cannot be
+ * submitted. Says so in plain words instead of leaving a silent, clean-looking invoice.
+ */
+function WaitingNotice({
+  hasFile,
+  readerOn,
+  runChecks,
+}: {
+  hasFile: boolean;
+  readerOn: boolean;
+  /** Shown on a typed invoice to someone who may edit invoices. */
+  runChecks?: React.ReactNode;
+}) {
+  const why = !hasFile
+    ? runChecks
+      ? "This invoice was typed in before Brim checked typed invoices, so the checks never ran on it. Run them now with what was typed."
+      : "This invoice was typed in before Brim checked typed invoices, so the checks never ran on it. An AP clerk can run them."
+    : readerOn
+      ? "Brim hasn’t read this file yet. Reading runs after a file arrives; if the invoice stays here, the read failed and will be tried again."
+      : "Brim can’t read new files right now: the reader isn’t switched on (it needs an Anthropic API key in the server settings). Ask your administrator, or type the invoice in with New invoice.";
+  return (
+    <Card className="mt-6 border-l-4 p-5" role="status">
+      <p className="label m-0 mb-1">Not checked yet</p>
+      <p className="m-0 text-[15px]">{why}</p>
+      <p className="muted m-0 mt-2 text-sm">Until it’s checked it has no flags, no coding and can’t be submitted for approval.</p>
+      {!hasFile && runChecks}
+    </Card>
+  );
 }
 
 export default function InvoicePage({ params }: { params: Promise<{ id: string }> }) {
@@ -205,6 +239,18 @@ async function InvoiceView({ params }: { params: Promise<{ id: string }> }) {
         ]}
       />
 
+      {inv.status === "received" && (
+        <WaitingNotice
+          hasFile={!!inv.document}
+          readerOn={hasAnthropicKey()}
+          runChecks={
+            inv.source === "manual" && !inv.document && roleCan(user.role, "invoice.edit") ? (
+              <RunChecks slug={org.slug} invoiceId={inv.id} />
+            ) : undefined
+          }
+        />
+      )}
+
       {flags.length > 0 && (
         <section aria-labelledby="flags" className="mt-10">
           <SectionHeading id="flags" level={3}>
@@ -268,6 +314,21 @@ async function InvoiceView({ params }: { params: Promise<{ id: string }> }) {
               </dl>
               {!inv.vendorName && inv.document && (
                 <p className="muted m-0 mt-5 text-sm">The fields fill in once the file has been read.</p>
+              )}
+              {canEdit && inv.normalized && (
+                <CorrectFields
+                  slug={org.slug}
+                  invoiceId={inv.id}
+                  version={inv.version}
+                  current={{
+                    invoiceNumber: inv.invoiceNumber,
+                    invoiceDate: inv.invoiceDate ? inv.invoiceDate.toISOString().slice(0, 10) : null,
+                    dueDate: inv.dueDate ? inv.dueDate.toISOString().slice(0, 10) : null,
+                    poNumber: inv.poNumber,
+                    subtotal: inv.subtotal?.toString() ?? null,
+                    total: inv.total?.toString() ?? null,
+                  }}
+                />
               )}
             </Card>
           </section>

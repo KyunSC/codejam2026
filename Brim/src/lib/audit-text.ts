@@ -3,6 +3,7 @@
 const ACTION_TEXT: Record<string, string> = {
   "invoice.received": "brought the invoice in",
   "invoice.created": "created the invoice in the form",
+  "invoice.checks_run": "ran the checks on a typed invoice",
   "email.received": "received the email",
   "user.created": "added the user",
   "user.updated": "changed the user",
