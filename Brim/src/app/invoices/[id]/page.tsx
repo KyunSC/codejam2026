@@ -130,6 +130,12 @@ async function InvoiceView({ params }: { params: Promise<{ id: string }> }) {
   ];
 
   const canEdit = roleCan(user.role, "invoice.edit") && REVIEW_STATES.includes(inv.status);
+  const resolverIds = [...new Set(inv.flags.map((f) => f.resolvedById).filter((x): x is string => !!x))];
+  const resolvers = resolverIds.length
+    ? Object.fromEntries(
+        (await db().user.findMany({ where: { id: { in: resolverIds } }, select: { id: true, fullName: true } })).map((u) => [u.id, u.fullName]),
+      )
+    : {};
   const flags: FlagView[] = inv.flags
     .map((f) => ({
       id: f.id,
@@ -141,7 +147,14 @@ async function InvoiceView({ params }: { params: Promise<{ id: string }> }) {
       status: f.status,
       message: f.message,
       evidence: (f.evidence ?? []) as unknown as EvidenceItem[],
-      resolution: f.resolutionNote ? `${f.resolvedById ?? ""} ${f.resolutionNote}`.trim() : null,
+      resolution: f.resolutionNote
+        ? [
+            f.resolvedById ? `${resolvers[f.resolvedById] ?? "Someone"}${f.resolvedAt ? `, ${formatDate(f.resolvedAt)}` : ""}:` : null,
+            f.resolutionNote,
+          ]
+            .filter(Boolean)
+            .join(" ")
+        : null,
     }))
     .sort(
       (a, b) =>
@@ -149,6 +162,8 @@ async function InvoiceView({ params }: { params: Promise<{ id: string }> }) {
         Number(b.effect === "hold") - Number(a.effect === "hold") ||
         FLAG_KIND_RANK[a.kind] - FLAG_KIND_RANK[b.kind],
     );
+  const openFlags = flags.filter((f) => f.status === "open");
+  const resolvedFlags = flags.filter((f) => f.status !== "open");
   const canResolve = (f: FlagView) =>
     roleCan(user.role, f.klass === "fraud" ? "flag.resolve.fraud" : "flag.resolve.data_policy");
   const lines: LineView[] = inv.lines.map((l) => ({
@@ -256,11 +271,32 @@ async function InvoiceView({ params }: { params: Promise<{ id: string }> }) {
           <SectionHeading id="flags" level={3}>
             What the checks found
           </SectionHeading>
-          <div className="grid gap-5 lg:grid-cols-2">
-            {flags.map((f) => (
-              <FlagPanel key={f.id} slug={org.slug} invoiceId={inv.id} flag={f} canResolve={canResolve(f)} />
-            ))}
-          </div>
+          {openFlags.length > 0 ? (
+            <div className="grid gap-5 lg:grid-cols-2">
+              {openFlags.map((f) => (
+                <FlagPanel key={f.id} slug={org.slug} invoiceId={inv.id} flag={f} canResolve={canResolve(f)} />
+              ))}
+            </div>
+          ) : (
+            <Card className="p-5">
+              <p className="m-0 text-[15px]">Nothing open. Every problem the checks found has been resolved.</p>
+            </Card>
+          )}
+          {resolvedFlags.length > 0 && (
+            <details className="mt-6">
+              <summary className="cursor-pointer text-[15px] font-semibold">
+                Resolved ({resolvedFlags.length})
+              </summary>
+              <p className="muted m-0 mt-2 mb-4 text-sm">
+                Kept for the record. Each shows the values as they were when the check ran, which may have been corrected since.
+              </p>
+              <div className="grid gap-5 lg:grid-cols-2">
+                {resolvedFlags.map((f) => (
+                  <FlagPanel key={f.id} slug={org.slug} invoiceId={inv.id} flag={f} canResolve={false} />
+                ))}
+              </div>
+            </details>
+          )}
         </section>
       )}
 
