@@ -78,3 +78,12 @@ export function refsWith(known: KnownInvoice[], self: Refs["self"] = null): Refs
 
 /** Codes of the flags, for compact assertions. */
 export const codes = (flags: Array<{ code: string }>) => flags.map((f) => f.code);
+
+/** `[{code, effect}]` of the flags, after checking each has a sentence and evidence. */
+export function summary(flags: Array<{ code: string; effect: string; message: string; evidence: unknown[] }>) {
+  for (const f of flags) {
+    if (f.message.length < 20) throw new Error(`${f.code}: message too short: ${f.message}`);
+    if (!f.evidence.length) throw new Error(`${f.code}: no evidence`);
+  }
+  return flags.map((f) => ({ code: f.code, effect: f.effect }));
+}

@@ -14,7 +14,7 @@ Scripts in `scripts/` set `APP_TODAY=2026-11-02` themselves.
 - [x] 4. Resolution: vendor (tax number → bank+similar name → normalised name → unknown with candidates)
 - [x] 5. Resolution: province, PO + suggestions, contract, department, requester (terminated → manager), line type, currency/FX
 - [x] 6. Checks: UNREADABLE, FIELD_UNCERTAIN, ARITHMETIC_LINE/SUBTOTAL/TOTAL, DATE_ODD, DATE_AMBIGUOUS, TERMS_MISMATCH, FX_RATE_FALLBACK, SHIP_TO_UNKNOWN
-- [ ] 7. Checks: VENDOR_UNKNOWN, VENDOR_PENDING, VENDOR_ON_HOLD, VENDOR_NEW, VENDOR_LOOKALIKE, TAX_NUMBER_MISMATCH
+- [x] 7. Checks: VENDOR_UNKNOWN, VENDOR_PENDING, VENDOR_ON_HOLD, VENDOR_NEW, VENDOR_LOOKALIKE, TAX_NUMBER_MISMATCH
 - [ ] 8. Checks: BANK_MISMATCH, BANK_CHANGE_UNVERIFIED, BANK_CHANGE_RECENT
 - [ ] 9. Checks: TAX_WRONG_FOR_PROVINCE, TAX_AMOUNT, TAX_NOT_REGISTERED, CURRENCY_UNEXPECTED
 - [ ] 10. Checks: PO_REQUIRED_MISSING, PO_NOT_FOUND, PO_VENDOR_MISMATCH, PO_CLOSED, PO_OVER_BALANCE
@@ -80,3 +80,13 @@ arithmetic is clean; terms equal the vendor's on all 426). DATE_ODD emits one fl
 invoice date in the future holds. Required fields: vendor name, invoice number, invoice date, total.
 Class/effect for the three codes BUILD_PLAN's table does not list: DATE_AMBIGUOUS data/hold,
 FX_RATE_FALLBACK data/info, SHIP_TO_UNKNOWN data/hold (logged in questions.md).
+
+### Item 7: vendor checks (2026-11-21)
+`src/lib/rules/checks/vendor.ts`. `lookalikePairs` finds exactly V001/V051, V002/V053, V026/V052 from the data.
+VENDOR_LOOKALIKE fires only on the record with fewer known invoices, and only when it has at most
+`config.checks.lookalikeMaxHistory` = 3 (V052 0, V053 2, V051 3; V026 4, V001 12, V002 12). So V001's fuel
+invoice and V002's credit note are not flagged; V052's is. VENDOR_NEW = no invoice in approved, scheduled,
+released or paid state among the known invoices.
+Replay note for item 14: history starts in January 2026 but vendors were onboarded 2019–2024, so a vendor's
+first invoice in the replay is not really from a new vendor. VENDOR_NEW is a route flag (not a hold), and
+the replay will count it separately rather than as a false positive.

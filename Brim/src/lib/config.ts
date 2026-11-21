@@ -61,6 +61,11 @@ export const config = {
     bankChangeRecentDays: 30,
     /** DATE_ODD: invoice dated more than this many days before it was received. */
     dateOddMaxAgeDays: 60,
+    /**
+     * VENDOR_LOOKALIKE: "little history" means at most this many known invoices. The lookalike records in
+     * the dataset have 0, 2 and 3 invoices; the records they imitate have 4 to 12.
+     */
+    lookalikeMaxHistory: 3,
   },
 
   payments: {
