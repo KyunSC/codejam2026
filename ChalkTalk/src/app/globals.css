@@ -292,6 +292,93 @@ body {
   .short-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
 
+/* ---------- pet perch ---------- */
+/* The pet sits on the top edge of a panel. The wrapper lets clicks through; only the pet and bubble catch them. */
+.pet-perch {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  z-index: 5;
+}
+.pet-perch.is-faded { opacity: 0.3; }
+.pet-perch-btn {
+  position: relative;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  line-height: 0;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.pet-perch-body { display: block; transform-origin: 50% 100%; }
+.pet-bubble {
+  position: relative;
+  max-width: 14rem;
+  margin-bottom: 1.2rem;
+  padding: 0.3rem 0.6rem;
+  background: var(--card);
+  color: var(--text);
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 3px 3px 0 var(--shadow);
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.2;
+  pointer-events: auto;
+  transform-origin: 100% 100%;
+  animation: pet-pop 0.18s steps(3) both;
+}
+/* The tail points at the pet. */
+.pet-bubble::after {
+  content: "";
+  position: absolute;
+  right: -8px;
+  bottom: 0.5rem;
+  width: 12px;
+  height: 12px;
+  background: var(--card);
+  border-top: 2px solid var(--border);
+  border-right: 2px solid var(--border);
+  transform: rotate(45deg);
+}
+/* Most lines say their piece and go. */
+.pet-bubble-brief { animation: pet-pop 0.18s steps(3) both, fade-out 0.3s steps(3) 5s forwards; }
+
+[data-mood="idle"] .pet-perch-body { animation: pet-bob 1.2s steps(2) infinite; }
+[data-mood="lean"] .pet-perch-body { transform: translateX(-4px) rotate(-8deg); }
+[data-mood="hop"] .pet-perch-body { animation: pet-hop 0.5s steps(4) 4, pet-bob 1.2s steps(2) 2s infinite; }
+[data-mood="think"] .pet-perch-body { animation: pet-tilt 1.2s steps(2) infinite; }
+[data-mood="cheer"] .pet-perch-body { animation: pet-jump 0.6s steps(4) 4, pet-bob 1.2s steps(2) 2.4s infinite; }
+
+.pet-sparks { position: absolute; inset: -14px; pointer-events: none; }
+.pet-sparks > i { position: absolute; width: 6px; height: 6px; background: var(--gold); opacity: 0; }
+.pet-sparks > i:nth-child(1) { left: 0; top: 20%; }
+.pet-sparks > i:nth-child(2) { right: 0; top: 10%; background: var(--green); animation-delay: 0.2s !important; }
+.pet-sparks > i:nth-child(3) { left: 30%; top: -4px; background: var(--blue); animation-delay: 0.45s !important; }
+.pet-sparks > i:nth-child(4) { right: 20%; top: 40%; background: var(--red); animation-delay: 0.65s !important; }
+[data-mood="cheer"] .pet-sparks > i { animation: pet-spark 0.9s steps(4) 3; }
+
+@keyframes pet-bob { 50% { transform: translateY(-3px); } }
+@keyframes pet-hop { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
+@keyframes pet-jump {
+  0%, 100% { transform: translateY(0) scaleY(1); }
+  25% { transform: translateY(2px) scaleY(0.9); }
+  60% { transform: translateY(-16px); }
+}
+@keyframes pet-tilt { 50% { transform: rotate(6deg); } }
+@keyframes pet-pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes pet-spark { 0% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-14px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .pet-perch-body, .pet-sparks > i { animation: none !important; }
+  .pet-bubble { animation: none; }
+  .pet-bubble-brief { animation: fade-out 0s 5s forwards; }
+}
+
 /* ---------- whiteboard ---------- */
 /* The board is a light surface in both themes: handwriting and notes are drawn in ink. */
 .board-viewport {

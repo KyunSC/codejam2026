@@ -236,7 +236,7 @@ export function writePetId(id: PetId): void {
 export function subscribePet(onChange: () => void): () => void {
   window.addEventListener(PET_EVENT, onChange);
   function onStorage(event: StorageEvent) {
-    if (event.key !== PET_STORAGE_KEY && event.key !== null) return;
+    if (event.key !== PET_STORAGE_KEY && event.key !== PERCH_STORAGE_KEY && event.key !== null) return;
     if (event.storageArea !== window.localStorage) return;
     unsavedPet = null;
     onChange();
@@ -250,4 +250,71 @@ export function subscribePet(onChange: () => void): () => void {
 
 export function petSnapshot(): PetId | null {
   return unsavedPet ?? readPetId();
+}
+
+/** "tucked" when the student put the pet away into the header tile. */
+export const PERCH_STORAGE_KEY = "livesim.pet.perch";
+let unsavedTucked: boolean | null = null;
+
+export function petTuckedSnapshot(): boolean {
+  if (unsavedTucked !== null) return unsavedTucked;
+  try {
+    return window.localStorage.getItem(PERCH_STORAGE_KEY) === "tucked";
+  } catch {
+    return false;
+  }
+}
+
+export function writePetTucked(tucked: boolean): void {
+  try {
+    if (tucked) window.localStorage.setItem(PERCH_STORAGE_KEY, "tucked");
+    else window.localStorage.removeItem(PERCH_STORAGE_KEY);
+    unsavedTucked = null;
+  } catch {
+    unsavedTucked = tucked;
+  }
+  window.dispatchEvent(new Event(PET_EVENT));
+}
+
+/** Asks the header PetPicker to open its dialog (the perch has no dialog of its own). */
+export const PICK_PET_EVENT = "livesim:pick-pet";
+
+/** How the perched pet behaves. Animations live in globals.css under `.pet-perch`. */
+export type PetMood = "idle" | "lean" | "hop" | "think" | "cheer";
+
+/** A speech bubble. A new `id` shows it again; the same id leaves it as it is. */
+export type PetSay = { id: string; text: string; stay?: boolean };
+export type PetCue = { mood: PetMood; say: PetSay | null };
+
+/** The homework page: wait for a prediction, lean in while it's written, hop on Run, cheer when it's sent. */
+export function studentPetCue(s: {
+  hasPrediction: boolean;
+  started: boolean;
+  reflect: "editing" | "saving" | "saved" | "error";
+}): PetCue {
+  if (!s.started) {
+    return s.hasPrediction
+      ? { mood: "lean", say: { id: "typing", text: "Ooh, go on…" } }
+      : { mood: "idle", say: { id: "wait", text: "Predict first. I'll wait." } };
+  }
+  if (s.reflect === "saving") return { mood: "think", say: null };
+  if (s.reflect === "saved") return { mood: "cheer", say: { id: "saved", text: "Sent! Nice work." } };
+  if (s.reflect === "error") return { mood: "idle", say: { id: "error", text: "Uh oh. Try sending again." } };
+  return { mood: "hop", say: { id: "run", text: "Now look." } };
+}
+
+/** The board: think while Claude works, cheer when it's done. The panel's own status line has the details. */
+export function boardPetCue(ask: { state: "idle" | "busy" | "done" | "error"; changes?: number }): PetCue {
+  switch (ask.state) {
+    case "busy":
+      return { mood: "think", say: { id: "busy", text: "Hmm…", stay: true } };
+    case "done":
+      return ask.changes
+        ? { mood: "cheer", say: { id: "done", text: "Done! Have a look." } }
+        : { mood: "idle", say: { id: "done", text: "Looks good to me." } };
+    case "error":
+      return { mood: "idle", say: { id: "error", text: "Uh oh." } };
+    default:
+      return { mood: "idle", say: null };
+  }
 }

@@ -26,12 +26,14 @@ import {
 } from "@/lib/board";
 import { renderBoardImage } from "@/lib/board-image";
 import { readNdjson } from "@/lib/ndjson";
+import { boardPetCue } from "@/lib/pets";
 import type { BoardEvent, Stage } from "@/lib/types";
 import { useStandInStatus } from "@/lib/useStandInStatus";
 import { StandInBadge } from "./Badges";
 import { rememberBoard } from "./BoardsHome";
 import { BoardShareButton } from "./ShareButton";
 import { ToolIcon } from "./ToolIcon";
+import { PetPerch } from "./PetPerch";
 import { PetPicker } from "./PetPicker";
 import { InkView, StrokePaths } from "./board/InkView";
 import { NoteView } from "./board/NoteView";
@@ -50,6 +52,8 @@ interface AskState {
   text: string;
   /** Claude's steps that didn't work, in its words or the board's. */
   rejected: string[];
+  /** How many changes Claude made, once done. */
+  changes?: number;
 }
 
 const PEN_COLORS = ["#121314", "#eb4b4b", "#4b69ff", "#3fb950"];
@@ -593,6 +597,7 @@ export function BoardApp({ board }: { board: Board }) {
       setAsk({
         state: "done",
         stage: null,
+        changes: made,
         text: made ? `Claude made ${made} change${made === 1 ? "" : "s"} on the board.` : "Claude didn't change anything.",
         rejected,
       });
@@ -806,6 +811,7 @@ export function BoardApp({ board }: { board: Board }) {
         aria-label="Ask Claude"
         data-scrolls="1"
       >
+        <PetPerch className="absolute bottom-full right-3" cue={boardPetCue(ask)} fadeNear />
         <form
           className="flex gap-1.5"
           onSubmit={(e) => {
