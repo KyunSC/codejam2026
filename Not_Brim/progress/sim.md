@@ -38,7 +38,7 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 ## Step 5: saved demos + polish
 - [x] S5.1 `data/demos/*.json` placeholders, "Saved demos" menu (no /api/generate), "Save as demo", `scripts/make-demos.ts` (needs key). Attempts: 2 — needs key: make-demos real run
 - [x] S5.2 Polish: screenshots 1920×1080 + 1280×720, text ≥ 20px, focus visible, clean console. Attempts: 2
-- [ ] S5.3 Final: lint, typecheck, vitest, next build, e2e, grep .next/static; README; final summary. Attempts: 0
+- [x] S5.3 Final: lint, typecheck, vitest, next build, e2e, grep .next/static; README; final summary. Attempts: 1
 
 ## Log
 - P0.1: Next.js docs read (route handlers, route segment config, dynamic routes, streaming). Differences from what I expected:
@@ -70,3 +70,4 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 - S5.1: the first vitest run failed because slugify("Résumé") gave "re-sume" (NFKD leaves combining marks). Strip U+0300–036F. Demos are one JSON file per slug in data/demos/ (committed). The placeholders copy the hand-made pendulum and falling fixtures, with a `_comment` and `handMade: true`, and the menu labels them "(placeholder)". A loaded demo is also saved as a sim, so it can be shared. A demo loads to ready in ~0.3 s with zero /api/generate|repair|edit requests. The e2e test intercepts POST /api/demos so it never writes into the committed folder. make-demos skips itself in stand-in mode.
 - Branch move (user request, during S5.2): all 23 sim commits were cherry-picked onto a new local branch `not_brim`, created from `origin/not_brim` (= main's 8f664b4). Not_Brim/ is identical to loop/sim; nothing outside Not_Brim changed. loop/sim is left as it was (not deleted). From here on, commits go to `not_brim`. Nothing pushed.
 - S5.2: every e2e test now runs through `e2e/fixtures.ts`, which fails a test on any app console.error or page error. Errors from inside the sandboxed sim (about:srcdoc) are ignored, because several tests break sims on purpose. The 404 test allows the expected "404 (Not Found)" log. The first run also failed at 1280×720 (sliders below the fold). Fixed: the right column now spans the full height, and a `max-height: 820px` compact mode tightens the title, question and slider stack and hides the min/max row; all text stays ≥ 20px. Tests check: no visible text under 20px on every screen, the key controls fit within both viewports, and Tab reaches every control with a ≥ 2px focus outline. 11 screenshots in progress/screens/.
+- S5.3: final gate: lint clean; typecheck clean; Vitest 85/85; next build OK; e2e 17/17; .next/static grep for ANTHROPIC/sk-ant → 0; /dev/fixture → 404 under next start. README rewritten from the scaffold boilerplate.

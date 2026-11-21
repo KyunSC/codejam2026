@@ -76,3 +76,43 @@
 
 **Needs a key:** the quality of real homework variations (a different question plus sensible new defaults).
 
+## Step 5: saved demos + polish
+
+**What works (stand-in):**
+- `data/demos/pendulum.json` and `falling.json` are hand-made placeholders (copied from the fixtures, `handMade: true`, shown as "(placeholder)"). The "Saved demos" menu loads one to ready in ~0.3 s with zero `/api/generate`, `/api/repair` or `/api/edit` requests. A loaded demo is also saved as a sim, so it can be shared.
+- "Save as demo" writes `data/demos/<slug>.json` after validating it.
+- `npm run make-demos` regenerates both demos through the UI, keeping only code that reached `ready`. It skips itself in stand-in mode.
+- Polish:
+  - Screenshots at 1920×1080 and 1280×720 are in `progress/screens/` (teacher idle, streaming and ready; student before and after Run; failed).
+  - Every visible text element is ≥ 20px. Key controls fit in both viewports; a compact mode applies below 820px tall.
+  - Tab reaches every control with a ≥ 2px amber focus ring.
+  - Every e2e test fails on any app console error or page error.
+
+**Final checks:**
+- lint clean, typecheck clean.
+- Vitest 85/85.
+- `next build` OK, 12 routes.
+- Playwright e2e 17/17.
+- `grep -r "ANTHROPIC\|sk-ant" .next/static` → 0 matches.
+- `next start`: `/dev/fixture/*` → 404 in production, `/api/status` → `{"standIn":true}`.
+
+**Needs a key:** `npm run make-demos`.
+
+## Final summary
+
+All 25 checklist items are ticked. **No items are blocked.**
+
+**Needs key** (built, typechecked and run in stand-in mode; never called with a real key):
+- **S1.8**: the real `npm run try-topics` run (projectile, spring and collision confusions), for real time to first code, stream done, interactive, tokens and repairs. The table above is stand-in plumbing only.
+- **S2.3**: the real repair rate (from the try-topics "Repaired" column).
+- **S5.1**: `npm run make-demos` to replace the hand-made demo placeholders with real output.
+- More generally, the real Claude path in `src/lib/model/real.ts` (streaming generate, repair and edit; structured-output homework) has never run. The quality of real edits and homework variations is untested.
+
+**To try it with a key:** put `ANTHROPIC_API_KEY` in `.env.local`, then `npm run dev`, `npm run try-topics` and `npm run make-demos`.
+
+**Notes:**
+- Mid-run, another session stashed the loop's work and switched the shared checkout to `main`. The loop continued in the worktree `../codejam2026-loop-sim`.
+- At the user's request, all sim commits were then moved onto a new local branch `not_brim` (from `origin/not_brim`); `loop/sim` is untouched.
+- Nothing was pushed.
+- Decisions the spec didn't cover are in `progress/questions.md`.
+
