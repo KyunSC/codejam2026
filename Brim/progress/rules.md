@@ -23,7 +23,7 @@ Scripts in `scripts/` set `APP_TODAY=2026-11-02` themselves.
 - [x] 13. Duplicate detection: DUP_EXACT, DUP_NEAR, DUP_CONTENT, DUP_PAID_BY_CARD (lookalike vendors count as one)
 - [x] 14. Checks runner (`runChecks`) + `scripts/history-replay.ts`: compare against "What is planted"; explain differences below
 - [x] 15. Smart coding (same description at vendor → vendor default → nearest description) + `scripts/coding-accuracy.ts` (train Jan–Aug, test Sep–Oct; account and department)
-- [ ] 16. Approval routing: policy rows P01–P13, rules → steps → people (self, leave, terminated, repeats, unresolvable), release eligibility; the five worked examples as tests
+- [x] 16. Approval routing: policy rows P01–P13, rules → steps → people (self, leave, terminated, repeats, unresolvable), release eligibility; the five worked examples as tests
 
 ## Stop condition
 
@@ -185,3 +185,25 @@ Trained on the 348 invoices dated January–August, tested on the 78 dated Septe
   else vendor+province, else vendor, from the training months only.
 Also confirmed: the vendor default alone is right on 799 of 809 history lines, and the 10 "Racking components"
 lines are all 5030 (BUILD_PLAN). Description matching ignores numbers ("qty 120" = "qty 80").
+
+### Item 16: approval routing (2026-11-21)
+`src/lib/rules/routing/policy.ts` (P01–P13 mapped by hand from approval_policies.csv, original text kept,
+P07/P08/P11 locked) and `src/lib/rules/routing/route.ts` (`route`, `releaseEligibility`, `routingInputFor`).
+**The five worked examples pass** (`src/lib/rules/__tests__/routing.test.ts`):
+1. D01 $4,743.80 → U007; release U003, U002 or U001.
+2. D07 $18,758.00 → U003 for U012 (on leave, limit 10,000 kept); FM step U003 → U002 (repeat); release U001 only.
+3. Legal $339.52, D08 → U001; U003 (P06); release U002 only.
+4. Requested by U010, IT, $2,700 → U010 → U001 (P07); release U003 or U002.
+5. D04 $60,000 → U002; U003; controller U002 → U001 (repeat); nobody may release, with the reason.
+History check: P01–P13 alone put a finance manager step on 46 history invoices (43 over $10,000, 3 Legal);
+adding "an overridden fraud flag adds the finance manager" for the 2 on-hold-vendor invoices gives exactly
+the 48 invoices that have a finance manager step in approvals.csv.
+P05 ("pending_review or new") is expressed as `flag in [VENDOR_PENDING, VENDOR_NEW]`, since BUILD_PLAN's rule
+conditions are ANDed. A suspected split routes as the combined amount. A terminated requester is replaced by
+their manager before P07 (U015's invoice in D01 → U007 is the requester → step goes to U001).
+
+## Stop condition: met (2026-11-21)
+- History replay matches "What is planted", 14 of 14 rows; every other flag explained above; no false-positive holds.
+- The five worked routing examples pass.
+- Coding accuracy printed: account 147 of 147 lines; department 143 of 147 lines (76 of 78 invoices).
+Run: `npx tsx scripts/verify-counts.ts`, `npx tsx scripts/history-replay.ts`, `npx tsx scripts/coding-accuracy.ts`, `npm test`.

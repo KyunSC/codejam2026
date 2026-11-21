@@ -21,7 +21,7 @@ const LEGAL_SUFFIXES = new Set(["inc", "incorporated", "ltd", "limited", "llp", 
 
 /**
  * Lower case, accents and punctuation removed, `&` → `and`, legal suffixes dropped.
- * `Harlow & Stern LLP` and `Harlow and Stern LLP` both become `harlow and stern`.
+ * `Smith & Jones LLP` and `Smith and Jones LLP` both become `smith and jones`.
  */
 export function normalizeName(name: string | null | undefined): string {
   if (!name) return "";

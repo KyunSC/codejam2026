@@ -22,3 +22,8 @@ Open points for the team. Loop B takes BUILD_PLAN's version and moves on.
   vendor alone adds AP-00120, AP-00191 and AP-00303/00304). Unknown requester matches anyone, so the incoming
   three-on-one-day case still fires.
 - **SELF_APPROVAL class/effect** as a history finding: Loop B uses fraud/info.
+- **P05 as a structured rule.** BUILD_PLAN's conditions are ANDed, so "pending_review or new" is written as
+  `flag in [VENDOR_PENDING, VENDOR_NEW]` (the checks state both facts). Fine for the policy editor?
+- **No eligible releaser** (worked example 5, and anything over $250,000): Loop B blocks with the reason, as
+  BUILD_PLAN decides (Risks 2). Still worth confirming with Brim.
+- **Release ordering**: `releaseEligibility` lists finance manager first, then the controller, then the CFO.

@@ -20,6 +20,8 @@ export const config = {
     controllerAboveCad: 50_000,
     /** P04: above this a CFO step is added. */
     cfoAboveCad: 250_000,
+    /** P06: vendor categories that always add a finance manager step. */
+    financeReviewCategories: ["Legal"] as readonly string[],
   },
 
   release: {
