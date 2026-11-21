@@ -26,7 +26,7 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 ## Step 3: plain-language edits
 - [x] S3.1 `/api/edit` and "Ask for a change", slider values carried over. Attempts: 1
 - [x] S3.2 Playwright: pendulum → edit → ready, bob B default changed. Attempts: 1
-- [ ] S3.3 Step 3 report. Attempts: 0
+- [x] S3.3 Step 3 report. Attempts: 1
 
 ## Step 4: student links + homework
 - [ ] S4.1 `lib/store.ts`, save on ready, `/api/sims`, Vitest. Attempts: 0

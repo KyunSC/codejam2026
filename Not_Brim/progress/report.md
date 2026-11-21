@@ -45,3 +45,17 @@
 
 **Needs a key:** the real repair rate (how often Claude's first draft needs a repair, and how often the repair works). Run `npm run try-topics` with a key; its "Repaired" column records it.
 
+## Step 3: plain-language edits
+
+**What works (stand-in):**
+- `POST /api/edit` (NDJSON) sends the current document plus the teacher's request to `model.edit`.
+- The "Ask for a change" box under the sim, enabled only when a sim is ready, runs through the same machine as generate: streaming, mounting, one repair, then failed.
+- Slider values carry over by param id, but only the ones the teacher moved. Untouched sliders take the edited sim's new defaults, so "make bob B twice as heavy" visibly changes bob B.
+- "Try again" after a failed edit retries the same request on the sim as it was before the edit.
+
+**Tests:** lint and typecheck clean. Vitest 76/76 (adds /api/edit). Playwright e2e 9/9, adding pendulum → move the length slider to 2 → edit "make bob B twice as heavy" → ready. Bob B's default goes from 5 to 10 and its max from 10 to 20, length stays 2, and the question changes.
+
+**Stand-in timings:** an edit round trip takes ~4.6 s to interactive.
+
+**Needs a key:** how well real edits keep the contract and the param ids (the stand-in just swaps in `pendulum-edited`, or bumps the first default).
+
