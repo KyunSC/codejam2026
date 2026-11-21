@@ -16,7 +16,7 @@ Scripts in `scripts/` set `APP_TODAY=2026-11-02` themselves.
 - [x] 6. Checks: UNREADABLE, FIELD_UNCERTAIN, ARITHMETIC_LINE/SUBTOTAL/TOTAL, DATE_ODD, DATE_AMBIGUOUS, TERMS_MISMATCH, FX_RATE_FALLBACK, SHIP_TO_UNKNOWN
 - [x] 7. Checks: VENDOR_UNKNOWN, VENDOR_PENDING, VENDOR_ON_HOLD, VENDOR_NEW, VENDOR_LOOKALIKE, TAX_NUMBER_MISMATCH
 - [x] 8. Checks: BANK_MISMATCH, BANK_CHANGE_UNVERIFIED, BANK_CHANGE_RECENT
-- [ ] 9. Checks: TAX_WRONG_FOR_PROVINCE, TAX_AMOUNT, TAX_NOT_REGISTERED, CURRENCY_UNEXPECTED
+- [x] 9. Checks: TAX_WRONG_FOR_PROVINCE, TAX_AMOUNT, TAX_NOT_REGISTERED, CURRENCY_UNEXPECTED
 - [ ] 10. Checks: PO_REQUIRED_MISSING, PO_NOT_FOUND, PO_VENDOR_MISMATCH, PO_CLOSED, PO_OVER_BALANCE
 - [ ] 11. Checks: CONTRACT_EXPIRED, CONTRACT_FEE_MISMATCH, CONTRACT_RATE_OVER_CAP, CONTRACT_FUEL_OVER_CAP, CONTRACT_MONTHLY_CAP, CONTRACT_PERIOD_REPEAT
 - [ ] 12. Checks: SPLIT_SUSPECTED, REQUESTER_TERMINATED, SELF_APPROVAL (history), CREDIT_NOTE_ORPHAN
@@ -98,3 +98,10 @@ It skips an existing invoice that is rejected (AP-00052) or whose payment was sc
 AP-00388 settled two days after the unverified change. `refs.self` now carries the invoice's status. BANK_MISMATCH cannot fire on history (no
 remittance recorded); it treats an account printed for a vendor with no bank on file as a mismatch.
 BANK_CHANGE_RECENT counts any change, verified or not, within 30 days before the invoice date.
+
+### Item 9: tax and currency checks (2026-11-21)
+`src/lib/rules/checks/tax.ts`. Over history TAX_WRONG_FOR_PROVINCE fires on exactly AP-00098, AP-00253,
+AP-00325 (the three planted); TAX_AMOUNT and CURRENCY_UNEXPECTED never fire. Exempt categories come from
+`config.tax.exemptCategories` (["Insurance"]: every EXEMPT history line is from an Insurance vendor; every
+FOREIGN line from a US vendor). In BC with a line of unknown type, PST is neither required nor rejected (no
+guessing). A tax line with an unknown label skips TAX_WRONG_FOR_PROVINCE (reading problem, not a tax error).

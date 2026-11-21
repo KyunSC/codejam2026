@@ -46,6 +46,11 @@ export const config = {
     cardMerchantMaxLen: 22,
   },
 
+  tax: {
+    /** Vendor categories whose supplies are exempt in every province (history: all EXEMPT lines). */
+    exemptCategories: ["Insurance"] as readonly string[],
+  },
+
   resolution: {
     /** Vendor step 2: a bank-account match also needs names at least this similar (word overlap, 0–1). */
     bankNameMinSimilarity: 0.5,
