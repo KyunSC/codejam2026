@@ -17,7 +17,7 @@ CodeJam 16 (McGill) hackathon repo. The app is `Brim/`: accounts payable automat
 
 ## Git
 
-- **Never commit or push without asking first.** Make the changes, show what changed, and wait for an explicit go-ahead. Approval for one commit or push does not carry over to the next.
+- **Never push without asking first.** Make the changes, show what changed, and wait for an explicit go-ahead. Approval for push does not carry over to the next.
 - Never force-push, rewrite history, or delete branches without asking.
 - Never commit `.env` or other secrets. `Brim/.env.example` is the template.
 - If on `main`, create a branch before committing.
