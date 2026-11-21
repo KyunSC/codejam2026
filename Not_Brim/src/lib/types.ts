@@ -52,6 +52,9 @@ export interface Prediction {
   createdAt: string;
 }
 
+/** What the teacher's list gets: no id, so nobody can use it to overwrite a reflection. */
+export type PublicPrediction = Omit<Prediction, "id">;
+
 export interface SimRecord {
   id: string;
   prompt: string;

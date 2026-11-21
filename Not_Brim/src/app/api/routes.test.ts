@@ -1,10 +1,14 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { POST as generate } from "./generate/route";
 import { POST as edit } from "./edit/route";
 import { POST as repair } from "./repair/route";
 import { GET as status } from "./status/route";
 import { GET as listPredictions, POST as addPrediction } from "./sims/[id]/predictions/route";
 import { PATCH as setObserved } from "./sims/[id]/predictions/[pid]/route";
+import { store } from "@/lib/store";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -83,5 +87,53 @@ describe("/api/sims/[id]/predictions", () => {
     const both = ctx({ id: "000000000000", pid: "000000000000" });
     expect((await setObserved(body({ observed: "" }), both)).status).toBe(400);
     expect((await setObserved(body({ observed: "x".repeat(1001) }), both)).status).toBe(413);
+  });
+});
+
+describe("/api/sims/[id]/predictions round trip", () => {
+  // store() is created once per test file, on first use: point it at a temp file before anything touches it.
+  let dir: string;
+  beforeAll(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "routes-"));
+    process.env.SIMS_FILE = path.join(dir, "sims.json");
+  });
+  afterAll(async () => {
+    delete process.env.SIMS_FILE;
+    await rm(dir, { recursive: true, force: true });
+  });
+  const ctx = (params: Record<string, string>) => ({ params: Promise.resolve(params) }) as never;
+  const req = (method: string, b?: unknown) =>
+    new Request("http://test/x", { method, body: b === undefined ? undefined : JSON.stringify(b) });
+
+  it("posts, lists without ids, patches, and 404s on an unknown sim", async () => {
+    const sim = await store().saveSim({
+      prompt: "why?",
+      code: "<html></html>",
+      title: "T",
+      question: "Q",
+      params: [{ id: "m", label: "Mass", min: 1, max: 5, step: 1, value: 2 }],
+    });
+    const id = ctx({ id: sim.id });
+
+    const first = await addPrediction(req("POST", { prediction: "  Same speed  " }), id);
+    expect(first.status).toBe(201);
+    const { prediction } = (await first.json()) as { prediction: { id: string; name: string; prediction: string } };
+    expect(prediction).toMatchObject({ name: "Anonymous", prediction: "Same speed" });
+    expect((await addPrediction(req("POST", { name: "Ben", prediction: "Faster", observed: "Nope" }), id)).status).toBe(201);
+
+    const patched = await setObserved(req("PATCH", { observed: " They matched " }), ctx({ id: sim.id, pid: prediction.id }));
+    expect(((await patched.json()) as { prediction: { observed: string } }).prediction.observed).toBe("They matched");
+
+    const list = await listPredictions(req("GET"), id);
+    expect(list.headers.get("cache-control")).toBe("no-store");
+    const { predictions } = (await list.json()) as { predictions: Array<Record<string, unknown>> };
+    expect(predictions.map((p) => [p.name, p.observed])).toEqual([
+      ["Anonymous", "They matched"],
+      ["Ben", "Nope"],
+    ]);
+    for (const p of predictions) expect(p).not.toHaveProperty("id");
+
+    expect((await addPrediction(req("POST", { prediction: "p" }), ctx({ id: "000000000000" }))).status).toBe(404);
+    expect((await listPredictions(req("GET"), ctx({ id: "000000000000" }))).status).toBe(404);
   });
 });

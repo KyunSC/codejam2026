@@ -27,7 +27,10 @@ Restart `npm run dev`. The badge disappears and generate, repair, edit and homew
 - **Sliders**: on the right, with live values. The sim runs in a `sandbox="allow-scripts"` iframe with a strict CSP and no network access.
 - **If it breaks**: one automatic repair ("Fixing a glitch…"). If that fails too, a friendly message and "Try again".
 - **Ask for a change**: plain-language edits. Sliders you moved keep their values; the rest take the new defaults.
-- **Share with students**: makes a homework variation (a new question and new starting values) and copies a `/s/<id>` link. Students must write a prediction before Run reveals the sim.
+- **Share with students**: makes a homework variation (a new question and new starting values) and copies a `/s/<id>` link. Click the QR code next to the link to show it big on the projector (it encodes the address the teacher's browser is using, so open the app by network IP or the deploy, not `localhost`, if phones should scan it).
+- **Students**: they can add a name (optional), and must write a prediction before Run reveals the sim. After Run they answer "Were you right? What actually happened?". If saving the prediction failed, it's sent again with that answer.
+- **Class predictions**: once shared, a panel under the sliders lists every prediction and reflection, newest first, refreshed every 3 s (paused while the tab is hidden). The header chip shows the count and jumps to it. The panel is labelled with the sim it belongs to, and says so if you've since edited or made a new one. Each sim keeps up to 200 predictions.
+- **No auth, by design**: anyone with a student link can post a prediction and read the class's answers. The list never returns prediction ids, so a student can only change their own reflection.
 - **Saved demos**: loads a stored sim instantly, with no model call. **Save as demo** adds the current one.
 
 ## Scripts
@@ -47,6 +50,7 @@ Both scripts start their own dev server on port 3100 (see `scripts/playwright.sc
 - `src/lib/useSimSession.ts`: the client state machine (streaming → mounting → ready, with repairing and failed).
 - `src/lib/bridge.ts`: the iframe bridge, CSP and `validateParams`.
 - `src/lib/model/`: the real Claude model, the stand-in, and the selection between them.
-- `src/app/api/*`: NDJSON routes for generate, repair and edit, plus sims, share, demos and status.
+- `src/app/api/*`: NDJSON routes for generate, repair and edit, plus sims, share, demos and status. `sims/[id]/predictions` (POST, GET) and `sims/[id]/predictions/[pid]` (PATCH) hold the students' predictions and reflections.
+- `src/components/ClassPredictions.tsx`: the teacher's live panel; `ShareButton.tsx` makes the QR code with the `qrcode` package.
 - `data/sims.json` (gitignored) stores saved sims; `data/demos/` (committed) holds the demos.
 - `progress/`: the build log (`sim.md`), decisions (`questions.md`), the report (`report.md`) and screenshots.

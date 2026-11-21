@@ -1,26 +1,40 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { Prediction } from "@/lib/types";
+import type { PublicPrediction } from "@/lib/types";
 
 const POLL_MS = 3000;
+/** Failed polls in a row before the panel says it can't reach the server. */
+const FAILS_BEFORE_NOTE = 3;
 
-/** Students' predictions (and what they saw after Run) for the shared sim, refreshed every few seconds. */
-export function ClassPredictions({ simId }: { simId: string }) {
-  const [state, setState] = useState<{ simId: string; list: Prediction[] } | null>(null);
+export interface SharedSim {
+  id: string;
+  title: string;
+}
+
+/** Live predictions for a shared sim, polled every few seconds while the tab is visible. */
+export function usePredictions(simId: string | null) {
+  const [state, setState] = useState<{ simId: string; list: PublicPrediction[]; failing: boolean } | null>(null);
 
   useEffect(() => {
+    if (!simId) return;
     let live = true;
+    let fails = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     async function poll() {
-      try {
-        const r = await fetch(`/api/sims/${simId}/predictions`, { cache: "no-store" });
-        if (r.ok) {
-          const j = (await r.json()) as { predictions: Prediction[] };
-          if (live) setState({ simId, list: j.predictions });
+      // A hidden tab (another app on the projector) doesn't need fresh answers.
+      if (document.visibilityState !== "hidden") {
+        try {
+          const r = await fetch(`/api/sims/${simId}/predictions`, { cache: "no-store" });
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const j = (await r.json()) as { predictions: PublicPrediction[] };
+          fails = 0;
+          if (live) setState({ simId: simId!, list: j.predictions, failing: false });
+        } catch {
+          fails += 1;
+          if (live && fails >= FAILS_BEFORE_NOTE)
+            setState((s) => ({ simId: simId!, list: s?.simId === simId ? s.list : [], failing: true }));
         }
-      } catch {
-        // Offline for a moment: try again on the next tick.
       }
       if (live) timer = setTimeout(() => void poll(), POLL_MS);
     }
@@ -31,36 +45,79 @@ export function ClassPredictions({ simId }: { simId: string }) {
     };
   }, [simId]);
 
-  const list = state?.simId === simId ? state.list : [];
-  const reflected = list.filter((p) => p.observed).length;
+  const current = state && state.simId === simId ? state : null;
+  return { list: current?.list ?? [], failing: current?.failing ?? false };
+}
 
+export function countLabel(list: PublicPrediction[]): string {
+  const reflected = list.filter((p) => p.observed).length;
+  const n = list.length;
+  return `${n} prediction${n === 1 ? "" : "s"}${n ? ` · ${reflected} reflection${reflected === 1 ? "" : "s"}` : ""}`;
+}
+
+/** Students' predictions, and what they saw after Run, for the sim whose link went out. */
+export function ClassPredictions({
+  shared,
+  current,
+  list,
+  failing,
+}: {
+  shared: SharedSim;
+  /** The sim on screen now, to warn when the panel belongs to an earlier one. */
+  current: string | null;
+  list: PublicPrediction[];
+  failing: boolean;
+}) {
   return (
-    <section className="card flex flex-col gap-3 p-5" aria-label="Class predictions" data-testid="class-predictions">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-        <h2 className="kicker !text-ink">Class predictions</h2>
-        <span className="font-bold" data-testid="prediction-count" aria-live="polite">
-          {list.length} in{list.length ? ` · ${reflected} checked` : ""}
-        </span>
+    <section
+      id="class-predictions"
+      className="card flex scroll-mt-4 flex-col gap-3 p-5"
+      aria-labelledby="class-predictions-title"
+      data-testid="class-predictions"
+    >
+      <div>
+        <h2 id="class-predictions-title" className="kicker !text-ink">
+          Class predictions
+        </h2>
+        <p className="font-bold" data-testid="predictions-for">
+          For “{shared.title}”
+        </p>
+        {current !== shared.id ? (
+          <p className="text-muted" data-testid="predictions-earlier">
+            This is the sim you shared earlier. Share again to collect answers for the one on screen.
+          </p>
+        ) : null}
       </div>
+      <p className="font-bold" data-testid="prediction-count">
+        {countLabel(list)}
+      </p>
+      {failing ? (
+        <p className="font-semibold text-danger" role="alert">
+          Can’t reach the server. Retrying…
+        </p>
+      ) : null}
       {list.length === 0 ? (
-        <p className="text-muted">Waiting for students to open the link…</p>
+        <p className="text-muted">No predictions yet. They show up here when students press Run.</p>
       ) : (
-        <ul className="flex flex-col gap-3">
-          {[...list].reverse().map((p) => (
-            <li key={p.id} className="border-l-4 border-gold pl-3" data-testid="prediction-item">
-              <p className="font-bold">{p.name}</p>
-              <p>
-                <span className="text-muted">Predicted: </span>
-                {p.prediction}
-              </p>
-              {p.observed ? (
+        <ul className="flex max-h-[45vh] flex-col gap-3 overflow-y-auto pr-1" tabIndex={0} aria-label="Predictions, newest first">
+          {list
+            .map((p, i) => ({ p, key: `${p.createdAt}-${i}` }))
+            .reverse()
+            .map(({ p, key }) => (
+              <li key={key} className="border-l-4 border-gold pl-3" data-testid="prediction-item">
+                <p className="font-bold">{p.name}</p>
                 <p>
-                  <span className="text-muted">Saw: </span>
-                  {p.observed}
+                  <span className="text-muted">Predicted: </span>
+                  {p.prediction}
                 </p>
-              ) : null}
-            </li>
-          ))}
+                {p.observed ? (
+                  <p>
+                    <span className="text-muted">Saw: </span>
+                    {p.observed}
+                  </p>
+                ) : null}
+              </li>
+            ))}
         </ul>
       )}
     </section>

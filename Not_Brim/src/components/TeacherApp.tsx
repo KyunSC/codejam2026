@@ -1,10 +1,10 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSimSession, type EditBase, type ReadyInfo } from "@/lib/useSimSession";
 import { useStandInStatus } from "@/lib/useStandInStatus";
 import { Logo, StandInBadge, TimingBadge } from "./Badges";
-import { ClassPredictions } from "./ClassPredictions";
+import { ClassPredictions, countLabel, usePredictions, type SharedSim } from "./ClassPredictions";
 import { DemosMenu, type DemoFull } from "./DemosMenu";
 import { ParamSliders } from "./ParamSliders";
 import { ShareButton } from "./ShareButton";
@@ -13,7 +13,7 @@ import { SimPanel } from "./SimPanel";
 export function TeacherApp() {
   const [simId, setSimId] = useState<string | null>(null);
   // The sim whose student link went out; its predictions show in the side panel.
-  const [sharedId, setSharedId] = useState<string | null>(null);
+  const [shared, setShared] = useState<SharedSim | null>(null);
   const saveSeq = useRef(0);
   const session = useSimSession({ onReady: save });
   const standIn = useStandInStatus();
@@ -46,6 +46,15 @@ export function TeacherApp() {
       .catch((err: unknown) => console.warn("[sim] save failed:", err instanceof Error ? err.message : err));
   }
   const v = session.view;
+  const predictions = usePredictions(shared?.id ?? null);
+  // What's on screen now, read by onShared: a share that finishes after an edit must not claim the panel.
+  const onScreen = useRef<{ simId: string | null; title: string }>({ simId: null, title: "" });
+  useEffect(() => {
+    onScreen.current = { simId, title: v.state === "ready" ? v.title : "" };
+  });
+  function onShared(id: string) {
+    if (id === onScreen.current.simId) setShared({ id, title: onScreen.current.title });
+  }
   const busy = v.state === "streaming" || v.state === "mounting" || v.state === "repairing";
 
   function create() {
@@ -107,6 +116,11 @@ export function TeacherApp() {
             <span className="font-bold text-ok" role="status" data-testid="demo-note">
               {demoNote}
             </span>
+          ) : null}
+          {shared ? (
+            <a href="#class-predictions" className="chip bg-gold text-ink" data-testid="predictions-chip">
+              {countLabel(predictions.list)}
+            </a>
           ) : null}
           <StandInBadge standIn={standIn} />
           <TimingBadge ms={v.state === "ready" ? v.interactiveMs : null} />
@@ -196,7 +210,7 @@ export function TeacherApp() {
                 Apply
               </button>
             </form>
-            <ShareButton simId={simId} disabled={v.state !== "ready"} onShared={setSharedId} />
+            <ShareButton simId={simId} disabled={v.state !== "ready"} onShared={onShared} />
           </div>
         </section>
 
@@ -219,8 +233,10 @@ export function TeacherApp() {
               </p>
             </div>
           ) : null}
-          {sharedId ? <ClassPredictions simId={sharedId} /> : null}
           {v.state === "ready" ? <ParamSliders params={v.params} values={v.values} onChange={session.setValue} /> : null}
+          {shared ? (
+            <ClassPredictions shared={shared} current={simId} list={predictions.list} failing={predictions.failing} />
+          ) : null}
         </aside>
       </main>
     </div>

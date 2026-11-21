@@ -6,7 +6,10 @@ export const dynamic = "force-dynamic";
 
 const ID = /^[0-9a-f]{12}$/;
 
-/** A student's prediction, posted from /s/[id] when they press Run. */
+/**
+ * A student's prediction, posted from /s/[id] when they press Run. `observed` is optional: the student page
+ * sends it too when the first save failed and the student is retrying along with their reflection.
+ */
 export async function POST(req: Request, ctx: RouteContext<"/api/sims/[id]/predictions">) {
   const { id } = await ctx.params;
   if (!ID.test(id)) return badRequest("Unknown simulation.", 404);
@@ -21,17 +24,26 @@ export async function POST(req: Request, ctx: RouteContext<"/api/sims/[id]/predi
   if (prediction.length > MAX_ANSWER_CHARS) return badRequest('"prediction" is too long.', 413);
   const rawName = typeof body?.name === "string" ? body.name.trim() : "";
   if (rawName.length > MAX_NAME_CHARS) return badRequest('"name" is too long.', 413);
+  const observed = typeof body?.observed === "string" ? body.observed.trim() : "";
+  if (observed.length > MAX_ANSWER_CHARS) return badRequest('"observed" is too long.', 413);
 
-  const entry = await store().addPrediction(id, { name: rawName || "Anonymous", prediction });
+  const entry = await store().addPrediction(id, { name: rawName || "Anonymous", prediction, observed });
+  if (entry === "full") return badRequest("This class already has the maximum number of predictions.", 429);
   if (!entry) return badRequest("Unknown simulation.", 404);
   return Response.json({ prediction: entry }, { status: 201 });
 }
 
-/** Every prediction on a sim, oldest first, for the teacher's live list. */
+/** Every prediction on a sim, oldest first, for the teacher's live list. Ids stay private to their author. */
 export async function GET(_req: Request, ctx: RouteContext<"/api/sims/[id]/predictions">) {
   const { id } = await ctx.params;
   if (!ID.test(id)) return badRequest("Unknown simulation.", 404);
   const sim = await store().getSim(id);
   if (!sim) return badRequest("Unknown simulation.", 404);
-  return Response.json({ predictions: sim.predictions ?? [] }, { headers: { "Cache-Control": "no-store" } });
+  const predictions = (sim.predictions ?? []).map(({ name, prediction, observed, createdAt }) => ({
+    name,
+    prediction,
+    ...(observed ? { observed } : {}),
+    createdAt,
+  }));
+  return Response.json({ predictions }, { headers: { "Cache-Control": "no-store" } });
 }

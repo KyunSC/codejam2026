@@ -47,7 +47,8 @@ test("create → share → open link → predict → Run → ready with the home
   await student.getByTestId("observed-button").click();
   await expect(student.getByTestId("reflection-saved")).toBeVisible();
   await expect(list).toContainText("They stayed in step", { timeout: 10_000 });
-  await expect(page.getByTestId("prediction-count")).toContainText("1 checked");
+  await expect(page.getByTestId("prediction-count")).toHaveText("1 prediction · 1 reflection");
+  await expect(page.getByTestId("predictions-chip")).toHaveText("1 prediction · 1 reflection");
 
   // Sharing again reuses the same homework.
   const again = (await (await page.request.post(url.replace(/\/s\/(\w+)$/, "/api/sims/$1/share"))).json()) as {

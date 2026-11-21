@@ -115,18 +115,30 @@ function ShareQr({ url }: { url: string }) {
       </button>
       <dialog
         ref={dialog}
-        className="m-auto border-4 border-ink bg-white p-6 backdrop:bg-black/70"
+        className="m-auto border-4 border-ink bg-white p-0 backdrop:bg-black/70"
         data-testid="share-qr-dialog"
+        aria-labelledby="share-qr-title"
         onClick={(e) => {
+          // The content wrapper fills the dialog, so only a backdrop click lands on the dialog itself.
           if (e.target === e.currentTarget) e.currentTarget.close();
         }}
       >
-        <div className="flex flex-col items-center gap-4 text-ink">
-          <p className="pix text-[2rem] leading-none">Scan for the homework</p>
+        <div className="flex flex-col items-center gap-3 p-5 text-ink">
+          <h2 id="share-qr-title" className="pix text-[2rem] leading-none">
+            Scan for the homework
+          </h2>
           {/* eslint-disable-next-line @next/next/no-img-element -- a data: URL, nothing to optimise */}
-          <img src={src.data} alt="QR code for the student link" className="h-[min(70vh,70vw)] w-[min(70vh,70vw)]" />
-          <p className="max-w-[min(70vh,70vw)] break-all text-center">{url}</p>
-          <button type="button" className="btn-secondary" onClick={() => dialog.current?.close()}>
+          <img
+            src={src.data}
+            alt="QR code for the student link"
+            className="aspect-square w-[min(calc(100dvh-17rem),70vw)] min-w-[160px]"
+          />
+          <p className="max-w-[min(calc(100dvh-17rem),70vw)] break-all text-center">{url}</p>
+          <button
+            type="button"
+            className="min-h-[2.6rem] border-2 border-ink bg-white px-5 font-bold text-ink"
+            onClick={() => dialog.current?.close()}
+          >
             Close
           </button>
         </div>

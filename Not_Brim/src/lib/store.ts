@@ -8,6 +8,9 @@ import type { Prediction, SimRecord } from "./types";
 export type NewSim = Omit<SimRecord, "id" | "createdAt" | "predictions">;
 export type SimSummary = Pick<SimRecord, "id" | "title" | "prompt" | "createdAt">;
 
+/** Predictions kept per sim. Past this, new ones are refused so the file can't grow without bound. */
+export const MAX_PREDICTIONS = 200;
+
 /** A short url-safe id from crypto.randomUUID (12 hex chars ≈ 48 bits). */
 export function newId(): string {
   return randomUUID().replace(/-/g, "").slice(0, 12);
@@ -71,13 +74,23 @@ export function createStore(file: string) {
         return sims[i];
       });
     },
-    /** Add a student's prediction to a sim. Null when the sim doesn't exist. */
-    addPrediction(simId: string, input: { name: string; prediction: string }): Promise<Prediction | null> {
+    /** Add a student's prediction to a sim. Null when the sim doesn't exist, "full" past MAX_PREDICTIONS. */
+    addPrediction(
+      simId: string,
+      input: { name: string; prediction: string; observed?: string },
+    ): Promise<Prediction | null | "full"> {
       return locked(async () => {
         const sims = await readAll();
         const sim = sims.find((s) => s.id === simId);
         if (!sim) return null;
-        const entry: Prediction = { id: newId(), name: input.name, prediction: input.prediction, createdAt: new Date().toISOString() };
+        if ((sim.predictions?.length ?? 0) >= MAX_PREDICTIONS) return "full";
+        const entry: Prediction = {
+          id: newId(),
+          name: input.name,
+          prediction: input.prediction,
+          ...(input.observed ? { observed: input.observed } : {}),
+          createdAt: new Date().toISOString(),
+        };
         sim.predictions = [...(sim.predictions ?? []), entry];
         await writeAll(sims);
         return entry;
@@ -103,6 +116,7 @@ let defaultStore: SimStore | null = null;
 
 /** The app's store at data/sims.json. */
 export function store(): SimStore {
-  defaultStore ??= createStore(path.join(process.cwd(), "data", "sims.json"));
+  // SIMS_FILE lets tests point the routes at a temp file.
+  defaultStore ??= createStore(process.env.SIMS_FILE || path.join(process.cwd(), "data", "sims.json"));
   return defaultStore;
 }
