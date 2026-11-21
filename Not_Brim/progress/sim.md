@@ -11,7 +11,7 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 - [x] S1.1 `lib/prompts.ts` (system prompt verbatim + builders), Vitest. Attempts: 0
 - [x] S1.2 `lib/model/*` (real, stand-in, index) and all fixtures, Vitest of stand-in + model selection. Attempts: 0
 - [x] S1.3 NDJSON helpers and `lib/sim-html.ts`, Vitest. Attempts: 1
-- [ ] S1.4 `lib/bridge.ts` and `validateParams`, Vitest. Attempts: 0
+- [x] S1.4 `lib/bridge.ts` and `validateParams`, Vitest. Attempts: 0
 - [ ] S1.5 `/api/generate` and `/api/status`. Attempts: 0
 - [ ] S1.6 `useSimSession` (no repair), `SimFrame`, `ParamSliders`, `GenerationStatus`, teacher page with both badges. Attempts: 0
 - [ ] S1.7 Playwright: pendulum → ready with 4 sliders; slider → applied; /dev/fixture error pages. Attempts: 0
@@ -52,3 +52,4 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 - S1.2: eslint's react-hooks rule flags the spec's `useStandIn()` as a hook when called from `getModel()`. Imported it under an alias instead of renaming the spec's export.
 - S1.2: Fixtures carry `<!-- hand-made fixture: NAME -->` on line 2 (after the doctype, so `extractHtml` keeps it). The stand-in reads that name to decide repair/edit outputs. Added `falling-broken` as falling's broken twin.
 - S1.3: first run failed because no-sim's header comment contained the literal text "window.SIM", which satisfied validateHtml's static check. Reworded the comment; the fixture now fails validation as intended (and still fails the bridge's 3 s check when mounted directly).
+- S1.4: BRIDGE_JS and the CSP meta are injected on one line, so error line/col numbers still match the generated document. Params are JSON round-tripped inside the iframe before posting (a SIM with functions in params would otherwise throw DataCloneError). `validateParams` falls back to the id when a label is missing.
