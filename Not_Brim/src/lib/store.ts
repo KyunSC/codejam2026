@@ -3,6 +3,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { assertFileStorageWritable, db, type Db } from "./db";
 import type { SimRecord } from "./types";
 
 export type NewSim = Omit<SimRecord, "id" | "createdAt">;
@@ -43,6 +44,7 @@ export function createStore(file: string) {
 
   return {
     saveSim(input: NewSim): Promise<SimRecord> {
+      assertFileStorageWritable();
       return locked(async () => {
         const sims = await readAll();
         const record: SimRecord = { ...input, id: newId(), createdAt: new Date().toISOString() };
@@ -62,6 +64,7 @@ export function createStore(file: string) {
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     },
     updateSim(id: string, patch: Partial<NewSim>): Promise<SimRecord | null> {
+      assertFileStorageWritable();
       return locked(async () => {
         const sims = await readAll();
         const i = sims.findIndex((s) => s.id === id);
@@ -76,10 +79,50 @@ export function createStore(file: string) {
 
 export type SimStore = ReturnType<typeof createStore>;
 
+/** Sims in Postgres (table livesim_sims, one JSON record per row), for deployments without a lasting disk. */
+export function createPgStore({ pool, ready }: Db): SimStore {
+  return {
+    async saveSim(input) {
+      await ready;
+      const record: SimRecord = { ...input, id: newId(), createdAt: new Date().toISOString() };
+      await pool.query("INSERT INTO livesim_sims (id, record, created_at) VALUES ($1, $2::jsonb, $3)", [
+        record.id,
+        JSON.stringify(record),
+        record.createdAt,
+      ]);
+      return record;
+    },
+    async getSim(id) {
+      await ready;
+      const { rows } = await pool.query<{ record: SimRecord }>("SELECT record FROM livesim_sims WHERE id = $1", [id]);
+      return rows[0]?.record ?? null;
+    },
+    async listSims() {
+      await ready;
+      const { rows } = await pool.query<{ record: SimRecord }>(
+        "SELECT record FROM livesim_sims ORDER BY created_at DESC LIMIT 200",
+      );
+      return rows.map(({ record: { id, title, prompt, createdAt } }) => ({ id, title, prompt, createdAt }));
+    },
+    async updateSim(id, patch) {
+      await ready;
+      // One statement, so two concurrent updates can't overwrite each other's read.
+      const { rows } = await pool.query<{ record: SimRecord }>(
+        "UPDATE livesim_sims SET record = record || ($2::jsonb - 'id' - 'createdAt') WHERE id = $1 RETURNING record",
+        [id, JSON.stringify(patch)],
+      );
+      return rows[0]?.record ?? null;
+    },
+  };
+}
+
 let defaultStore: SimStore | null = null;
 
-/** The app's store at data/sims.json. */
+/** The app's sims: Postgres when DATABASE_URL is set, data/sims.json otherwise. */
 export function store(): SimStore {
-  defaultStore ??= createStore(path.join(process.cwd(), "data", "sims.json"));
+  if (!defaultStore) {
+    const database = db();
+    defaultStore = database ? createPgStore(database) : createStore(path.join(process.cwd(), "data", "sims.json"));
+  }
   return defaultStore;
 }

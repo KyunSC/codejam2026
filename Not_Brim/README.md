@@ -21,6 +21,17 @@ cp .env.local.example .env.local
 
 Restart `npm run dev`. The badge disappears and Ask Claude, generate, repair, edit and homework go to Claude (`claude-sonnet-5-5`, adaptive thinking, streaming). The key is only read on the server (`src/lib/config.ts`, `src/lib/model/real.ts`). The browser only learns whether the stand-in is active, through `GET /api/status`. `FAKE_MODEL=1` forces the stand-in even when a key is set.
 
+## Deploy (Vercel)
+
+Set these in the Vercel project's Environment Variables, then redeploy:
+
+| Variable | Needed for |
+| -- | -- |
+| `DATABASE_URL` | Boards, saved sims (homework links) and saved demos. A Postgres connection string, e.g. a Neon pooled URL with `?sslmode=require`. The app creates its `livesim_*` tables on first use. Without it the deployed app can't save and says so. |
+| `ANTHROPIC_API_KEY` | Real Claude. Without it the app runs the offline stand-in. |
+
+Vercel's filesystem is read-only and not shared between function instances, so the JSON files under `data/` only work locally. Locally, leave `DATABASE_URL` blank to keep using them. To run the Postgres store tests: `TEST_DATABASE_URL=postgres://… npm test`.
+
 ## Use it
 
 - **The board**: `/` makes a new board and opens it at `/b/<id>`. It saves itself (the "Saved" label). Scroll to pan, ctrl/cmd + scroll to zoom, or drag empty space with Select.
@@ -50,5 +61,5 @@ Both scripts start their own dev server on port 3100 (see `scripts/playwright.sc
 - `src/lib/bridge.ts`: the iframe bridge, CSP and `validateParams`.
 - `src/lib/model/`: the real Claude model, the stand-in, and the selection between them.
 - `src/app/api/*`: NDJSON routes for board-turn (Ask Claude), generate, repair and edit, plus boards, sims, share, demos and status.
-- `data/boards.json` and `data/sims.json` (gitignored) store boards and saved sims; `data/demos/` (committed) holds the demos.
+- `src/lib/db.ts`: picks Postgres (`DATABASE_URL`) or the JSON files. Locally, `data/boards.json` and `data/sims.json` (gitignored) store boards and saved sims; `data/demos/` (committed) holds the shipped demos, and demos saved on a deployment go to Postgres.
 - `progress/`: the build log (`sim.md`), decisions (`questions.md`), the report (`report.md`) and screenshots.

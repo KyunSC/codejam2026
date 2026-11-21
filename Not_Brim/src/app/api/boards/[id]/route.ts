@@ -1,6 +1,7 @@
 import { badRequest } from "@/lib/api";
 import { checkItems } from "@/lib/board";
 import { BOARD_ID, boardStore } from "@/lib/boards";
+import { storageErrorResponse } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,7 +11,12 @@ const MAX_BOARD_BYTES = 8 * 1024 * 1024;
 
 export async function GET(_req: Request, ctx: RouteContext<"/api/boards/[id]">) {
   const { id } = await ctx.params;
-  const board = BOARD_ID.test(id) ? await boardStore().getBoard(id) : null;
+  let board;
+  try {
+    board = BOARD_ID.test(id) ? await boardStore().getBoard(id) : null;
+  } catch (err) {
+    return storageErrorResponse(err);
+  }
   if (!board) return badRequest("Unknown board.", 404);
   return Response.json(board, { headers: { "Cache-Control": "no-store" } });
 }
@@ -29,7 +35,12 @@ export async function PUT(req: Request, ctx: RouteContext<"/api/boards/[id]">) {
   }
   const items = checkItems(body?.items);
   if (!items.ok) return badRequest(`Invalid board: ${items.reason}`);
-  const board = await boardStore().saveItems(id, items.value);
+  let board;
+  try {
+    board = await boardStore().saveItems(id, items.value);
+  } catch (err) {
+    return storageErrorResponse(err);
+  }
   if (!board) return badRequest("Unknown board.", 404);
   return Response.json({ updatedAt: board.updatedAt });
 }

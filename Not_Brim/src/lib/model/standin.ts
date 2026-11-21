@@ -101,7 +101,7 @@ export class StandInModel implements SimModel {
     }
     yield {
       type: "done",
-      usage: { input_tokens: 1800 + JSON.stringify(input.items).length / 4, output_tokens: 120 },
+      usage: { input_tokens: 1800 + Math.round(JSON.stringify(input.items).length / 4), output_tokens: 120 },
       ms: Date.now() - start,
     };
   }
