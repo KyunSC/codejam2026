@@ -1,14 +1,14 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { THEME_KEY, type Theme } from "./theme";
+import { THEME_KEY, isTheme, type Theme } from "./theme";
 
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
 /** The theme on screen: the one picked with the toggle, else the OS preference. */
 function currentTheme(): Theme {
   const picked = document.documentElement.getAttribute("data-theme");
-  if (picked === "light" || picked === "dark") return picked;
+  if (isTheme(picked)) return picked;
   return window.matchMedia(DARK_QUERY).matches ? "dark" : "light";
 }
 

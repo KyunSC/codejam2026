@@ -5,7 +5,7 @@ import { AppHeader } from "@/components/shell/app-header";
 import { AppFooter } from "@/components/shell/app-footer";
 import { AuditorBanner } from "@/components/shell/auditor-banner";
 import { Suspense } from "react";
-import { THEME_SCRIPT } from "@/components/shell/theme";
+import { ThemeScript } from "@/components/shell/theme-script";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -23,10 +23,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     // No data-theme by default: CSS follows prefers-color-scheme until the toggle sets one.
     <html lang="en" className={`${dmSans.variable} h-full`} suppressHydrationWarning>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
-      </head>
       <body className="flex min-h-full flex-col">
+        <ThemeScript />
         <AppHeader />
         <Suspense fallback={null}>
           <AuditorBanner />
