@@ -118,6 +118,11 @@ export interface InvoicePatch {
   fields?: Partial<Record<"invoiceNumber" | "invoiceDate" | "dueDate" | "total" | "subtotal" | "poNumber", string | null>>;
   choices?: ClerkChoices;
   lines?: LinePatch[];
+  /**
+   * Why, in a sentence. Required when correcting printed fields: a correction must match the paper
+   * ("The PDF shows $3,439.00"), never change what the vendor billed. Stored on the audit row.
+   */
+  reason?: string;
 }
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -150,6 +155,10 @@ export async function patchInvoice(
   }
   if (!inReview(row.status)) {
     throw new AppError(409, "INVALID_STATE", `Invoice ${invoiceId} is ${row.status}; fields and coding change only in review.`);
+  }
+  const reason = typeof patch.reason === "string" ? patch.reason.trim() : "";
+  if (Object.keys(patch.fields ?? {}).length > 0 && !reason) {
+    throw new AppError(422, "REASON_REQUIRED", "Say what the invoice shows, in a sentence, so the correction can be traced to the paper.");
   }
 
   const before: Record<string, unknown> = {};
@@ -244,6 +253,7 @@ export async function patchInvoice(
     entityId: invoiceId,
     before,
     after,
+    reason: reason || null,
   });
   const r = row.normalized
     ? await processInvoice(tx, { organizationId, invoiceId, actor: actor.audit })

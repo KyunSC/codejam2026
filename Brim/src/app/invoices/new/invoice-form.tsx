@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Card, SectionHeading } from "@/components/ui";
 import { Field, FormError, Input, Select, TextArea } from "@/components/forms/form-bits";
 import { send } from "@/lib/client/api";
+import { OFFICES, PROVINCE_NAMES } from "@/lib/rules/offices";
 
 type Line = { description: string; quantity: string; unitPrice: string; amount: string };
 const emptyLine = (): Line => ({ description: "", quantity: "", unitPrice: "", amount: "" });
@@ -57,6 +58,16 @@ export function InvoiceForm({ slug }: { slug: string }) {
         </Field>
         <Field label="PO number" hint="Optional.">
           <Input name="poNumber" />
+        </Field>
+        <Field label="Delivered to" hint="The office on the bill-to address. It decides which tax the checks expect.">
+          <Select name="deliveredTo" defaultValue="">
+            <option value="">Not shown on the invoice</option>
+            {OFFICES.map((o) => (
+              <option key={o.province} value={o.province}>
+                {o.city} ({PROVINCE_NAMES[o.province]})
+              </option>
+            ))}
+          </Select>
         </Field>
       </Card>
 

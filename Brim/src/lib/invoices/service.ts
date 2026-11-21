@@ -10,7 +10,10 @@ import { type Actor, listActions, logAction } from "@/lib/audit";
 import { canReadAllInvoices } from "@/lib/auth/permissions";
 import { db } from "@/lib/db";
 import { AppError } from "@/lib/http";
-import { toIsoDate } from "@/lib/today";
+import { today, toIsoDate } from "@/lib/today";
+import { checkTypedInvoice } from "@/lib/workflow/manual";
+import { OFFICES } from "@/lib/rules/offices";
+import type { Province } from "@/lib/types";
 import { SENT_STATUSES, STATUS_LABEL } from "./labels";
 
 /** Brought in by the user or waiting on them; for an AP clerk also intake-stage invoices with no owner. */
@@ -173,28 +176,62 @@ export async function createManualInvoice(organizationId: string, actor: Actor, 
     if (!l.description) throw new AppError(422, "BAD_FIELD", `lines[${i + 1}].description: is required`);
   });
 
+  const receivedDate = today();
+  const invoiceDate = date(input.invoiceDate, "invoiceDate");
+  const dueDate = date(input.dueDate, "dueDate");
+  const subtotal = money(input.subtotal, "subtotal");
+  const gstHstAmount = money(input.gstHstAmount, "gstHstAmount");
+  const pstQstAmount = money(input.pstQstAmount, "pstQstAmount");
+  const poNumber = text(input.poNumber);
+  const deliveredTo = text(input.deliveredTo);
+  if (deliveredTo && !OFFICES.some((o) => o.province === deliveredTo)) {
+    throw new AppError(422, "BAD_FIELD", "deliveredTo: must be one of Harborline's offices (ON, BC, AB, QC)");
+  }
+
   return db().$transaction(async (tx) => {
-    const invoice = await tx.invoice.create({
+    const created = await tx.invoice.create({
       data: {
         organizationId,
         source: "manual",
+        receivedDate: new Date(`${receivedDate}T00:00:00Z`),
         createdById: actor.type === "user" ? actor.userId : null,
         vendorName,
         invoiceNumber,
-        invoiceDate: date(input.invoiceDate, "invoiceDate"),
-        dueDate: date(input.dueDate, "dueDate"),
+        invoiceDate,
+        dueDate,
         currency,
-        subtotal: money(input.subtotal, "subtotal"),
-        gstHstAmount: money(input.gstHstAmount, "gstHstAmount"),
-        pstQstAmount: money(input.pstQstAmount, "pstQstAmount"),
+        subtotal,
+        gstHstAmount,
+        pstQstAmount,
         total,
-        poNumber: text(input.poNumber),
+        poNumber,
         note: text(input.note),
         lines: { create: lines },
       },
       include: { lines: true },
     });
-    await logAction(tx, { organizationId, actor, action: "invoice.created", entityType: "invoice", entityId: invoice.id, after: invoice });
-    return invoice;
-  });
+    await logAction(tx, { organizationId, actor, action: "invoice.created", entityType: "invoice", entityId: created.id, after: created });
+
+    // Same checks, flags and coding as a read invoice, in this transaction (see workflow/manual.ts).
+    await checkTypedInvoice(tx, {
+      organizationId,
+      invoiceId: created.id,
+      receivedDate,
+      typed: {
+        vendorName,
+        invoiceNumber,
+        invoiceDate: invoiceDate ? invoiceDate.toISOString().slice(0, 10) : null,
+        dueDate: dueDate ? dueDate.toISOString().slice(0, 10) : null,
+        currency,
+        poNumber,
+        deliveredTo: (deliveredTo as Province | null) ?? null,
+        subtotal,
+        gstHstAmount,
+        pstQstAmount,
+        total,
+        lines: lines.map((l) => ({ description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, amount: l.amount })),
+      },
+    });
+    return tx.invoice.findUniqueOrThrow({ where: { id: created.id }, include: { lines: true } });
+  }, { timeout: 60_000, maxWait: 10_000 });
 }

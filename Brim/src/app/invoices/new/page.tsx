@@ -10,7 +10,7 @@ export default function NewInvoicePage() {
       <Breadcrumb items={[{ label: "Invoices", href: "/invoices" }, { label: "New invoice" }]} />
       <h1 className="heading mt-4 mb-2 text-[40px] leading-[.95] sm:text-[56px]">New invoice</h1>
       <p className="muted m-0 mb-8 max-w-[60ch] text-[15px]">
-        For an invoice you have on paper or in an email body. Type it as printed; nothing is checked yet.
+        For an invoice you have on paper or in an email body. Type it as printed: when you save, it gets the same checks and coding as an invoice from the inbox.
       </p>
       <Suspense fallback={<p className="muted">Loading…</p>}>
         <Guarded />

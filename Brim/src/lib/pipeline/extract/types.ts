@@ -12,7 +12,8 @@ export interface ExtractInput {
 }
 
 /** Where an answer came from. `recorded` answers are hand-made and never cached. */
-export type ExtractionSource = "claude" | "cache" | "recorded";
+/** `typed`: a person typed it into the invoice form (no file, no model). */
+export type ExtractionSource = "claude" | "cache" | "recorded" | "typed";
 
 export type ExtractResult =
   | {
