@@ -1,6 +1,6 @@
-// Brim AP automation data model.
-// Models are added in phase 1 (Loop A), following BUILD_PLAN.md "Data model".
-// Ids are the dataset's ids. Money is Decimal(14, 2); dates are @db.Date.
+// Brim AP automation data model (BUILD_PLAN.md "Data model").
+// Ids are the dataset's ids. Money is Decimal(14, 2); calendar dates are @db.Date.
+// Reference tables import one to one from brim_ap_dataset/data/*.csv.
 
 generator client {
   provider = "prisma-client"
@@ -9,4 +9,428 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+// ---------- Reference tables ----------
+
+model User {
+  id               String    @id // U001
+  fullName         String
+  email            String    @unique
+  title            String
+  departmentId     String
+  managerId        String?
+  role             String // employee | ap_clerk | approver | finance_manager | controller_admin | auditor
+  approvalLimitCad Decimal   @db.Decimal(14, 2)
+  workProvince     String
+  status           String // active | on_leave | terminated
+  statusSince      DateTime? @db.Date
+  delegateUserId   String?
+  hireDate         DateTime  @db.Date
+}
+
+model Department {
+  id              String  @id // D01
+  name            String
+  costCentre      String
+  annualBudgetCad Decimal @db.Decimal(14, 2)
+  managerUserId   String
+}
+
+model GlAccount {
+  id          String  @id // account number, e.g. "6210"
+  name        String
+  accountType String // asset | expense | liability
+  notes       String?
+}
+
+model TaxCode {
+  id          String  @id // HST13, GST5, PST7_BC, QST9975, EXEMPT, FOREIGN
+  description String
+  rate        Decimal @db.Decimal(8, 5)
+  appliesTo   String // all | goods
+  recoverable String // yes | no | n/a
+  glAccount   String?
+}
+
+model Vendor {
+  id                     String   @id // V001
+  legalName              String
+  category               String
+  defaultGlAccount       String
+  address                String
+  provinceOrState        String
+  country                String // CA | US
+  gstHstNumber           String?
+  qstNumber              String?
+  paymentTermsDays       Int
+  earlyPayDiscount       String?
+  preferredPaymentMethod String // EFT | CHEQUE | CARD
+  acceptsCardPayment     Boolean
+  apContactEmail         String
+  requiresPo             Boolean
+  status                 String // active | pending_review | on_hold
+  onboardedAt            DateTime @db.Date
+  createdById            String? // set for vendors onboarded in the app (FOUR_EYES)
+
+  bankAccounts   VendorBankAccount[]
+  bankChanges    BankChangeRequest[]
+  invoices       Invoice[]
+  payments       Payment[]
+}
+
+/// Bank details are versioned: the live account is the row with validTo = null.
+model VendorBankAccount {
+  id          String    @id @default(cuid())
+  vendorId    String
+  vendor      Vendor    @relation(fields: [vendorId], references: [id])
+  institution String
+  transit     String
+  account     String
+  validFrom   DateTime  @db.Date
+  validTo     DateTime? @db.Date
+
+  @@index([vendorId])
+}
+
+model BankChangeRequest {
+  id                 String    @id // BC-001 …
+  vendorId           String
+  vendor             Vendor    @relation(fields: [vendorId], references: [id])
+  oldLast4           String
+  /// The history CSV records only the last 4 digits of the new account.
+  newLast4           String
+  newInstitution     String?
+  newTransit         String?
+  newAccount         String?
+  channel            String // email_request | phone_callback_verified | vendor_portal
+  requestedById      String
+  requestedAt        DateTime  @db.Date
+  status             String // pending | verified | rejected
+  verifiedById       String?
+  verifiedAt         DateTime?
+  verifiedByCallback Boolean   @default(false)
+  note               String?
+  source             String    @default("app") // app | history
+
+  @@index([vendorId])
+}
+
+model Contract {
+  id                  String   @id // C001
+  vendorId            String
+  description         String
+  billingType         String // fixed_monthly | rate_card | retainer | blanket
+  monthlyFee          Decimal? @db.Decimal(14, 2)
+  currency            String
+  hourlyRateCap       Decimal? @db.Decimal(14, 2)
+  /// As written in the CSV: 12 means 12%.
+  fuelSurchargeCapPct Decimal? @db.Decimal(6, 2)
+  notToExceedMonthly  Decimal? @db.Decimal(14, 2)
+  startDate           DateTime @db.Date
+  endDate             DateTime @db.Date
+  autoRenew           Boolean
+  status              String // active | expired
+
+  @@index([vendorId])
+}
+
+model PurchaseOrder {
+  id              String   @id // PO-2026-0001
+  vendorId        String
+  departmentId    String
+  requesterUserId String
+  issueDate       DateTime @db.Date
+  description     String
+  /// Pre-tax.
+  totalAmount     Decimal  @db.Decimal(14, 2)
+  currency        String
+  status          String // open | closed | partially_invoiced
+  approvedBy      String
+
+  @@index([vendorId])
+}
+
+model FxRate {
+  date     DateTime @id @db.Date
+  usdToCad Decimal  @db.Decimal(10, 4)
+}
+
+model BankStatementLine {
+  id          String   @id // bank_txn_id
+  postedDate  DateTime @db.Date
+  description String
+  debit       Decimal? @db.Decimal(14, 2)
+  credit      Decimal? @db.Decimal(14, 2)
+  source      String   @default("history") // history | simulated
+}
+
+model CardTransaction {
+  id                 String   @id // CT-00001
+  cardId             String
+  cardholderUserId   String
+  postedDate         DateTime @db.Date
+  merchantDescriptor String
+  mcc                String
+  amount             Decimal  @db.Decimal(14, 2)
+  currency           String
+  amountCad          Decimal  @db.Decimal(14, 2)
+  source             String // employee_card | ap_virtual_card
+  receiptAttached    Boolean
+  memo               String?
+  origin             String   @default("history") // history | simulated
+
+  @@index([merchantDescriptor])
+}
+
+// ---------- Policy ----------
+
+/// The 13 CSV conditions mapped by hand to structured rows; sourceText keeps the original.
+model PolicyRule {
+  id          String  @id // P01 …
+  type        String // approval | payment_release | match
+  active      Boolean @default(true)
+  locked      Boolean @default(false)
+  when        Json // Condition[]
+  effect      Json // Effect
+  sourceText  String
+  note        String
+  updatedById String?
+}
+
+// ---------- Documents and inbox ----------
+
+model Document {
+  id        String   @id @default(cuid())
+  sha256    String   @unique
+  fileName  String
+  mime      String
+  bytes     Int
+  /// Where the file lives: "dataset:incoming_invoices/<name>", a Blob URL, or null when held in `data`.
+  url       String?
+  /// The file itself for uploads (small PDFs and images), so the app needs no separate store locally.
+  data      Bytes?
+  pageCount Int?
+  textLayer String?
+  createdAt DateTime @default(now())
+
+  invoices Invoice[]
+}
+
+model InboxEmail {
+  id              String   @id // EM-001
+  fromName        String
+  fromAddress     String
+  toAddress       String
+  subject         String
+  receivedAt      DateTime
+  body            String
+  /// File names as listed in emails.json.
+  attachments     Json
+  /// invoice | credit_note | statement | payment_inquiry | missing_attachment | other
+  label           String?
+  labelReason     String?
+  /// Who labelled it: rule | model | recorded | clerk
+  labelSource     String?
+  /// payment_inquiry: the invoice asked about; statement: the vendor it is filed against.
+  linkedInvoiceId String?
+  linkedVendorId  String?
+  senderCheck     Json?
+  source          String   @default("inbox") // inbox | upload
+
+  invoices Invoice[]
+}
+
+// ---------- Invoices ----------
+
+model Invoice {
+  id                  String    @id // AP-00427 …
+  source              String // history | inbox | upload
+  kind                String    @default("invoice") // invoice | credit_note
+  status              String
+  /// State to return to when the last hold closes.
+  heldFrom            String?
+  /// Optimistic lock for edits, approvals and release.
+  version             Int       @default(1)
+  documentId          String?
+  document            Document? @relation(fields: [documentId], references: [id])
+  emailId             String?
+  email               InboxEmail? @relation(fields: [emailId], references: [id])
+  /// For an uploaded file, the employee who uploaded it.
+  uploadedById        String?
+  vendorId            String?
+  vendor              Vendor?   @relation(fields: [vendorId], references: [id])
+  vendorInvoiceNumber String?
+  numberKey           String?
+  digitsKey           String?
+  invoiceDate         DateTime? @db.Date
+  receivedDate        DateTime  @db.Date
+  dueDate             DateTime? @db.Date
+  currency            String?
+  subtotal            Decimal?  @db.Decimal(14, 2)
+  gstHstAmount        Decimal?  @db.Decimal(14, 2)
+  pstQstAmount        Decimal?  @db.Decimal(14, 2)
+  total               Decimal?  @db.Decimal(14, 2)
+  fxRateToCad         Decimal?  @db.Decimal(10, 4)
+  totalCad            Decimal?  @db.Decimal(14, 2)
+  shipToProvince      String?
+  departmentId        String?
+  requesterId         String?
+  poId                String?
+  contractId          String?
+  creditOfInvoiceId   String?
+  /// What the document turned out to be: invoice | credit_note | statement | other.
+  docType             String?
+  /// The model's answer, values as printed.
+  extracted           Json?
+  /// Per field: confirmed | not_in_text | uncertain | unreadable | missing.
+  evidence            Json?
+  /// The normalisation stage's output (NormalizedInvoice as JSON), so later stages can re-run.
+  normalized          Json?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  lines         InvoiceLine[]
+  taxes         InvoiceTax[]
+  flags         Flag[]
+  approvalSteps ApprovalStep[]
+  payments      Payment[]
+
+  @@index([vendorId, numberKey])
+  @@index([vendorId, digitsKey])
+  @@index([vendorId, total])
+  @@index([status])
+}
+
+model InvoiceLine {
+  id                  String   @id @default(cuid())
+  invoiceId           String
+  invoice             Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  lineNo              Int
+  description         String
+  quantity            Decimal? @db.Decimal(14, 4)
+  unitPrice           Decimal? @db.Decimal(14, 4)
+  amount              Decimal? @db.Decimal(14, 2)
+  lineType            String? // goods | services
+  glSuggested         String?
+  glFinal             String?
+  departmentSuggested String?
+  departmentFinal     String?
+  reason              Json?
+  gstHstCode          String?
+  pstQstCode          String?
+
+  @@unique([invoiceId, lineNo])
+}
+
+model InvoiceTax {
+  id             String   @id @default(cuid())
+  invoiceId      String
+  invoice        Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  labelPrinted   String
+  taxCode        String?
+  ratePrinted    Decimal? @db.Decimal(8, 5)
+  amount         Decimal  @db.Decimal(14, 2)
+  expectedAmount Decimal? @db.Decimal(14, 2)
+
+  @@index([invoiceId])
+}
+
+model Flag {
+  id             String    @id @default(cuid())
+  invoiceId      String?
+  invoice        Invoice?  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  vendorId       String?
+  paymentId      String?
+  bankTxnId      String?
+  code           String
+  klass          String // data | policy | fraud
+  effect         String // hold | route | info
+  status         String    @default("open") // open | fixed | overridden | confirmed
+  message        String
+  evidence       Json
+  related        Json?
+  resolvedById   String?
+  resolvedAt     DateTime?
+  resolutionNote String?
+  createdAt      DateTime  @default(now())
+
+  @@index([invoiceId])
+  @@index([vendorId])
+  @@index([code, status])
+}
+
+model ApprovalStep {
+  id           String    @id // history: approval_id (APR-0001); app: cuid
+  invoiceId    String
+  invoice      Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  stepNo       Int
+  role         String // dept_manager | finance_manager | controller_admin | cfo
+  assignedToId String
+  onBehalfOfId String?
+  limitCad     Decimal   @db.Decimal(14, 2)
+  why          Json
+  decision     String    @default("pending") // pending | approved | rejected
+  decidedById  String?
+  decidedAt    DateTime?
+  comment      String?
+
+  @@unique([invoiceId, stepNo])
+  @@index([assignedToId, decision])
+}
+
+model Payment {
+  id            String    @id // PMT-00001 …
+  invoiceId     String
+  invoice       Invoice   @relation(fields: [invoiceId], references: [id])
+  vendorId      String
+  vendor        Vendor    @relation(fields: [vendorId], references: [id])
+  method        String // EFT | CHEQUE | CARD
+  scheduledDate DateTime  @db.Date
+  paidDate      DateTime? @db.Date
+  currency      String
+  amount        Decimal   @db.Decimal(14, 2)
+  fxRateToCad   Decimal   @db.Decimal(10, 4)
+  amountCad     Decimal   @db.Decimal(14, 2)
+  discountTaken Decimal   @default(0) @db.Decimal(14, 2)
+  reference     String?
+  /// scheduled | released | sent | settled | failed
+  status        String
+  preparedById  String
+  releasedById  String?
+  releasedAt    DateTime?
+  failureReason String?
+  bankSnapshot  Json?
+  source        String    @default("app") // app | history
+
+  @@index([invoiceId])
+  @@index([status])
+}
+
+// ---------- Audit ----------
+
+/// Append-only. Written in the same transaction as the change it records; never updated or deleted.
+model AuditEvent {
+  seq          BigInt   @id @default(autoincrement())
+  at           DateTime
+  actorId      String
+  actorRole    String
+  onBehalfOfId String?
+  action       String
+  entityType   String
+  entityId     String
+  invoiceId    String?
+  paymentId    String?
+  vendorId     String?
+  before       Json?
+  after        Json?
+  reason       String?
+  source       String // app | history
+  prevHash     String
+  hash         String   @unique
+
+  @@index([invoiceId])
+  @@index([paymentId])
+  @@index([actorId])
+  @@index([entityType, entityId])
 }
