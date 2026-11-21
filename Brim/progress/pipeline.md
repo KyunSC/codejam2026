@@ -16,7 +16,7 @@ events; the seed skips sealed files.
 - [x] 1.6 Seed: history invoices, lines, taxes, approval steps, payments (ids kept; `source: history`)
 - [x] 1.7 Seed: 474 history approvals and 415 history payments as hash-chained `history` audit events
 - [x] 1.8 Seed: inbox emails and documents for the unsealed files only; sealed files and the emails that carry them are skipped without being opened
-- [ ] 1.9 Seed check: a test against the local database asserting the Tables counts, the audit chain verifying, and no sealed file present
+- [x] 1.9 Seed check: a test against the local database asserting the Tables counts, the audit chain verifying, and no sealed file present
 
 ## Phase 3: intake, extraction, normalisation
 
@@ -51,3 +51,4 @@ reads; the broken inputs listed in Testing end in named states.
 - 1.6: History loads 426 invoices, 809 lines, 443 tax rows, 474 approval steps, 415 payments. Payment status `outstanding` (20 cheques) is stored as `sent`, the app's word for a mailed cheque not yet cleared. Invoice status is kept as the CSV writes it. History has no printed tax label, so `InvoiceTax.labelPrinted` is the code. Every history invoice uses one tax code per column, so tax rows are coded from the lines. `invoiceNumberKeys` (item 3.3's number keys) was written here, early, in `src/lib/pipeline/normalize/invoice-number.ts`; 3.3 reuses it.
 - 1.7: 889 history audit events (462 approve, 12 reject, 397 `payment.release`, 18 `payment.schedule`), sorted by time and chained. payments.csv has no preparation time, so an unreleased payment's event is dated its invoice's last approval and its reason says so; released payments are dated the paid date. The seed reads the chain back in `seq` order and fails if it does not verify.
 - 1.8: 44 inbox emails and 41 documents seeded; 15 sealed emails skipped. Sealed/open is decided by attachment name only (`src/lib/pipeline/sealed.ts`); an email mixing sealed and unsealed attachments would stop the seed (none does). Seeded documents keep their bytes in the dataset folder (`url = dataset:incoming_invoices/<name>`, `data` empty). Emails are stored unlabelled and no drafts are created: intake (3.12/3.15) does that, so the demo can show it.
+- 1.9: `src/lib/seed/__tests__/seeded-db.test.ts` checks the seeded local database: Tables counts and breakdowns (roles, vendor status, invoice status and currency, payment method and status, approval decisions and roles), 889 history audit events with the whole chain verifying, 44 emails and 41 documents with nothing sealed. It is read-only (never reseeds, so it cannot wipe demo data) and skips when DATABASE_URL is unset. Phase 1 "done when" passes.
