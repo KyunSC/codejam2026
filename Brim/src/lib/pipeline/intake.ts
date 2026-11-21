@@ -30,9 +30,10 @@ import { sniffMime } from "./inspect";
 import { createHash } from "node:crypto";
 import { needsLabel, type EmailLabeller, type LabelResult } from "./label";
 import { invoiceNumberKeys } from "./normalize/invoice-number";
-import { transactionsOn, type Db, type InTransaction } from "./tx";
+import { logAction, type Actor } from "../audit";
+import { harborlineId, transactionsOn, type Db, type InTransaction } from "./tx";
 
-type Tx = Db;
+type Tx = Prisma.TransactionClient;
 
 /** An email as `emails.json` gives it. */
 export type IntakeEmail = EmailRow;
@@ -45,6 +46,7 @@ export type AttachmentOutcome =
 export interface EmailOutcome {
   emailId: string;
   newEmail: boolean;
+  storedEmailId: string;
   attachments: AttachmentOutcome[];
   /** Set for an email without attachments. */
   label: {
@@ -59,13 +61,23 @@ export interface EmailOutcome {
 /** Serialises invoice id allocation across concurrent intakes (any constant works). */
 const INVOICE_ID_LOCK = 4_202_611;
 
+// Acquire before checking for an existing email, document or draft.
+export async function lockIntake(tx: Tx, organizationId: string): Promise<void> {
+  await tx.$queryRaw`SELECT 1 FROM (SELECT pg_advisory_xact_lock(${INVOICE_ID_LOCK}::int, hashtext(${organizationId}))) AS l`;
+}
+
 /** Next free `AP-nnnnn` ids. Takes a transaction-scoped lock so two intakes cannot collide. */
 export async function allocateInvoiceIds(tx: Tx, count: number): Promise<string[]> {
   if (count === 0) return [];
-  await tx.$queryRaw`SELECT 1 FROM (SELECT pg_advisory_xact_lock(${INVOICE_ID_LOCK})) AS l`;
+  const organizationId = await harborlineId(tx);
+  await lockIntake(tx, organizationId);
+  return nextInvoiceIds(tx, count, organizationId);
+}
+
+async function nextInvoiceIds(tx: Tx, count: number, organizationId: string): Promise<string[]> {
   const [{ m }] = await tx.$queryRaw<
     Array<{ m: number | null }>
-  >`SELECT max(substring(id from 4)::int) AS m FROM "Invoice" WHERE id ~ '^AP-[0-9]+$'`;
+  >`SELECT max(substring(id from 4)::int) AS m FROM "Invoice" WHERE "organizationId" = ${organizationId} AND id ~ '^AP-[0-9]+$'`;
   const start = (m ?? 0) + 1;
   return Array.from({ length: count }, (_, i) => `AP-${String(start + i).padStart(5, "0")}`);
 }
@@ -82,43 +94,69 @@ export function sha256Of(bytes: Uint8Array): string {
 /**
  * Stores the file (or finds it) and creates its draft unless the same bytes already have one.
  */
-async function storeAndDraft(
+export async function storeAndDraft(
   tx: Tx,
   fileName: string,
   bytes: Uint8Array,
   draft: Omit<Prisma.InvoiceUncheckedCreateInput, "id" | "status" | "documentId">,
-): Promise<AttachmentOutcome> {
+  actor: Actor = { type: "system" },
+  datasetNumber = false,
+  mimeType?: string,
+): Promise<Exclude<AttachmentOutcome, { status: "missing_file" }>> {
+  const { organizationId } = draft;
+  await lockIntake(tx, organizationId);
   const sha256 = sha256Of(bytes);
-  let doc = await tx.document.findUnique({ where: { sha256 }, select: { id: true } });
+  // Older app versions stored every arrival. Reuse the earliest existing draft even if
+  // another copy of the same file was seeded without an invoice.
+  const first = await tx.invoice.findFirst({
+    where: { organizationId, document: { organizationId, sha256 } },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: { id: true, documentId: true },
+  });
+  if (first?.documentId)
+    return { fileName, status: "already_received", sha256, documentId: first.documentId, invoiceId: first.id };
+  let doc = await tx.document.findFirst({
+    where: { organizationId, sha256 },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
   const newDocument = doc === null;
   if (!doc) {
     doc = await tx.document.create({
       data: {
+        organizationId,
         sha256,
         fileName,
-        mime: sniffMime(bytes) ?? "application/octet-stream",
-        bytes: bytes.length,
-        data: Buffer.from(bytes),
+        mimeType: sniffMime(bytes) ?? (mimeType || "application/octet-stream"),
+        sizeBytes: bytes.length,
+        content: Buffer.from(bytes),
       },
       select: { id: true },
     });
   }
-  const first = await tx.invoice.findFirst({
-    where: { documentId: doc.id },
-    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    select: { id: true },
+  const id = datasetNumber ? (await nextInvoiceIds(tx, 1, organizationId))[0] : undefined;
+  const invoice = await tx.invoice.create({ data: { ...draft, id, status: "received", documentId: doc.id } });
+  const invoiceId = invoice.id;
+  await logAction(tx, {
+    organizationId,
+    actor,
+    action: "invoice.received",
+    entityType: "invoice",
+    entityId: invoiceId,
+    after: { ...invoice, fileName, sha256, sizeBytes: bytes.length },
   });
-  if (first) return { fileName, status: "already_received", sha256, documentId: doc.id, invoiceId: first.id };
-  const [invoiceId] = await allocateInvoiceIds(tx, 1);
-  await tx.invoice.create({ data: { ...draft, id: invoiceId, status: "received", documentId: doc.id } });
   return { fileName, status: "draft", sha256, documentId: doc.id, invoiceId, newDocument };
 }
 
 /** Vendors the email could be from: same contact address; when several share it, the one whose
  * legal name the sender's display name contains, if exactly one does. */
-async function senderVendors(tx: Tx, email: IntakeEmail): Promise<Array<{ id: string; legalName: string }>> {
+async function senderVendors(
+  tx: Tx,
+  email: IntakeEmail,
+  organizationId: string,
+): Promise<Array<{ id: string; legalName: string }>> {
   const byAddress = await tx.vendor.findMany({
-    where: { apContactEmail: { equals: email.fromAddress.trim(), mode: "insensitive" } },
+    where: { organizationId, apContactEmail: { equals: email.fromAddress.trim(), mode: "insensitive" } },
     select: { id: true, legalName: true },
     orderBy: { id: "asc" },
   });
@@ -131,18 +169,24 @@ async function links(
   tx: Tx,
   email: IntakeEmail,
   label: Extract<LabelResult, { ok: true }>,
+  organizationId: string,
 ): Promise<{ linkedInvoiceId: string | null; linkedVendorId: string | null }> {
   if (label.label !== "payment_inquiry" && label.label !== "statement") {
     return { linkedInvoiceId: null, linkedVendorId: null };
   }
-  const vendors = await senderVendors(tx, email);
+  const vendors = await senderVendors(tx, email, organizationId);
   const vendorId = vendors.length === 1 ? vendors[0].id : null;
   if (label.label === "statement") return { linkedInvoiceId: null, linkedVendorId: vendorId };
 
   const { numberKey } = invoiceNumberKeys(label.invoiceNumber);
   if (!numberKey || vendors.length === 0) return { linkedInvoiceId: null, linkedVendorId: vendorId };
   const matches = await tx.invoice.findMany({
-    where: { vendorId: { in: vendors.map((v) => v.id) }, numberKey, status: { notIn: ["duplicate", "void"] } },
+    where: {
+      organizationId,
+      vendorId: { in: vendors.map((v) => v.id) },
+      numberKey,
+      status: { notIn: ["duplicate", "void"] },
+    },
     select: { id: true, vendorId: true },
   });
   if (matches.length !== 1) return { linkedInvoiceId: null, linkedVendorId: vendorId };
@@ -153,9 +197,18 @@ async function links(
  * Asks the labeller about an email without attachments, unless it is already labelled.
  * Call outside any transaction: it may be a network call.
  */
-export async function labelFor(prisma: Tx, email: IntakeEmail, labeller: EmailLabeller): Promise<LabelResult | null> {
+export async function labelFor(
+  prisma: Tx,
+  email: IntakeEmail,
+  labeller: EmailLabeller,
+  orgId?: string,
+): Promise<LabelResult | null> {
   if (!needsLabel(email)) return null;
-  const existing = await prisma.inboxEmail.findUnique({ where: { id: email.emailId }, select: { label: true } });
+  const organizationId = orgId ?? (await harborlineId(prisma));
+  const existing = await prisma.inboxEmail.findFirst({
+    where: { organizationId, sourceId: email.emailId },
+    select: { label: true },
+  });
   if (existing?.label) return null;
   return labeller.label({
     emailId: email.emailId,
@@ -167,6 +220,8 @@ export async function labelFor(prisma: Tx, email: IntakeEmail, labeller: EmailLa
 }
 
 export interface IntakeEmailInput {
+  organizationId?: string;
+  actor?: Actor;
   /** The attachment files by name; null when the file is missing from the batch. */
   files: ReadonlyMap<string, Uint8Array | null>;
   /** From `labelFor`; null when the email has attachments or is already labelled. */
@@ -174,24 +229,42 @@ export interface IntakeEmailInput {
   source?: "inbox" | "upload";
 }
 
-export async function intakeEmail(tx: Tx, email: IntakeEmail, input: IntakeEmailInput): Promise<EmailOutcome> {
+export async function intakeEmail(tx: Db, email: IntakeEmail, input: IntakeEmailInput): Promise<EmailOutcome> {
+  if ("$connect" in tx) return tx.$transaction((client) => intakeEmail(client, email, input));
+  const organizationId = input.organizationId ?? (await harborlineId(tx));
+  const actor = input.actor ?? { type: "system" };
+  await lockIntake(tx, organizationId);
   const source = input.source ?? "inbox";
-  const existing = await tx.inboxEmail.findUnique({ where: { id: email.emailId }, select: { id: true } });
-  if (!existing) {
-    await tx.inboxEmail.create({
+  const existing = await tx.inboxEmail.findFirst({
+    orderBy: { createdAt: "asc" },
+    where: { organizationId, sourceId: email.emailId },
+    select: { id: true },
+  });
+  const stored =
+    existing ??
+    (await tx.inboxEmail.create({
       data: {
-        id: email.emailId,
+        organizationId,
+        sourceId: email.emailId,
         fromName: email.fromName,
         fromAddress: email.fromAddress,
         toAddress: email.toAddress,
         subject: email.subject,
         receivedAt: timestamp(email.receivedAt),
         body: email.body,
-        attachments: email.attachments,
+        attachmentNames: email.attachments,
         source,
       },
+    }));
+  if (!existing)
+    await logAction(tx, {
+      organizationId,
+      actor,
+      action: "email.received",
+      entityType: "email",
+      entityId: stored.id,
+      after: email,
     });
-  }
 
   const attachments: AttachmentOutcome[] = [];
   for (const fileName of email.attachments) {
@@ -201,48 +274,66 @@ export async function intakeEmail(tx: Tx, email: IntakeEmail, input: IntakeEmail
       continue;
     }
     attachments.push(
-      await storeAndDraft(tx, fileName, bytes, {
-        source,
-        emailId: email.emailId,
-        receivedDate: dateOnly(receivedDateOf(email.receivedAt)),
-      }),
+      await storeAndDraft(
+        tx,
+        fileName,
+        bytes,
+        {
+          source,
+          organizationId,
+          emailId: stored.id,
+          receivedDate: dateOnly(receivedDateOf(email.receivedAt)),
+        },
+        actor,
+        !input.organizationId,
+      ),
     );
   }
 
   let label: EmailOutcome["label"] = null;
   if (input.label) {
     if (input.label.ok) {
-      const linked = await links(tx, email, input.label);
+      const linked = await links(tx, email, input.label, organizationId);
       const source = input.label.source === "claude" ? "model" : "recorded";
       await tx.inboxEmail.update({
-        where: { id: email.emailId },
+        where: { organizationId, id: stored.id },
         data: { label: input.label.label, labelReason: input.label.reason, labelSource: source, ...linked },
       });
       label = { label: input.label.label, reason: input.label.reason, source, ...linked };
     } else {
       // Left unlabelled so the next run asks again; the reason shows in "Needs attention".
       await tx.inboxEmail.update({
-        where: { id: email.emailId },
+        where: { organizationId, id: stored.id },
         data: { label: null, labelReason: input.label.detail, labelSource: null },
       });
       label = { label: null, reason: input.label.detail, source: null, linkedInvoiceId: null, linkedVendorId: null };
     }
   }
 
-  return { emailId: email.emailId, newEmail: !existing, attachments, label };
+  return { emailId: email.emailId, storedEmailId: stored.id, newEmail: !existing, attachments, label };
 }
 
 /** A loose upload: no email; received today. */
 export async function intakeFile(
-  tx: Tx,
+  tx: Db,
   file: { fileName: string; bytes: Uint8Array },
   opts: { uploadedById?: string | null; receivedDate?: IsoDate } = {},
 ): Promise<AttachmentOutcome> {
-  return storeAndDraft(tx, file.fileName, file.bytes, {
-    source: "upload",
-    uploadedById: opts.uploadedById ?? null,
-    receivedDate: dateOnly(opts.receivedDate ?? today()),
-  });
+  if ("$connect" in tx) return tx.$transaction((client) => intakeFile(client, file, opts));
+  const organizationId = await harborlineId(tx);
+  return storeAndDraft(
+    tx,
+    file.fileName,
+    file.bytes,
+    {
+      source: "upload",
+      organizationId,
+      createdById: opts.uploadedById ?? null,
+      receivedDate: dateOnly(opts.receivedDate ?? today()),
+    },
+    { type: "system" },
+    true,
+  );
 }
 
 /**

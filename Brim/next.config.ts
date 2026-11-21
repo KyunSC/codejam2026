@@ -11,7 +11,7 @@ const nextConfig: NextConfig = {
   // cannot follow, so ship them with every server function. incoming_invoices/ is left out:
   // invoices arrive through the intake page.
   outputFileTracingIncludes: {
-    "/**": ["./brim_ap_dataset/data/**/*", "./brim_ap_dataset/inbox/**/*"],
+    "/**": ["./brim_ap_dataset/data/**/*", "./brim_ap_dataset/inbox/emails.open.json", "./brim_ap_dataset/sealed_invoices.txt"],
   },
   turbopack: {
     rules: {

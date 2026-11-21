@@ -62,13 +62,13 @@ describe.runIf(hasDb)("intake (rolled back)", () => {
       expect(out.newEmail).toBe(false);
       expect(out.label).toBeNull();
       expect(out.attachments.map((a) => a.status)).toEqual(["draft", "draft"]);
-      const drafts = await tx.invoice.findMany({ where: { emailId: "EM-029" }, orderBy: { id: "asc" } });
+      const drafts = await tx.invoice.findMany({ where: { email: { sourceId: "EM-029" } }, orderBy: { id: "asc" } });
       expect(drafts.map((d) => [d.id, d.status, d.source, d.receivedDate.toISOString().slice(0, 10)])).toEqual([
         ["AP-00427", "received", "inbox", "2026-10-29"],
         ["AP-00428", "received", "inbox", "2026-10-29"],
       ]);
       expect(out.attachments.every((a) => a.status === "draft" && !a.newDocument)).toBe(true);
-      expect(await tx.document.count()).toBe(41);
+      expect(await tx.document.count({ where: { organization: { slug: "harborline" } } })).toBe(41);
     });
   });
 
@@ -87,7 +87,9 @@ describe.runIf(hasDb)("intake (rolled back)", () => {
       });
       expect(copy.newEmail).toBe(true);
       expect(copy.attachments[0]).toMatchObject({ status: "already_received", invoiceId: firstIds[0] });
-      expect(await tx.invoice.count({ where: { source: { not: "history" } } })).toBe(2);
+      expect(
+        await tx.invoice.count({ where: { organization: { slug: "harborline" }, source: { not: "history" } } }),
+      ).toBe(2);
     });
   });
 
@@ -95,8 +97,8 @@ describe.runIf(hasDb)("intake (rolled back)", () => {
     await inRollback(async (tx) => {
       const out = await intakeEmail(tx, made, { files: new Map([["copy.pdf", null]]), label: null });
       expect(out.attachments).toEqual([{ fileName: "copy.pdf", status: "missing_file" }]);
-      expect(await tx.invoice.count({ where: { emailId: made.emailId } })).toBe(0);
-      expect(await tx.inboxEmail.findUnique({ where: { id: made.emailId } })).toMatchObject({ source: "inbox" });
+      expect(await tx.invoice.count({ where: { email: { sourceId: made.emailId } } })).toBe(0);
+      expect(await tx.inboxEmail.findFirst({ where: { sourceId: made.emailId } })).toMatchObject({ source: "inbox" });
     });
   });
 
@@ -119,7 +121,9 @@ describe.runIf(hasDb)("intake (rolled back)", () => {
         "EM-058": expect.objectContaining({ label: "missing_attachment", linkedInvoiceId: null, linkedVendorId: null }),
         "EM-059": expect.objectContaining({ label: "other", linkedInvoiceId: null, linkedVendorId: null }),
       });
-      expect(await tx.inboxEmail.findUnique({ where: { id: "EM-057" } })).toMatchObject({
+      expect(
+        await tx.inboxEmail.findFirst({ where: { organization: { slug: "harborline" }, sourceId: "EM-057" } }),
+      ).toMatchObject({
         label: "payment_inquiry",
         labelSource: "recorded",
         linkedInvoiceId: "AP-00049",
@@ -139,7 +143,9 @@ describe.runIf(hasDb)("intake (rolled back)", () => {
       const e = emails.get("EM-058")!;
       const out = await intakeEmail(tx, e, { files: new Map(), label: await labelFor(tx, e, failing) });
       expect(out.label).toMatchObject({ label: null, source: null, reason: /Overloaded/ });
-      expect(await tx.inboxEmail.findUnique({ where: { id: "EM-058" } })).toMatchObject({
+      expect(
+        await tx.inboxEmail.findFirst({ where: { organization: { slug: "harborline" }, sourceId: "EM-058" } }),
+      ).toMatchObject({
         label: null,
         labelReason: "The model call failed (529): Overloaded",
       });
@@ -151,9 +157,14 @@ describe.runIf(hasDb)("intake (rolled back)", () => {
     await inRollback(async (tx) => {
       const out = await intakeFile(tx, { fileName: "upload.pdf", bytes: pdf }, { uploadedById: null });
       expect(out).toMatchObject({ status: "draft", newDocument: true, invoiceId: "AP-00427" });
-      const doc = await tx.document.findUnique({ where: { sha256: out.status === "draft" ? out.sha256 : "" } });
-      expect(doc).toMatchObject({ mime: "application/pdf", bytes: pdf.length, url: null, fileName: "upload.pdf" });
-      expect(Buffer.from(doc!.data!).equals(pdf)).toBe(true);
+      const doc = await tx.document.findFirst({ where: { sha256: out.status === "draft" ? out.sha256 : "" } });
+      expect(doc).toMatchObject({
+        mimeType: "application/pdf",
+        sizeBytes: pdf.length,
+        url: null,
+        fileName: "upload.pdf",
+      });
+      expect(Buffer.from(doc!.content).equals(pdf)).toBe(true);
       expect(await tx.invoice.findUnique({ where: { id: "AP-00427" } })).toMatchObject({
         source: "upload",
         status: "received",

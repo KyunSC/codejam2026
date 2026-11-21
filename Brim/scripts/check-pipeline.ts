@@ -5,6 +5,7 @@
  *   npm run script -- scripts/check-pipeline.ts
  */
 import { db } from "../src/lib/db";
+import { harborlineId } from "../src/lib/pipeline/tx";
 import { sealedFileNames } from "../src/lib/pipeline/sealed";
 
 async function main() {
@@ -12,22 +13,23 @@ async function main() {
   const results: Array<[string, boolean, string]> = [];
   const check = (name: string, ok: boolean, got: unknown) => results.push([name, ok, JSON.stringify(got)]);
   try {
+    const organizationId = await harborlineId(prisma);
     const drafts = await prisma.invoice.findMany({
-      where: { source: "inbox" },
-      select: { id: true, emailId: true, documentId: true, status: true },
+      where: { organizationId, source: "inbox" },
+      select: { id: true, email: { select: { sourceId: true } }, documentId: true, status: true },
     });
     check("41 inbox drafts", drafts.length === 41, drafts.length);
     check("one draft per document", new Set(drafts.map((d) => d.documentId)).size === drafts.length, "distinct");
-    check("EM-029 has two drafts", drafts.filter((d) => d.emailId === "EM-029").length === 2, "EM-029");
+    check("EM-029 has two drafts", drafts.filter((d) => d.email?.sourceId === "EM-029").length === 2, "EM-029");
 
-    const docs = await prisma.document.findMany({ select: { fileName: true } });
+    const docs = await prisma.document.findMany({ where: { organizationId }, select: { fileName: true } });
     const sealed = sealedFileNames();
     const leaked = docs.filter((d) => sealed.has(d.fileName)).map((d) => d.fileName);
     check("no sealed file stored", leaked.length === 0, leaked);
 
     const labelled = await prisma.inboxEmail.findMany({
-      where: { id: { in: ["EM-056", "EM-057", "EM-058", "EM-059"] } },
-      select: { id: true, label: true, linkedInvoiceId: true, linkedVendorId: true },
+      where: { organizationId, sourceId: { in: ["EM-056", "EM-057", "EM-058", "EM-059"] } },
+      select: { sourceId: true, label: true, linkedInvoiceId: true, linkedVendorId: true },
       orderBy: { id: "asc" },
     });
     const want = {
@@ -38,10 +40,10 @@ async function main() {
     };
     check(
       "EM-056..059 labelled",
-      labelled.length === 4 && labelled.every((e) => e.label === want[e.id as keyof typeof want]),
-      labelled.map((e) => `${e.id}:${e.label}`),
+      labelled.length === 4 && labelled.every((e) => e.label === want[e.sourceId as keyof typeof want]),
+      labelled.map((e) => `${e.sourceId}:${e.label}`),
     );
-    const em057 = labelled.find((e) => e.id === "EM-057");
+    const em057 = labelled.find((e) => e.sourceId === "EM-057");
     check("EM-057 linked to its invoice", em057?.linkedInvoiceId === "AP-00049", em057?.linkedInvoiceId);
 
     const byStatus: Record<string, number> = {};

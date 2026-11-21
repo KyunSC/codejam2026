@@ -28,7 +28,8 @@ import { createExtractor, type ExtractResult, type Extractor } from "./extract";
 import { inspectDocument, type Inspection } from "./inspect";
 import { normalizeDetailed, type NormalizeResult } from "./normalize";
 import { sealedFileNames } from "./sealed";
-import { transactionsOn, type Db, type InTransaction } from "./tx";
+import { logAction } from "../audit";
+import { harborlineId, transactionsOn, type Db, type InTransaction } from "./tx";
 
 type Tx = Db;
 
@@ -57,21 +58,22 @@ export function documentBytes(doc: { data: Uint8Array | null; url: string | null
   return new Uint8Array();
 }
 
-function loadDraft(db: Tx, invoiceId: string) {
+function loadDraft(db: Tx, invoiceId: string, organizationId: string) {
   return db.invoice.findUnique({
-    where: { id: invoiceId },
+    where: { id: invoiceId, organizationId },
     select: {
       id: true,
       status: true,
       receivedDate: true,
       emailId: true,
-      document: { select: { id: true, sha256: true, fileName: true, data: true, url: true } },
+      document: { select: { id: true, sha256: true, fileName: true, content: true, url: true } },
       email: { select: { fromAddress: true, fromName: true } },
     },
   });
 }
 
 export type Prepared = {
+  organizationId: string;
   invoiceId: string;
   fileName: string | null;
   documentId: string | null;
@@ -85,9 +87,11 @@ export type Prepared = {
 );
 
 /** Reads, inspects, extracts and normalises one draft. No writes; never throws for a bad file. */
-export async function prepare(db: Tx, invoiceId: string, extractor: Extractor): Promise<Prepared> {
-  const draft = await loadDraft(db, invoiceId);
+export async function prepare(db: Tx, invoiceId: string, extractor: Extractor, orgId?: string): Promise<Prepared> {
+  const organizationId = orgId ?? (await harborlineId(db));
+  const draft = await loadDraft(db, invoiceId, organizationId);
   const base = {
+    organizationId,
     invoiceId,
     fileName: draft?.document?.fileName ?? null,
     documentId: draft?.document?.id ?? null,
@@ -101,7 +105,7 @@ export async function prepare(db: Tx, invoiceId: string, extractor: Extractor): 
 
   let bytes: Uint8Array;
   try {
-    bytes = documentBytes(draft.document);
+    bytes = documentBytes({ ...draft.document, data: draft.document.content });
   } catch (e) {
     return { ...base, kind: "unreadable", reason: "file_unavailable", detail: (e as Error).message };
   }
@@ -162,10 +166,15 @@ function taxSum(n: NormalizedInvoice, codes: ReadonlySet<TaxCode>): string | nul
 }
 
 /** Labels an email with attachments by what its first readable attachment turned out to be. */
-async function labelEmailByDocument(tx: Tx, emailId: string | null, docType: Extracted["docType"]): Promise<void> {
+async function labelEmailByDocument(
+  tx: Tx,
+  organizationId: string,
+  emailId: string | null,
+  docType: Extracted["docType"],
+): Promise<void> {
   if (!emailId) return;
   await tx.inboxEmail.updateMany({
-    where: { id: emailId, label: null },
+    where: { organizationId, id: emailId, label: null },
     data: { label: docType, labelReason: `The attachment is ${docType.replace("_", " ")}.`, labelSource: "rule" },
   });
 }
@@ -175,6 +184,7 @@ async function labelEmailByDocument(tx: Tx, emailId: string | null, docType: Ext
  * both write it. Returns the end state.
  */
 export async function commit(tx: Tx, p: Prepared): Promise<RunOutcome> {
+  const { organizationId } = p;
   const out = (end: EndState, detail: string): RunOutcome => ({
     invoiceId: p.invoiceId,
     fileName: p.fileName,
@@ -185,15 +195,27 @@ export async function commit(tx: Tx, p: Prepared): Promise<RunOutcome> {
 
   if (p.inspection && p.documentId && p.inspection.problem === null) {
     await tx.document.update({
-      where: { id: p.documentId },
-      data: { pageCount: p.inspection.pageCount, textLayer: p.inspection.textLayer, mime: p.inspection.mime! },
+      where: { organizationId, id: p.documentId },
+      data: { pageCount: p.inspection.pageCount, textLayer: p.inspection.textLayer, mimeType: p.inspection.mime! },
     });
   }
   if (p.kind === "not_extracted") return out("not_extracted", p.detail);
 
   const move = async (data: Prisma.InvoiceUncheckedUpdateManyInput) => {
-    const { count } = await tx.invoice.updateMany({ where: { id: p.invoiceId, status: "received" }, data });
+    const { count } = await tx.invoice.updateMany({
+      where: { organizationId, id: p.invoiceId, status: "received" },
+      data,
+    });
     if (count !== 1) throw new Error(`Invoice ${p.invoiceId} is no longer received; another run moved it.`);
+    await logAction(tx, {
+      organizationId,
+      actor: { type: "system" },
+      action: "invoice.processed",
+      entityType: "invoice",
+      entityId: p.invoiceId,
+      before: { status: "received" },
+      after: { status: data.status },
+    });
   };
 
   if (p.kind === "unreadable") {
@@ -201,6 +223,7 @@ export async function commit(tx: Tx, p: Prepared): Promise<RunOutcome> {
     await tx.flag.create({
       data: {
         invoiceId: p.invoiceId,
+        organizationId,
         code: "UNREADABLE",
         klass: "data",
         effect: "hold",
@@ -216,8 +239,8 @@ export async function commit(tx: Tx, p: Prepared): Promise<RunOutcome> {
 
   const x = p.extraction.extracted;
   const meta = { source: p.extraction.source, model: p.extraction.model };
-  const draft = await loadDraft(tx, p.invoiceId);
-  await labelEmailByDocument(tx, draft?.emailId ?? null, x.docType);
+  const draft = await loadDraft(tx, p.invoiceId, organizationId);
+  await labelEmailByDocument(tx, organizationId, draft?.emailId ?? null, x.docType);
 
   if (p.kind === "not_invoice") {
     await move({ status: "needs_review", docType: x.docType, extracted: asJson(x) });
@@ -232,7 +255,9 @@ export async function commit(tx: Tx, p: Prepared): Promise<RunOutcome> {
     extracted: asJson(x),
     evidence: asJson(n.evidence),
     normalized: asJson({ ...n, extraction: meta }),
-    vendorInvoiceNumber: n.invoiceNumber,
+    ...(n.poNumber ? { poNumber: n.poNumber } : {}),
+    vendorName: n.vendorName,
+    invoiceNumber: n.invoiceNumber,
     numberKey: n.numberKey,
     digitsKey: n.digitsKey,
     invoiceDate: day(n.invoiceDate),
@@ -286,11 +311,12 @@ export interface RunOptions {
 export async function runPipeline(prisma: Db, opts: RunOptions = {}): Promise<RunOutcome[]> {
   const inTransaction = opts.inTransaction ?? transactionsOn(prisma);
   const extractor = opts.extractor ?? createExtractor();
+  const organizationId = await harborlineId(prisma);
   const ids =
     opts.invoiceIds ??
     (
       await prisma.invoice.findMany({
-        where: { status: "received" },
+        where: { organizationId, documentId: { not: null }, status: "received" },
         orderBy: [{ receivedDate: "asc" }, { id: "asc" }],
         select: { id: true },
       })
@@ -298,7 +324,7 @@ export async function runPipeline(prisma: Db, opts: RunOptions = {}): Promise<Ru
   const out: RunOutcome[] = [];
   for (const id of ids) {
     try {
-      const p = await prepare(prisma, id, extractor);
+      const p = await prepare(prisma, id, extractor, organizationId);
       out.push(await inTransaction((tx) => commit(tx, p)));
     } catch (e) {
       // A database problem on one draft must not stop the batch; the draft stays received.

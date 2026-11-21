@@ -3,8 +3,7 @@
  * they carry. Emails are stored unlabelled and no draft invoice is created; ingesting the inbox
  * (intake) does that, so the demo can show it happen.
  *
- * Documents are stored by SHA-256 with `url = dataset:incoming_invoices/<name>`; the bytes stay
- * in the dataset folder. Sealed files are skipped by name and never read.
+ * Documents are stored by SHA-256 with `url = dataset:incoming_invoices/<name>`; the bytes also live in Document.content for the app’s download route. Sealed files are skipped by name and never read.
  */
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -28,8 +27,8 @@ export function datasetDocumentUrl(fileName: string): string {
 }
 
 export interface InboxSeed {
-  emails: Prisma.InboxEmailCreateManyInput[];
-  documents: Prisma.DocumentCreateManyInput[];
+  emails: Omit<Prisma.InboxEmailCreateManyInput, "organizationId">[];
+  documents: Omit<Prisma.DocumentCreateManyInput, "organizationId">[];
   sealedEmailCount: number;
 }
 
@@ -43,19 +42,19 @@ export function inboxSeedRows(
 ): InboxSeed {
   const { open, sealed: held } = partitionInbox(ds.emails, sealed);
 
-  const emails: Prisma.InboxEmailCreateManyInput[] = open.map((e) => ({
-    id: e.emailId,
+  const emails: Omit<Prisma.InboxEmailCreateManyInput, "organizationId">[] = open.map((e) => ({
+    sourceId: e.emailId,
     fromName: e.fromName,
     fromAddress: e.fromAddress,
     toAddress: e.toAddress,
     subject: e.subject,
     receivedAt: timestamp(e.receivedAt),
     body: e.body,
-    attachments: e.attachments,
+    attachmentNames: e.attachments,
     source: "inbox",
   }));
 
-  const documents: Prisma.DocumentCreateManyInput[] = [];
+  const documents: Omit<Prisma.DocumentCreateManyInput, "organizationId">[] = [];
   const seen = new Set<string>();
   for (const name of open.flatMap((e) => e.attachments)) {
     if (sealed.has(name)) throw new Error(`Refusing to read sealed file ${name}`);
@@ -67,19 +66,32 @@ export function inboxSeedRows(
     documents.push({
       sha256,
       fileName: name,
-      mime: MIME_BY_EXT[path.extname(name).toLowerCase()] ?? "application/octet-stream",
-      bytes: bytes.length,
+      mimeType: MIME_BY_EXT[path.extname(name).toLowerCase()] ?? "application/octet-stream",
+      content: Buffer.from(bytes),
+      sizeBytes: bytes.length,
       url: datasetDocumentUrl(name),
     });
   }
   return { emails, documents, sealedEmailCount: held.length };
 }
 
-export async function seedInbox(tx: Tx, ds: Dataset): Promise<Record<string, number>> {
+export async function seedInbox(tx: Tx, ds: Dataset, organizationId: string): Promise<Record<string, number>> {
   const rows = inboxSeedRows(ds);
+  const emails = await tx.inboxEmail.findMany({ where: { organizationId }, select: { sourceId: true } });
+  const documents = await tx.document.findMany({ where: { organizationId }, select: { sha256: true } });
+  const knownEmails = new Set(emails.map((e) => e.sourceId));
+  const knownHashes = new Set(documents.map((d) => d.sha256));
   return {
-    inboxEmails: (await tx.inboxEmail.createMany({ data: rows.emails })).count,
-    documents: (await tx.document.createMany({ data: rows.documents })).count,
+    inboxEmails: (
+      await tx.inboxEmail.createMany({
+        data: rows.emails.filter((e) => !knownEmails.has(e.sourceId!)).map((e) => ({ ...e, organizationId })),
+      })
+    ).count,
+    documents: (
+      await tx.document.createMany({
+        data: rows.documents.filter((d) => !knownHashes.has(d.sha256)).map((d) => ({ ...d, organizationId })),
+      })
+    ).count,
     sealedEmailsSkipped: rows.sealedEmailCount,
   };
 }

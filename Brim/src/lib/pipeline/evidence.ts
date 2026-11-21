@@ -179,6 +179,14 @@ function num(raw: string | null): Decimal | null {
   return r?.ok ? r.value : null;
 }
 
+function readsAgree(path: string, first: string, second: string | null): boolean {
+  if (second === null) return false;
+  if (!isNumericField(path)) return matchKey(first) === matchKey(second);
+  const a = num(first);
+  const b = num(second);
+  return a !== null && b !== null && a.equals(b);
+}
+
 const closeEnough = (a: Decimal, b: Decimal) => a.minus(b).abs().lte(CENT);
 
 export function checkArithmetic(x: Extracted): ArithmeticResult {
@@ -232,7 +240,10 @@ export function computeEvidence(
     } else if (isNumericField(path) && arithmetic.closes) evidence[path] = "confirmed";
     else if (second) {
       const other = second.get(path) ?? null;
-      evidence[path] = other !== null && matchKey(other) === matchKey(value) ? "confirmed" : "uncertain";
+      const agrees = readsAgree(path, value, other);
+      evidence[path] = agrees ? "confirmed" : "uncertain";
+    } else if (!opts.hasTextLayer && !arithmetic.closes) {
+      evidence[path] = "uncertain";
     }
   }
   // Fields the model listed as unreadable that have no value slot (e.g. "lines") still count.

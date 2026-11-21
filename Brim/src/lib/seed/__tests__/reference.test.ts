@@ -25,7 +25,7 @@ describe("seed converters", () => {
 describe("reference rows", () => {
   it("keeps dataset ids and money as exact strings", () => {
     const u = userRows(ds).find((r) => r.id === "U012")!;
-    expect(u).toMatchObject({ status: "on_leave", delegateUserId: "U003", approvalLimitCad: "10000" });
+    expect(u).toMatchObject({ status: "on_leave", delegateId: "U003", approvalLimitCad: "10000" });
     expect(u.statusSince).toEqual(dateOnly("2026-10-20"));
   });
 

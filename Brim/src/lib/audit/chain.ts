@@ -21,8 +21,8 @@ export const GENESIS_HASH = "0".repeat(64);
 /** The fields that are hashed. Mirrors the AuditEvent model minus seq, prevHash and hash. */
 export interface AuditFields {
   at: Date;
-  actorId: string;
-  actorRole: string;
+  actorId: string | null;
+  actorRole: string | null;
   onBehalfOfId: string | null;
   action: string;
   entityType: string;
@@ -117,7 +117,7 @@ export type ChainResult =
   | { ok: false; count: number; index: number; seq: string | null; reason: string };
 
 /** Recomputes every hash in order (rows sorted by seq) and reports the first that does not match. */
-export function verifyChain(rows: ReadonlyArray<ChainedAuditRow>, startHash: string = GENESIS_HASH): ChainResult {
+export function verifyChain(rows: ReadonlyArray<Omit<ChainedAuditRow, "prevHash" | "hash"> & { prevHash: string | null; hash: string | null }>, startHash: string = GENESIS_HASH): ChainResult {
   let prev = startHash;
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
@@ -128,7 +128,7 @@ export function verifyChain(rows: ReadonlyArray<ChainedAuditRow>, startHash: str
         count: rows.length,
         index: i,
         seq,
-        reason: `Row ${seq ?? i} points at ${row.prevHash.slice(0, 12)}… but the row before it hashes to ${prev.slice(0, 12)}…: a row was removed, inserted or reordered.`,
+        reason: `Row ${seq ?? i} points at ${row.prevHash?.slice(0, 12)}… but the row before it hashes to ${prev.slice(0, 12)}…: a row was removed, inserted or reordered.`,
       };
     }
     const expected = auditHash(prev, row);
@@ -138,7 +138,7 @@ export function verifyChain(rows: ReadonlyArray<ChainedAuditRow>, startHash: str
         count: rows.length,
         index: i,
         seq,
-        reason: `Row ${seq ?? i} stores hash ${row.hash.slice(0, 12)}… but its contents hash to ${expected.slice(0, 12)}…: the row was changed after it was written.`,
+        reason: `Row ${seq ?? i} stores hash ${row.hash?.slice(0, 12)}… but its contents hash to ${expected.slice(0, 12)}…: the row was changed after it was written.`,
       };
     }
     prev = row.hash;

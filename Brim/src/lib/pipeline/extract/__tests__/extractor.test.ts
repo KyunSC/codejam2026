@@ -121,6 +121,12 @@ describe("the cache", () => {
     expect(claude.calls).toBe(1);
   });
 
+  it("returns the live answer when the cache cannot be written", async () => {
+    const cache = { get: () => null, put: () => { throw new Error("read-only filesystem"); } };
+    const extractor = new CachedExtractor(new FakeClaude(), cache);
+    expect(await extractor.extract(input(SHA_A))).toMatchObject({ ok: true, source: "claude" });
+  });
+
   it("never stores a recorded answer", async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "cache-"));
     const x = createExtractor({

@@ -5,7 +5,7 @@
  *
  *   npm run script -- scripts/ingest-inbox.ts [--run]
  *
- * Safe to run twice. `npm run db:seed` returns the database to the state before intake.
+ * Safe to run twice. The local seed imports Harborline once and preserves subsequent intake.
  */
 import { db } from "../src/lib/db";
 import { hasAnthropicKey } from "../src/lib/pipeline/extract";

@@ -32,14 +32,18 @@ export class CachedExtractor implements Extractor {
     }
     const r = await this.inner.extract(input);
     if (r.ok && this.inner.kind === "claude" && r.source === "claude") {
-      this.cache.put({
-        source: "claude",
-        sha256: input.sha256,
-        model: r.model,
-        extractedAt: this.now().toISOString(),
-        extracted: r.extracted,
-        secondRead: r.secondRead,
-      });
+      try {
+        this.cache.put({
+          source: "claude",
+          sha256: input.sha256,
+          model: r.model,
+          extractedAt: this.now().toISOString(),
+          extracted: r.extracted,
+          secondRead: r.secondRead,
+        });
+      } catch (error) {
+        console.warn("Could not cache the completed extraction", error);
+      }
     }
     return r;
   }

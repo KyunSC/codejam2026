@@ -26,6 +26,19 @@ Node 20.19 or later.
 | `npm run typecheck` | TypeScript, no emit |
 | `npm run lint` | ESLint |
 | `npm run db:migrate` | Create and apply a migration. Loop A only, local DB (run with `BRIM_LOCAL_DB_ONLY=1`) |
+| `npm run script -- scripts/seed-harborline.ts` | Create Harborline and its 40 dataset users, each with the demo password (`SEED_PASSWORD`, default `harborline`) |
+| `npm run script -- scripts/create-brim-staff.ts <email> "<name>" <password>` | Add a Brim staff login for `/admin` |
+
+## Logging in
+
+- Customers log in at `/login` with email and password. New people use `/signup` with their organization's ID; a controller/admin approves them in Settings.
+- Harborline users after the seed: any dataset email, e.g. `jordan.okafor@harborline-logistics.example` (AP clerk) or `marcus.webb@harborline-logistics.example` (controller/admin), password `harborline`.
+- Brim staff log in from the footer link (`/admin/login`) to onboard and manage organizations. Scripts can call `/api/admin/*` with `Authorization: Bearer $BRIM_ADMIN_TOKEN` instead.
+- `.env` needs `SESSION_SECRET` (signs the login cookies) and `BRIM_ADMIN_TOKEN`.
+
+## Harborline pipeline
+
+Run `BRIM_LOCAL_DB_ONLY=1 npm run db:seed` after applying the migrations locally. The import reuses Harborline logins and runs once per organization. Repeating it preserves invoices, passwords, and audit history. The development inbox is `brim_ap_dataset/inbox/emails.open.json`, containing the 44 open messages. Run `npm run script -- scripts/ingest-inbox.ts --run` to process their attachments.
 
 ## Shared code
 

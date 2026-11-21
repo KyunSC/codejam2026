@@ -19,15 +19,15 @@ import { dateOnly } from "./convert";
 type Tx = Prisma.TransactionClient | PrismaClient;
 
 export interface BankSeed {
-  accounts: Prisma.VendorBankAccountCreateManyInput[];
-  requests: Prisma.BankChangeRequestCreateManyInput[];
+  accounts: Omit<Prisma.VendorBankAccountCreateManyInput, "organizationId">[];
+  requests: Omit<Prisma.BankChangeRequestCreateManyInput, "organizationId">[];
   /** Places where the CSVs disagree with each other; reported, not fatal. */
   warnings: string[];
 }
 
 export function bankSeedRows(ds: Pick<Dataset, "vendors" | "bankChanges">): BankSeed {
-  const accounts: Prisma.VendorBankAccountCreateManyInput[] = [];
-  const requests: Prisma.BankChangeRequestCreateManyInput[] = [];
+  const accounts: Omit<Prisma.VendorBankAccountCreateManyInput, "organizationId">[] = [];
+  const requests: Omit<Prisma.BankChangeRequestCreateManyInput, "organizationId">[] = [];
   const warnings: string[] = [];
 
   const changesByVendor = new Map<string, BankChangeRow[]>();
@@ -42,9 +42,7 @@ export function bankSeedRows(ds: Pick<Dataset, "vendors" | "bankChanges">): Bank
   }
 
   for (const v of ds.vendors) {
-    const changes = [...(changesByVendor.get(v.vendorId) ?? [])].sort((a, b) =>
-      a.changedAt.localeCompare(b.changedAt),
-    );
+    const changes = [...(changesByVendor.get(v.vendorId) ?? [])].sort((a, b) => a.changedAt.localeCompare(b.changedAt));
     const hasCurrent = v.bankAccount !== null;
 
     // Earlier accounts: known only by the last 4 digits each change replaced.
@@ -101,7 +99,9 @@ export function bankSeedRows(ds: Pick<Dataset, "vendors" | "bankChanges">): Bank
         verifiedByCallback: c.verifiedByCallback,
         // The history does not say who made the callback.
         verifiedById: null,
-        note: c.verifiedByCallback ? null : `Imported from history: requested by ${c.requestChannel}, no callback recorded.`,
+        note: c.verifiedByCallback
+          ? null
+          : `Imported from history: requested by ${c.requestChannel}, no callback recorded.`,
         source: "history",
       });
     }
@@ -109,11 +109,19 @@ export function bankSeedRows(ds: Pick<Dataset, "vendors" | "bankChanges">): Bank
   return { accounts, requests, warnings };
 }
 
-export async function seedBank(tx: Tx, ds: Dataset): Promise<{ counts: Record<string, number>; warnings: string[] }> {
+export async function seedBank(
+  tx: Tx,
+  ds: Dataset,
+  organizationId: string,
+): Promise<{ counts: Record<string, number>; warnings: string[] }> {
   const { accounts, requests, warnings } = bankSeedRows(ds);
   const counts = {
-    vendorBankAccounts: (await tx.vendorBankAccount.createMany({ data: accounts })).count,
-    bankChangeRequests: (await tx.bankChangeRequest.createMany({ data: requests })).count,
+    vendorBankAccounts: (
+      await tx.vendorBankAccount.createMany({ data: accounts.map((row) => ({ ...row, organizationId })) })
+    ).count,
+    bankChangeRequests: (
+      await tx.bankChangeRequest.createMany({ data: requests.map((row) => ({ ...row, organizationId })) })
+    ).count,
   };
   return { counts, warnings };
 }

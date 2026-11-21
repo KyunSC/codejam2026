@@ -9,7 +9,7 @@ import { dateOnly, money, optDateOnly, optMoney } from "./convert";
 
 type Tx = Prisma.TransactionClient | PrismaClient;
 
-export function userRows(ds: Pick<Dataset, "users">): Prisma.UserCreateManyInput[] {
+export function userRows(ds: Pick<Dataset, "users">): Omit<Prisma.UserCreateManyInput, "organizationId">[] {
   return ds.users.map((u) => ({
     id: u.userId,
     fullName: u.fullName,
@@ -22,12 +22,14 @@ export function userRows(ds: Pick<Dataset, "users">): Prisma.UserCreateManyInput
     workProvince: u.workProvince,
     status: u.status,
     statusSince: optDateOnly(u.statusSince),
-    delegateUserId: u.delegateUserId,
+    delegateId: u.delegateUserId,
     hireDate: dateOnly(u.hireDate),
   }));
 }
 
-export function departmentRows(ds: Pick<Dataset, "departments">): Prisma.DepartmentCreateManyInput[] {
+export function departmentRows(
+  ds: Pick<Dataset, "departments">,
+): Omit<Prisma.DepartmentCreateManyInput, "organizationId">[] {
   return ds.departments.map((d) => ({
     id: d.departmentId,
     name: d.name,
@@ -37,11 +39,13 @@ export function departmentRows(ds: Pick<Dataset, "departments">): Prisma.Departm
   }));
 }
 
-export function glAccountRows(ds: Pick<Dataset, "glAccounts">): Prisma.GlAccountCreateManyInput[] {
+export function glAccountRows(
+  ds: Pick<Dataset, "glAccounts">,
+): Omit<Prisma.GlAccountCreateManyInput, "organizationId">[] {
   return ds.glAccounts.map((g) => ({ id: g.accountNumber, name: g.name, accountType: g.accountType, notes: g.notes }));
 }
 
-export function taxCodeRows(ds: Pick<Dataset, "taxCodes">): Prisma.TaxCodeCreateManyInput[] {
+export function taxCodeRows(ds: Pick<Dataset, "taxCodes">): Omit<Prisma.TaxCodeCreateManyInput, "organizationId">[] {
   return ds.taxCodes.map((t) => ({
     id: t.code,
     description: t.description,
@@ -53,7 +57,7 @@ export function taxCodeRows(ds: Pick<Dataset, "taxCodes">): Prisma.TaxCodeCreate
 }
 
 /** Bank details are not stored on the vendor: they go to VendorBankAccount (seed item 1.5). */
-export function vendorRows(ds: Pick<Dataset, "vendors">): Prisma.VendorCreateManyInput[] {
+export function vendorRows(ds: Pick<Dataset, "vendors">): Omit<Prisma.VendorCreateManyInput, "organizationId">[] {
   return ds.vendors.map((v) => ({
     id: v.vendorId,
     legalName: v.legalName,
@@ -75,7 +79,7 @@ export function vendorRows(ds: Pick<Dataset, "vendors">): Prisma.VendorCreateMan
   }));
 }
 
-export function contractRows(ds: Pick<Dataset, "contracts">): Prisma.ContractCreateManyInput[] {
+export function contractRows(ds: Pick<Dataset, "contracts">): Omit<Prisma.ContractCreateManyInput, "organizationId">[] {
   return ds.contracts.map((c) => ({
     id: c.contractId,
     vendorId: c.vendorId,
@@ -93,7 +97,9 @@ export function contractRows(ds: Pick<Dataset, "contracts">): Prisma.ContractCre
   }));
 }
 
-export function purchaseOrderRows(ds: Pick<Dataset, "purchaseOrders">): Prisma.PurchaseOrderCreateManyInput[] {
+export function purchaseOrderRows(
+  ds: Pick<Dataset, "purchaseOrders">,
+): Omit<Prisma.PurchaseOrderCreateManyInput, "organizationId">[] {
   return ds.purchaseOrders.map((p) => ({
     id: p.poId,
     vendorId: p.vendorId,
@@ -108,11 +114,13 @@ export function purchaseOrderRows(ds: Pick<Dataset, "purchaseOrders">): Prisma.P
   }));
 }
 
-export function fxRateRows(ds: Pick<Dataset, "fxRates">): Prisma.FxRateCreateManyInput[] {
+export function fxRateRows(ds: Pick<Dataset, "fxRates">): Omit<Prisma.FxRateCreateManyInput, "organizationId">[] {
   return ds.fxRates.map((f) => ({ date: dateOnly(f.date), usdToCad: money(f.usdToCad) }));
 }
 
-export function bankStatementRows(ds: Pick<Dataset, "bankStatement">): Prisma.BankStatementLineCreateManyInput[] {
+export function bankStatementRows(
+  ds: Pick<Dataset, "bankStatement">,
+): Omit<Prisma.BankStatementLineCreateManyInput, "organizationId">[] {
   return ds.bankStatement.map((b) => ({
     id: b.bankTxnId,
     postedDate: dateOnly(b.postedDate),
@@ -123,7 +131,9 @@ export function bankStatementRows(ds: Pick<Dataset, "bankStatement">): Prisma.Ba
   }));
 }
 
-export function cardTransactionRows(ds: Pick<Dataset, "cardTransactions">): Prisma.CardTransactionCreateManyInput[] {
+export function cardTransactionRows(
+  ds: Pick<Dataset, "cardTransactions">,
+): Omit<Prisma.CardTransactionCreateManyInput, "organizationId">[] {
   return ds.cardTransactions.map((c) => ({
     id: c.txnId,
     cardId: c.cardId,
@@ -141,7 +151,9 @@ export function cardTransactionRows(ds: Pick<Dataset, "cardTransactions">): Pris
   }));
 }
 
-export function policyRuleRows(ds: Pick<Dataset, "approvalPolicies">): Prisma.PolicyRuleCreateManyInput[] {
+export function policyRuleRows(
+  ds: Pick<Dataset, "approvalPolicies">,
+): Omit<Prisma.PolicyRuleCreateManyInput, "organizationId">[] {
   return policyRulesFrom(ds.approvalPolicies).map((r) => ({
     id: r.id,
     type: r.type,
@@ -155,18 +167,38 @@ export function policyRuleRows(ds: Pick<Dataset, "approvalPolicies">): Prisma.Po
 }
 
 /** Loads every reference table. Returns the row count per table. */
-export async function seedReference(tx: Tx, ds: Dataset): Promise<Record<string, number>> {
+export async function seedReference(tx: Tx, ds: Dataset, organizationId: string): Promise<Record<string, number>> {
   const counts: Record<string, number> = {};
-  counts.users = (await tx.user.createMany({ data: userRows(ds) })).count;
-  counts.departments = (await tx.department.createMany({ data: departmentRows(ds) })).count;
-  counts.glAccounts = (await tx.glAccount.createMany({ data: glAccountRows(ds) })).count;
-  counts.taxCodes = (await tx.taxCode.createMany({ data: taxCodeRows(ds) })).count;
-  counts.vendors = (await tx.vendor.createMany({ data: vendorRows(ds) })).count;
-  counts.contracts = (await tx.contract.createMany({ data: contractRows(ds) })).count;
-  counts.purchaseOrders = (await tx.purchaseOrder.createMany({ data: purchaseOrderRows(ds) })).count;
-  counts.fxRates = (await tx.fxRate.createMany({ data: fxRateRows(ds) })).count;
-  counts.bankStatement = (await tx.bankStatementLine.createMany({ data: bankStatementRows(ds) })).count;
-  counts.cardTransactions = (await tx.cardTransaction.createMany({ data: cardTransactionRows(ds) })).count;
-  counts.policyRules = (await tx.policyRule.createMany({ data: policyRuleRows(ds) })).count;
+  counts.users = ds.users.length;
+  counts.departments = (
+    await tx.department.createMany({ data: departmentRows(ds).map((row) => ({ ...row, organizationId })) })
+  ).count;
+  counts.glAccounts = (
+    await tx.glAccount.createMany({ data: glAccountRows(ds).map((row) => ({ ...row, organizationId })) })
+  ).count;
+  counts.taxCodes = (
+    await tx.taxCode.createMany({ data: taxCodeRows(ds).map((row) => ({ ...row, organizationId })) })
+  ).count;
+  counts.vendors = (
+    await tx.vendor.createMany({ data: vendorRows(ds).map((row) => ({ ...row, organizationId })) })
+  ).count;
+  counts.contracts = (
+    await tx.contract.createMany({ data: contractRows(ds).map((row) => ({ ...row, organizationId })) })
+  ).count;
+  counts.purchaseOrders = (
+    await tx.purchaseOrder.createMany({ data: purchaseOrderRows(ds).map((row) => ({ ...row, organizationId })) })
+  ).count;
+  counts.fxRates = (
+    await tx.fxRate.createMany({ data: fxRateRows(ds).map((row) => ({ ...row, organizationId })) })
+  ).count;
+  counts.bankStatement = (
+    await tx.bankStatementLine.createMany({ data: bankStatementRows(ds).map((row) => ({ ...row, organizationId })) })
+  ).count;
+  counts.cardTransactions = (
+    await tx.cardTransaction.createMany({ data: cardTransactionRows(ds).map((row) => ({ ...row, organizationId })) })
+  ).count;
+  counts.policyRules = (
+    await tx.policyRule.createMany({ data: policyRuleRows(ds).map((row) => ({ ...row, organizationId })) })
+  ).count;
   return counts;
 }

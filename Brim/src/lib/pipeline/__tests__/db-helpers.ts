@@ -5,17 +5,21 @@
  */
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 
+import { harborlineId } from "../tx";
+
 class Rollback extends Error {}
 
 /** Undoes intake and run.ts (in the caller's transaction): the database as the seed left it. */
 export async function resetIntake(tx: Prisma.TransactionClient): Promise<void> {
-  await tx.invoice.deleteMany({ where: { source: { not: "history" } } });
-  await tx.inboxEmail.deleteMany({ where: { source: { not: "inbox" } } });
+  const organizationId = await harborlineId(tx);
+  await tx.invoice.deleteMany({ where: { organizationId, source: { not: "history" } } });
+  await tx.inboxEmail.deleteMany({ where: { organizationId, source: { not: "inbox" } } });
   await tx.inboxEmail.updateMany({
+    where: { organizationId },
     data: { label: null, labelReason: null, labelSource: null, linkedInvoiceId: null, linkedVendorId: null },
   });
-  await tx.document.deleteMany({ where: { url: null } });
-  await tx.document.updateMany({ data: { pageCount: null, textLayer: null } });
+  await tx.document.deleteMany({ where: { organizationId, url: null } });
+  await tx.document.updateMany({ where: { organizationId }, data: { pageCount: null, textLayer: null } });
 }
 
 /** Runs `fn` on a seeded-state view of the database and rolls everything back. */

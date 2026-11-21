@@ -111,17 +111,22 @@ export function historyAuditEvents(
   return chainRows(events.map((e) => e.event));
 }
 
-export async function seedHistoryAudit(tx: Tx, ds: Dataset): Promise<Record<string, number>> {
+export async function seedHistoryAudit(tx: Tx, ds: Dataset, organizationId: string): Promise<Record<string, number>> {
   const events = historyAuditEvents(ds);
   const data: Prisma.AuditEventCreateManyInput[] = events.map((e) => ({
     ...e,
+    organizationId,
+    actorType: "user",
     before: (e.before ?? undefined) as Prisma.InputJsonValue | undefined,
     after: (e.after ?? undefined) as Prisma.InputJsonValue | undefined,
   }));
   const { count } = await tx.auditEvent.createMany({ data });
 
   // Read the chain back in seq order and verify it, so a reordering on insert fails the seed.
-  const stored = await tx.auditEvent.findMany({ orderBy: { seq: "asc" } });
+  const stored = await tx.auditEvent.findMany({
+    where: { organizationId, source: "history" },
+    orderBy: { seq: "asc" },
+  });
   const result = verifyChain(stored.map((r) => ({ ...r, source: r.source as "app" | "history" })));
   if (!result.ok) throw new Error(`Audit chain does not verify after seeding: ${result.reason}`);
   return { auditEvents: count };

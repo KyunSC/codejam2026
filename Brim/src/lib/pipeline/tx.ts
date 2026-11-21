@@ -12,3 +12,9 @@ export function transactionsOn(db: Db): InTransaction {
   }
   return (fn) => db.$transaction(fn);
 }
+
+/** The dataset scripts operate on this customer even when the database hosts other organizations. */
+export async function harborlineId(db: Db): Promise<string> {
+  const org = await db.organization.findUniqueOrThrow({ where: { slug: "harborline" }, select: { id: true } });
+  return org.id;
+}

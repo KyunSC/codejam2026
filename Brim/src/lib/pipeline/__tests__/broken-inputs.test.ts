@@ -133,7 +133,7 @@ describe.runIf(hasDb)("broken inputs end in named states (rolled back)", () => {
       });
 
       const drafts = await tx.invoice.findMany({
-        where: { source: "upload" },
+        where: { organization: { slug: "harborline" }, source: "upload" },
         include: { flags: true, document: true },
       });
       expect(drafts).toHaveLength(6);
@@ -150,7 +150,7 @@ describe.runIf(hasDb)("broken inputs end in named states (rolled back)", () => {
       expect(byFile["photo.jpg"]).toMatchObject({ status: "needs_review", docType: "other", flags: [] });
       expect(byFile["two-page.pdf"]).toMatchObject({
         status: "extracted",
-        vendorInvoiceNumber: "9002",
+        invoiceNumber: "9002",
         flags: [],
         document: { pageCount: 2 },
       });

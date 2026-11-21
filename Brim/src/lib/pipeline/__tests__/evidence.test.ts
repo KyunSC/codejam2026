@@ -170,6 +170,18 @@ describe("computeEvidence", () => {
       expect(r.reviewFields).toContainEqual({ field: "total", evidence: "uncertain" });
     });
 
+    it.each(["-12.34", "123.4"])("checks the sign and decimal position of %s", (total) => {
+      const r = computeEvidence(extracted({ total: "12.34" }), {
+        textLayer: null, hasTextLayer: false, secondRead: extracted({ total }),
+      });
+      expect(r.reviewFields).toContainEqual({ field: "total", evidence: "uncertain" });
+    });
+
+    it("requires review when an inconsistent scan has no second reading", () => {
+      const r = computeEvidence(extracted({ total: "12.34" }), { textLayer: null, hasTextLayer: false });
+      expect(r.reviewFields).toContainEqual({ field: "total", evidence: "uncertain" });
+    });
+
     it("treats agreement on a wrong sum as a real error, not a reading problem", () => {
       const both = extracted({ total: "1,987.02" });
       const r = computeEvidence(both, { textLayer: null, hasTextLayer: false, secondRead: both });

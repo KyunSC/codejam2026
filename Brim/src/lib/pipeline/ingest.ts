@@ -1,5 +1,5 @@
 /**
- * Ingests the unsealed AP inbox (`inbox/emails.json` and `incoming_invoices/`) into the
+ * Ingests the unsealed AP inbox (`inbox/emails.open.json` and `incoming_invoices/`) into the
  * database: intake for every open email, then optionally run.ts on the drafts.
  *
  * Sealed emails are skipped by attachment name, and no sealed file is ever read. Running it

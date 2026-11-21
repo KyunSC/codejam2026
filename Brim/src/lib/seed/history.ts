@@ -22,21 +22,25 @@ type Tx = Prisma.TransactionClient | PrismaClient;
 const PAYMENT_STATUS: Record<string, string> = { settled: "settled", outstanding: "sent", scheduled: "scheduled" };
 
 export interface HistorySeed {
-  invoices: Prisma.InvoiceCreateManyInput[];
+  invoices: Omit<Prisma.InvoiceCreateManyInput, "organizationId">[];
   lines: Prisma.InvoiceLineCreateManyInput[];
   taxes: Prisma.InvoiceTaxCreateManyInput[];
-  steps: Prisma.ApprovalStepCreateManyInput[];
-  payments: Prisma.PaymentCreateManyInput[];
+  steps: Omit<Prisma.ApprovalStepCreateManyInput, "organizationId">[];
+  payments: Omit<Prisma.PaymentCreateManyInput, "organizationId">[];
 }
 
-function oneCode(lines: InvoiceLineRow[], pick: (l: InvoiceLineRow) => string | null, invoiceId: string): string | null {
+function oneCode(
+  lines: InvoiceLineRow[],
+  pick: (l: InvoiceLineRow) => string | null,
+  invoiceId: string,
+): string | null {
   const codes = [...new Set(lines.map(pick).filter((c): c is string => c !== null))];
   if (codes.length > 1) throw new Error(`${invoiceId}: lines carry more than one tax code (${codes.join(", ")})`);
   return codes[0] ?? null;
 }
 
 export function historySeedRows(
-  ds: Pick<Dataset, "invoices" | "invoiceLines" | "approvals" | "payments" | "users">,
+  ds: Pick<Dataset, "invoices" | "invoiceLines" | "approvals" | "payments" | "users" | "vendors">,
 ): HistorySeed {
   const linesByInvoice = new Map<string, InvoiceLineRow[]>();
   for (const l of ds.invoiceLines) {
@@ -46,7 +50,7 @@ export function historySeedRows(
   }
   const limitByUser = new Map(ds.users.map((u) => [u.userId, u.approvalLimitCad]));
 
-  const invoices: Prisma.InvoiceCreateManyInput[] = [];
+  const invoices: Omit<Prisma.InvoiceCreateManyInput, "organizationId">[] = [];
   const taxes: Prisma.InvoiceTaxCreateManyInput[] = [];
   for (const i of ds.invoices) {
     const keys = invoiceNumberKeys(i.vendorInvoiceNumber);
@@ -57,7 +61,8 @@ export function historySeedRows(
       docType: "invoice",
       status: i.status,
       vendorId: i.vendorId,
-      vendorInvoiceNumber: i.vendorInvoiceNumber,
+      invoiceNumber: i.vendorInvoiceNumber,
+      vendorName: ds.vendors.find((v) => v.vendorId === i.vendorId)?.legalName,
       numberKey: keys.numberKey,
       digitsKey: keys.digitsKey,
       invoiceDate: dateOnly(i.invoiceDate),
@@ -112,7 +117,7 @@ export function historySeedRows(
     pstQstCode: l.pstQstCode,
   }));
 
-  const steps: Prisma.ApprovalStepCreateManyInput[] = ds.approvals.map((a) => {
+  const steps: Omit<Prisma.ApprovalStepCreateManyInput, "organizationId">[] = ds.approvals.map((a) => {
     const limit = limitByUser.get(a.approverUserId);
     if (!limit) throw new Error(`${a.approvalId}: approver ${a.approverUserId} is not in users.csv`);
     return {
@@ -131,7 +136,7 @@ export function historySeedRows(
     };
   });
 
-  const payments: Prisma.PaymentCreateManyInput[] = ds.payments.map((p) => {
+  const payments: Omit<Prisma.PaymentCreateManyInput, "organizationId">[] = ds.payments.map((p) => {
     const status = PAYMENT_STATUS[p.status];
     if (!status) throw new Error(`${p.paymentId}: unknown payment status ${p.status}`);
     return {
@@ -157,13 +162,14 @@ export function historySeedRows(
   return { invoices, lines, taxes, steps, payments };
 }
 
-export async function seedHistory(tx: Tx, ds: Dataset): Promise<Record<string, number>> {
+export async function seedHistory(tx: Tx, ds: Dataset, organizationId: string): Promise<Record<string, number>> {
   const rows = historySeedRows(ds);
   return {
-    invoices: (await tx.invoice.createMany({ data: rows.invoices })).count,
+    invoices: (await tx.invoice.createMany({ data: rows.invoices.map((row) => ({ ...row, organizationId })) })).count,
     invoiceLines: (await tx.invoiceLine.createMany({ data: rows.lines })).count,
     invoiceTaxes: (await tx.invoiceTax.createMany({ data: rows.taxes })).count,
-    approvalSteps: (await tx.approvalStep.createMany({ data: rows.steps })).count,
-    payments: (await tx.payment.createMany({ data: rows.payments })).count,
+    approvalSteps: (await tx.approvalStep.createMany({ data: rows.steps.map((row) => ({ ...row, organizationId })) }))
+      .count,
+    payments: (await tx.payment.createMany({ data: rows.payments.map((row) => ({ ...row, organizationId })) })).count,
   };
 }
