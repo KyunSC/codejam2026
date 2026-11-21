@@ -22,7 +22,7 @@ Scripts in `scripts/` set `APP_TODAY=2026-11-02` themselves.
 - [x] 12. Checks: SPLIT_SUSPECTED, REQUESTER_TERMINATED, SELF_APPROVAL (history), CREDIT_NOTE_ORPHAN
 - [x] 13. Duplicate detection: DUP_EXACT, DUP_NEAR, DUP_CONTENT, DUP_PAID_BY_CARD (lookalike vendors count as one)
 - [x] 14. Checks runner (`runChecks`) + `scripts/history-replay.ts`: compare against "What is planted"; explain differences below
-- [ ] 15. Smart coding (same description at vendor → vendor default → nearest description) + `scripts/coding-accuracy.ts` (train Jan–Aug, test Sep–Oct; account and department)
+- [x] 15. Smart coding (same description at vendor → vendor default → nearest description) + `scripts/coding-accuracy.ts` (train Jan–Aug, test Sep–Oct; account and department)
 - [ ] 16. Approval routing: policy rows P01–P13, rules → steps → people (self, leave, terminated, repeats, unresolvable), release eligibility; the five worked examples as tests
 
 ## Stop condition
@@ -174,3 +174,14 @@ Fixes made while replaying:
 - VENDOR_LOOKALIKE now needs strictly fewer invoices than the lookalike. With "at most as many", every pair's
   first replayed invoice (0 vs 0) and V001's AP-00123 (2 vs 2) fired; now exactly V051 ×3 and V053 ×2.
 - PO status as of each invoice: a closed PO counts as open until its last history invoice is entered.
+
+### Item 15: smart coding (2026-11-21)
+`src/lib/rules/coding.ts` (`suggestAccount` with a reason per line; `smartCoder` is now `resolveInvoice`'s
+default line coder), `scripts/coding-accuracy.ts` (`npx tsx scripts/coding-accuracy.ts`).
+Trained on the 348 invoices dated January–August, tested on the 78 dated September–October:
+- **Account right on first suggestion: 147 of 147 lines (100.0%)**: 144 by vendor default, 3 by same description
+  at the vendor (racking → 5030).
+- **Department right on first suggestion: 143 of 147 lines (97.3%); 76 of 78 invoices (97.4%)**: PO's department,
+  else vendor+province, else vendor, from the training months only.
+Also confirmed: the vendor default alone is right on 799 of 809 history lines, and the 10 "Racking components"
+lines are all 5030 (BUILD_PLAN). Description matching ignores numbers ("qty 120" = "qty 80").

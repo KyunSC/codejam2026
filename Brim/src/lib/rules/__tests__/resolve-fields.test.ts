@@ -217,12 +217,19 @@ describe("resolveInvoice", () => {
     });
     expect(invoice.totalCad?.toFixed(2)).toBe("5650.00");
     expect(invoice.departmentId).toBeTruthy();
-    expect(invoice.lines[0]).toMatchObject({ glAccount: v.defaultGlAccount, lineTypeSource: "account" });
+    // Smart coding: "Racking components" at V012 codes to 5030, not the vendor default (5040).
+    expect(v.defaultGlAccount).toBe("5040");
+    expect(invoice.lines[0]).toMatchObject({ glAccount: "5030", lineType: "goods", lineTypeSource: "account" });
   });
 
-  it("leaves an unknown vendor unresolved, with no department and no account", () => {
+  it("leaves an unknown vendor unresolved, with no department; lines coded by nearest description", () => {
     const { invoice } = resolveInvoice(base({ vendorName: "Blue Heron Couriers" }), refs);
     expect(invoice).toMatchObject({ vendorId: null, departmentId: null, currencyResolved: null, totalCad: null });
+    expect(invoice.lines[0]).toMatchObject({ glAccount: "5030", lineType: "goods" });
+  });
+
+  it("can be given another line coder", () => {
+    const { invoice } = resolveInvoice(base({ vendorName: "Blue Heron Couriers" }), refs, { codeLine: () => null });
     expect(invoice.lines[0]).toMatchObject({ glAccount: null, lineType: null });
   });
 

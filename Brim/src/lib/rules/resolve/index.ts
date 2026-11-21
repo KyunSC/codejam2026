@@ -5,6 +5,7 @@
  */
 import type Decimal from "decimal.js";
 import type { NormalizedInvoice, ResolvedInvoice, ResolvedLine } from "../../types";
+import { smartCoder } from "../coding";
 import type { Refs } from "../refs";
 import {
   findPo,
@@ -19,7 +20,7 @@ import {
 } from "./fields";
 import { resolveVendor } from "./vendor";
 
-/** Suggests a GL account for a line. Smart coding provides the real one; the default is the vendor's account. */
+/** Suggests a GL account for a line. The default is smart coding (src/lib/rules/coding.ts). */
 export type LineCoder = (line: { description: string; lineNo: number }, vendorId: string | null, refs: Refs) => string | null;
 
 export const vendorDefaultCoder: LineCoder = (_line, vendorId, refs) =>
@@ -51,7 +52,7 @@ export function resolveInvoice(
   const department = resolveDepartment(po, vendor.vendorId, shipToProvince, refs);
   const currencyResolved = resolveCurrency(doc.currency, vendorRow?.country);
   const fx = resolveFx(currencyResolved, doc.invoiceDate, refs);
-  const code = opts.codeLine ?? vendorDefaultCoder;
+  const code = opts.codeLine ?? smartCoder;
 
   const lines: ResolvedLine[] = doc.lines.map((l) => {
     const glAccount = code(l, vendor.vendorId, refs);
