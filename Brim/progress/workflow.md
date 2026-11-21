@@ -37,6 +37,12 @@ Local env for every command (never Neon): `BRIM_LOCAL_DB_ONLY=1 DATABASE_URL=pos
     - Lines and coding: suggested account with its reason, a dropdown to override account and department per line, "Accept all suggestions"; every save sends If-Match with the version the page was rendered at.
     - Not seen in a browser: a dev server was already running on :3000 for this folder (not started by the loop, possibly on Neon), and Next refuses a second one. Typecheck and lint pass; check the page by hand.
 - [ ] 5. Approvals: submit, route-preview, approve/reject, delegation, chain on invoice screen, "Waiting for me"; five worked examples pass against the DB.
+  - [x] 5a. Service + API (`src/lib/workflow/approvals.ts`): `GET route-preview`, `POST submit` (422 OPEN_FLAGS / CODING_INCOMPLETE / STEP_UNRESOLVABLE), `POST approve|reject` (403 NOT_YOUR_STEP / SELF_APPROVAL, 409 VERSION_CONFLICT, reject needs a reason), `POST reopen`, `PUT me/delegation` (422 DELEGATE_INVALID).
+    - Routing input comes from the stored resolution (so a suspected split routes as the combined amount) with the stored columns on top; manual invoices route from their columns. An overridden policy/fraud flag adds a finance manager step (rules engine).
+    - Steps store `why` (rule ids + replacements). A delegate can decide the step of an approver who went on leave after submit; the step and the audit row record `onBehalfOf`.
+    - All five worked examples pass end to end against the DB (`approvals.test.ts`), plus refusals and delegation.
+    - Decision: example 5 (nobody may release) is refused at submit with STEP_UNRESOLVABLE and the release reason, so the invoice never reaches approval with no possible releaser. Resubmitting after a rejection replaces the step rows (the audit log keeps every earlier decision). Both in questions.md.
+  - [ ] 5b. Approval chain on the invoice screen (submit / approve / reject / route preview), "Waiting for me" page, delegate setting.
 - [ ] 6. Payments: prepare, release, simulate bank run, invoice follows payment, dashboard; day-one state.
 - [ ] 7. Vendors: list/detail, onboarding, approve/hold/release-hold (FOUR_EYES), bank changes verify/reject (CALLBACK_REQUIRED); V004 held until BC-009 verified.
 - [ ] 8. Audit: pack per payment, global log filters, CSV export (auditor read-only server-side), verify chain.

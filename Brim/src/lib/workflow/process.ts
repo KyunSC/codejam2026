@@ -98,6 +98,28 @@ export function applyClerkChoices(inv: ResolvedInvoice, c: ClerkChoices, refs: R
   return out;
 }
 
+/**
+ * Resolution for a stored invoice: its normalized values through resolveInvoice, with the clerk's
+ * choices on top. The uploader counts as requester when they are an employee.
+ */
+export function resolveStored(
+  row: { normalized: unknown; createdBy?: { role: string; externalId: string | null; id: string } | null },
+  refs: Refs,
+) {
+  const doc = reviveNormalized(row.normalized);
+  const uploaderId =
+    row.createdBy && row.createdBy.role === "employee" ? (row.createdBy.externalId ?? row.createdBy.id) : null;
+  const base = resolveInvoice(doc, refs, { uploaderId });
+  const clerk = clerkChoices(row.normalized);
+  const resolved = applyClerkChoices(base.invoice, clerk, refs);
+  const notes = {
+    ...base.notes,
+    ...(clerk.vendorId ? { vendor: `Chosen by the AP clerk: ${clerk.vendorId}.` } : {}),
+    ...(clerk.departmentId ? { department: `Chosen by the AP clerk: ${clerk.departmentId}.` } : {}),
+  };
+  return { resolved, notes };
+}
+
 /** Whether the flags and lines leave the invoice needing a person. */
 export function needsReview(openFlags: readonly Pick<Flag, "effect">[], lines: readonly { glAccount: string | null }[]): boolean {
   return openFlags.some((f) => f.effect === "hold") || lines.some((l) => !l.glAccount);
@@ -136,13 +158,7 @@ export async function processInvoice(tx: Tx, input: ProcessInput): Promise<Proce
   const refs =
     input.refs ??
     (await loadLiveRefs(tx, organizationId, { self: { invoiceId, receivedDate: row.receivedDate, status: row.status } }));
-  const doc = reviveNormalized(row.normalized);
-  const uploaderId =
-    row.createdBy && row.createdBy.role === "employee" ? (row.createdBy.externalId ?? row.createdBy.id) : null;
-  const base = resolveInvoice(doc, refs, { uploaderId });
-  const clerk = clerkChoices(row.normalized);
-  const resolved = applyClerkChoices(base.invoice, clerk, refs);
-  const notes = { ...base.notes, ...(clerk.vendorId ? { vendor: `Chosen by the AP clerk: ${clerk.vendorId}.` } : {}), ...(clerk.departmentId ? { department: `Chosen by the AP clerk: ${clerk.departmentId}.` } : {}) };
+  const { resolved, notes } = resolveStored(row, refs);
   const flags = runChecks(resolved, refs);
 
   // ---- Flags: keep, refresh, fix, create ----
