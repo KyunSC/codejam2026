@@ -214,9 +214,9 @@ export function computeEvidence(
     if (!(u in evidence) && !Object.keys(evidence).some((k) => k.startsWith(`${u}.`))) evidence[u] = "unreadable";
   }
 
-  const reviewFields = REQUIRED_FIELDS.filter((f) => evidence[f] !== undefined && evidence[f] !== "confirmed").map(
-    (f) => ({ field: f, evidence: evidence[f] }),
-  );
+  const reviewFields: EvidenceResult["reviewFields"] = REQUIRED_FIELDS.filter(
+    (f) => evidence[f] !== undefined && evidence[f] !== "confirmed",
+  ).map((f) => ({ field: f, evidence: evidence[f] }));
   // Any uncertain or unreadable field anywhere also needs a person (BUILD_PLAN: highlighted in review).
   for (const [field, e] of Object.entries(evidence)) {
     if ((e === "uncertain" || e === "unreadable") && !reviewFields.some((r) => r.field === field)) {
