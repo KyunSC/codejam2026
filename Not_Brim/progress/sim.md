@@ -25,7 +25,7 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 
 ## Step 3: plain-language edits
 - [x] S3.1 `/api/edit` and "Ask for a change", slider values carried over. Attempts: 1
-- [ ] S3.2 Playwright: pendulum → edit → ready, bob B default changed. Attempts: 0
+- [x] S3.2 Playwright: pendulum → edit → ready, bob B default changed. Attempts: 1
 - [ ] S3.3 Step 3 report. Attempts: 0
 
 ## Step 4: student links + homework
@@ -61,3 +61,4 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 - S2.1: one repair per run. `fail()` repairs from `run.attempted` (the last document we tried to mount, even one that failed validation); `giveUp()` is terminal. While repairing, the broken iframe is unmounted (srcdoc null) so no stale errors arrive. A failRef breaks the mount↔fail↔stream callback cycle.
 - S2.2: first run failed. `viewRef` was updated inside the lazy setState updater, so a `ready` from the broken frame (queued just after its error) still saw "mounting" and overwrote "repairing". Fixed: `update()` now computes the next view synchronously from viewRef and then calls setView. Stand-in: throws-broken → ready ~9.8 s (two replays); throws-twice → failed ~9.9 s.
 - S3.1: an edit snapshots {code, params, values} first, so "Try again" after a failed edit retries the same edit on the same base. The edit run goes through the same machine (one repair, then failed).
+- S3.2: edit e2e also checks a moved slider (length → 2) survives the edit while untouched massB takes the new default (5 → 10, max 10 → 20). Stand-in edit round trip ~4.6 s.
