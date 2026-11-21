@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertLocalDbIfRequired, dbHost } from "../db-guard";
+import { assertLocalDbIfRequired, assertLocalSeedTarget, dbHost } from "../db-guard";
 
 const LOCAL = "postgresql://postgres:brim@localhost:5433/brim";
 const REMOTE = "postgresql://u:p@ep-example-123.us-east-2.aws.neon.tech/db?sslmode=require";
@@ -47,5 +47,13 @@ describe("dbHost", () => {
   it("reads the host name", () => {
     expect(dbHost(LOCAL)).toBe("localhost");
     expect(dbHost("nope")).toBeNull();
+  });
+});
+
+describe("destructive seed target", () => {
+  it("requires explicit local mode and a local URL", () => {
+    expect(() => assertLocalSeedTarget({ DATABASE_URL: LOCAL })).toThrow();
+    expect(() => assertLocalSeedTarget({ BRIM_LOCAL_DB_ONLY: "1", DATABASE_URL: REMOTE })).toThrow();
+    expect(() => assertLocalSeedTarget({ BRIM_LOCAL_DB_ONLY: "1", DATABASE_URL: LOCAL })).not.toThrow();
   });
 });

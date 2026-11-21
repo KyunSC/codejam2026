@@ -12,6 +12,19 @@ const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
 const URL_VARS = ["DATABASE_URL", "DATABASE_URL_UNPOOLED"] as const;
 
+export function assertLocalSeedTarget(env: Record<string, string | undefined> = process.env): void {
+  if (env.BRIM_LOCAL_DB_ONLY?.trim() !== "1" || !env.DATABASE_URL?.trim()) {
+    throw new Error("Seeding requires BRIM_LOCAL_DB_ONLY=1 and a local DATABASE_URL.");
+  }
+  assertLocalDbIfRequired(env);
+  for (const name of URL_VARS) {
+    const url = env[name]?.trim();
+    if (url && new URL(url).searchParams.has("host")) {
+      throw new Error(`Seeding refuses a host override in ${name}.`);
+    }
+  }
+}
+
 export function dbHost(url: string): string | null {
   try {
     return new URL(url).hostname || null;

@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<!-- hand-made fixture: no-sim -- Draws a canvas but never defines the SIM object. Not model output. -->
+<html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%;overflow:hidden;background:#f8fafc}canvas{display:block;width:100vw;height:100vh}</style></head>
+<body><canvas id="c"></canvas><script>
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+function resize(){const d=devicePixelRatio||1;cv.width=innerWidth*d;cv.height=innerHeight*d;ctx.setTransform(d,0,0,d,0,0);
+  ctx.fillStyle='#0f172a';ctx.font='28px system-ui';ctx.fillText('A sim with no SIM object',40,60);}
+addEventListener('resize',resize);resize();
+</script></body></html>

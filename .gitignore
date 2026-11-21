@@ -1,2 +1,4 @@
-/.env
-/ChalkTalk/
+# Secrets. Brim/.env.example is the template.
+.env*
+!.env.example
+!.env*.example

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { DM_Sans } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import { AppHeader } from "@/components/shell/app-header";
 import { AppFooter } from "@/components/shell/app-footer";
 import { THEME_SCRIPT } from "@/components/shell/theme";
@@ -27,6 +28,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <AppHeader />
         <div className="flex flex-1 flex-col">{children}</div>
         <AppFooter />
+        <Analytics />
       </body>
     </html>
   );

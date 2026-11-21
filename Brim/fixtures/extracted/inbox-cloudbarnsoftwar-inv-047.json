@@ -1,0 +1,51 @@
+{
+  "handMade": true,
+  "file": "cloudbarnsoftwar-inv-047.pdf",
+  "sha256": "a44dcc89b0bcc5f737b78cf39c65c001305fa90c4921826479da73ed3d981003",
+  "purpose": "Inbox file, written by hand from its text layer (checked against the rendered page)",
+  "extracted": {
+    "docType": "invoice",
+    "language": "en",
+    "vendor": {
+      "name": "Cloudbarn Software Inc.",
+      "address": "5501 Industrial Pkwy Toronto ON N8P 6R6",
+      "gstHstNumber": "422479028RT0001",
+      "qstNumber": null
+    },
+    "billTo": {
+      "name": "Harborline Logistics Inc.",
+      "address": "1055 W Hastings St, Suite 900, Vancouver BC V6E 2E9"
+    },
+    "invoiceNumber": "INV-01568",
+    "invoiceDate": "2026-10-31",
+    "dueDate": "2026-11-30",
+    "terms": "Net 30",
+    "poNumber": null,
+    "creditNoteRef": null,
+    "currency": "CAD",
+    "lines": [
+      {
+        "description": "Cloudbarn Workspace subscription (24 seats)",
+        "quantity": "1",
+        "unitPrice": "$2,400.00",
+        "amount": "$2,400.00"
+      }
+    ],
+    "subtotal": "$2,400.00",
+    "taxes": [
+      {
+        "label": "GST (5%)",
+        "amount": "$120.00"
+      }
+    ],
+    "total": "$2,520.00",
+    "remit": {
+      "institution": null,
+      "transit": null,
+      "account": null,
+      "text": "Pay by credit card at our online portal."
+    },
+    "notes": [],
+    "unreadable": []
+  }
+}

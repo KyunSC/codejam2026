@@ -1,0 +1,57 @@
+{
+  "handMade": true,
+  "file": "keystonerackings-inv-002.pdf",
+  "sha256": "ec67d34393c989e71d57eccdea18a61c64de1fdf004348a602b9735c2474828b",
+  "purpose": "Inbox file, written by hand from its text layer (checked against the rendered page)",
+  "extracted": {
+    "docType": "invoice",
+    "language": "en",
+    "vendor": {
+      "name": "Keystone Racking Systems",
+      "address": "4068 Centre St Saskatoon SK S9R 3C8",
+      "gstHstNumber": "768446978RT0001",
+      "qstNumber": null
+    },
+    "billTo": {
+      "name": "Harborline Logistics Inc.",
+      "address": "88 Queens Quay W, Suite 1400, Toronto ON M5J 0B8"
+    },
+    "invoiceNumber": "KE26-1198",
+    "invoiceDate": "2026-10-19",
+    "dueDate": "2026-11-18",
+    "terms": "Net 30",
+    "poNumber": null,
+    "creditNoteRef": null,
+    "currency": "CAD",
+    "lines": [
+      {
+        "description": "Pallets (48x40), qty 219",
+        "quantity": "219",
+        "unitPrice": "$13.70",
+        "amount": "$3,000.30"
+      },
+      {
+        "description": "Stretch wrap cases",
+        "quantity": "55",
+        "unitPrice": "$57.91",
+        "amount": "$3,185.05"
+      }
+    ],
+    "subtotal": "$6,185.35",
+    "taxes": [
+      {
+        "label": "HST (13%)",
+        "amount": "$804.10"
+      }
+    ],
+    "total": "$6,989.45",
+    "remit": {
+      "institution": "016",
+      "transit": "95739",
+      "account": "97756574",
+      "text": "EFT / virement bancaire - Keystone Racking Systems"
+    },
+    "notes": [],
+    "unreadable": []
+  }
+}

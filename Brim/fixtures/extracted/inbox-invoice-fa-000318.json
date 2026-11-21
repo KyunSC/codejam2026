@@ -1,0 +1,51 @@
+{
+  "handMade": true,
+  "file": "Invoice FA-000318.pdf",
+  "sha256": "ccaec5862fa4b70539b2a0afe56de6bd052e4189c124aae7321203bab2cf07b7",
+  "purpose": "Inbox file, written by hand from its text layer (checked against the rendered page)",
+  "extracted": {
+    "docType": "invoice",
+    "language": "en",
+    "vendor": {
+      "name": "Quillpad Documents Ltd.",
+      "address": "1636 Rue Sainte-Catherine Montreal QC H3M 4H3",
+      "gstHstNumber": "959267705RT0001",
+      "qstNumber": "9036969075TQ0001"
+    },
+    "billTo": {
+      "name": "Harborline Logistics Inc.",
+      "address": "1055 W Hastings St, Suite 900, Vancouver BC V6E 2E9"
+    },
+    "invoiceNumber": "FA-000318",
+    "invoiceDate": "2026-10-29",
+    "dueDate": "2026-11-28",
+    "terms": "Net 30",
+    "poNumber": null,
+    "creditNoteRef": null,
+    "currency": "CAD",
+    "lines": [
+      {
+        "description": "Quillpad e-signature plan",
+        "quantity": "1",
+        "unitPrice": "$460.00",
+        "amount": "$460.00"
+      }
+    ],
+    "subtotal": "$460.00",
+    "taxes": [
+      {
+        "label": "GST (5%)",
+        "amount": "$23.00"
+      }
+    ],
+    "total": "$483.00",
+    "remit": {
+      "institution": "016",
+      "transit": "66098",
+      "account": "506760345",
+      "text": "EFT / virement bancaire - Quillpad Documents Ltd."
+    },
+    "notes": [],
+    "unreadable": []
+  }
+}
