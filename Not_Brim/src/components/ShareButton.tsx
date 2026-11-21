@@ -36,40 +36,40 @@ export function ShareButton({ simId, disabled }: { simId: string | null; disable
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-3 basis-auto">
+    <>
       <button
         type="button"
-        className="btn-secondary text-xl"
+        className="btn-primary btn-gold"
         data-testid="share-button"
         disabled={disabled || !simId || busy}
         onClick={() => void share()}
       >
-        {busy ? "Making homework…" : "Share with students"}
+        {busy ? "Making homework…" : "Share with students"} <span aria-hidden>→</span>
       </button>
       {shown ? (
-        <>
-          <label htmlFor="share-link" className="sr-only">
+        <div className="flex basis-full flex-wrap items-center gap-3">
+          <label htmlFor="share-link" className="kicker">
             Student link
           </label>
           <input
             id="share-link"
             ref={input}
             data-testid="share-link"
-            className="field min-w-0 flex-1 text-lg"
+            className="field min-w-0 flex-1 py-1.5"
             readOnly
             value={shown.url}
             onFocus={(e) => e.currentTarget.select()}
           />
-          <span className="text-lg font-semibold text-emerald-800" role="status">
+          <span className="font-bold text-ok" role="status">
             {shown.copied ? "Link copied" : "Copy this link"}
           </span>
-        </>
+        </div>
       ) : null}
       {error ? (
-        <span className="text-lg font-semibold text-red-800" role="alert">
+        <span className="basis-full font-semibold text-danger" role="alert">
           {error}
         </span>
       ) : null}
-    </div>
+    </>
   );
 }
