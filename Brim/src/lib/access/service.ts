@@ -37,8 +37,12 @@ function role(v: unknown, field: string): Role | null {
 export async function requestAccess(input: Record<string, unknown>): Promise<PublicAccessRequest> {
   const slug = text(input.organization);
   if (!slug) throw new AppError(422, "BAD_FIELD", "organization: enter your organization's ID.");
-  const org = await getOrganization(slug).catch(() => {
-    throw new AppError(422, "BAD_FIELD", `organization: no organization with ID "${slug}".`);
+  const org = await getOrganization(slug).catch((err: unknown) => {
+    // Only "not found" becomes a form error; a database failure stays a server error.
+    if (err instanceof AppError && err.status === 404) {
+      throw new AppError(422, "BAD_FIELD", `organization: no organization with ID "${slug}".`);
+    }
+    throw err;
   });
   const fullName = text(input.fullName);
   const email = text(input.email).toLowerCase();
@@ -89,6 +93,19 @@ export async function listAccessRequests(organizationId: string, f: { status?: s
     orderBy: { createdAt: "desc" },
   });
   return rows.map(publicRequest);
+}
+
+/** Who each request is from, by request id, for labelling audit rows. Unknown ids are left out. */
+export async function accessRequestPeople(organizationId: string, ids: readonly string[]) {
+  if (ids.length === 0) return {};
+  const rows = await db().accessRequest.findMany({
+    where: { organizationId, id: { in: [...new Set(ids)] } },
+    select: { id: true, fullName: true, email: true },
+  });
+  return Object.fromEntries(rows.map((r) => [r.id, { fullName: r.fullName, email: r.email }])) as Record<
+    string,
+    { fullName: string; email: string }
+  >;
 }
 
 async function pending(organizationId: string, id: string) {

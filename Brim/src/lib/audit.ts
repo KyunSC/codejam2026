@@ -10,6 +10,7 @@
  * `logAction` takes the transaction client, not the shared client, so the log row commits or
  * rolls back with the change it describes. There is no function to edit or delete a row.
  */
+import { randomUUID } from "node:crypto";
 import type { Prisma } from "@/generated/prisma/client";
 import { auditHash, GENESIS_HASH } from "./audit/chain";
 import { db } from "./db";
@@ -56,9 +57,28 @@ function toJson(value: unknown): Prisma.InputJsonValue | undefined {
 }
 
 /**
+ * One group id per transaction: every row a single action writes (it runs in one `$transaction`)
+ * shares it, so the log can show them as one entry. Keyed weakly on the transaction client, which is
+ * one object for the life of the transaction. A plain client (no transaction) gets no group.
+ */
+const groupOfTx = new WeakMap<object, string>();
+
+export function actionGroupFor(tx: object): string | null {
+  // A full client has $connect; a transaction client doesn't ($transaction alone can't tell them
+  // apart: Prisma 7 gives the transaction client one too).
+  if (typeof (tx as { $connect?: unknown }).$connect === "function") return null;
+  let id = groupOfTx.get(tx);
+  if (!id) {
+    id = randomUUID();
+    groupOfTx.set(tx, id);
+  }
+  return id;
+}
+
+/**
  * Appends one row and links it into the organization's hash chain (src/lib/audit/chain.ts).
  * A transaction-scoped advisory lock per organization serialises writers, so two concurrent
- * transactions cannot both link to the same previous row.
+ * transactions cannot both link to the same previous row. The action group id is not hashed.
  */
 export async function logAction(tx: Prisma.TransactionClient, input: ActionInput) {
   const { actor } = input;
@@ -108,6 +128,7 @@ export async function logAction(tx: Prisma.TransactionClient, input: ActionInput
   return tx.auditEvent.create({
     data: {
       ...fields,
+      actionGroupId: actionGroupFor(tx),
       organizationId,
       actorType: actor.type,
       before: fields.before ?? undefined,
@@ -136,6 +157,15 @@ export interface AuditFilter {
   limit?: number;
   /** Return rows with seq below this, for the next page. */
   beforeSeq?: bigint;
+}
+
+/** Every row of the given action groups, whatever filters the page used. */
+export async function listGroupRows(organizationId: string, groupIds: readonly string[]) {
+  if (groupIds.length === 0) return [];
+  return db().auditEvent.findMany({
+    where: { organizationId, actionGroupId: { in: [...new Set(groupIds)] } },
+    orderBy: { seq: "desc" },
+  });
 }
 
 /** One organization's log, newest first, narrowed by any of the filters. */

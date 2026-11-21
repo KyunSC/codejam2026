@@ -5,6 +5,7 @@ import { FilterBar, FilterSelect, FilterText } from "@/components/filters";
 import { listAccessRequests } from "@/lib/access/service";
 import { ROLE_LABEL, canManageUsers } from "@/lib/auth/permissions";
 import { requireUser } from "@/lib/auth/current";
+import { departmentNames, listDepartments } from "@/lib/departments";
 import { formatDateTime, param } from "@/lib/format";
 import { listUsers } from "@/lib/users/service";
 import { DecideRequest } from "./decide-request";
@@ -54,7 +55,7 @@ async function Requests({ orgId, slug, sp }: { orgId: string; slug: string; sp: 
     listAccessRequests(orgId, { status: status === "any" ? undefined : status, q }),
     listUsers(orgId, { status: "active" }),
   ]);
-  const departments = [...new Set(users.map((u) => u.departmentId).filter((d): d is string => !!d))].sort();
+  const departments = await listDepartments(orgId, users.map((u) => u.departmentId));
   const managers = users
     .filter((u) => u.role !== "employee")
     .map((u) => ({ id: u.id, label: `${u.fullName} (${ROLE_LABEL[u.role]})` }));
@@ -110,7 +111,8 @@ async function Requests({ orgId, slug, sp }: { orgId: string; slug: string; sp: 
 async function Users({ orgId, sp }: { orgId: string; sp: Record<string, string | string[] | undefined> }) {
   const filter = { q: param(sp.q), role: param(sp.role), status: param(sp.status), departmentId: param(sp.departmentId) };
   const [users, everyone] = await Promise.all([listUsers(orgId, filter), listUsers(orgId)]);
-  const departments = [...new Set(everyone.map((u) => u.departmentId).filter((d): d is string => !!d))].sort();
+  const departments = await listDepartments(orgId, everyone.map((u) => u.departmentId));
+  const deptName = departmentNames(departments);
   const names = Object.fromEntries(everyone.map((u) => [u.id, u.fullName]));
 
   return (
@@ -125,7 +127,7 @@ async function Users({ orgId, sp }: { orgId: string; sp: Record<string, string |
         <FilterText name="q" label="Search" defaultValue={filter.q} placeholder="Name, email, title, ID" />
         <FilterSelect name="role" label="Role" defaultValue={filter.role} options={Object.entries(ROLE_LABEL).map(([value, label]) => ({ value, label }))} />
         <FilterSelect name="status" label="Status" defaultValue={filter.status} options={Object.entries(STATUS_TEXT).map(([value, label]) => ({ value, label }))} />
-        <FilterSelect name="departmentId" label="Department" defaultValue={filter.departmentId} options={departments.map((d) => ({ value: d, label: d }))} />
+        <FilterSelect name="departmentId" label="Department" defaultValue={filter.departmentId} options={departments.map((d) => ({ value: d.id, label: d.name }))} />
       </FilterBar>
       <p className="muted mt-6 mb-3 text-sm">
         {users.length} of {everyone.length} users
@@ -155,7 +157,7 @@ async function Users({ orgId, sp }: { orgId: string; sp: Record<string, string |
                 <td>
                   <PersonCell name={ROLE_LABEL[u.role]} role={u.title ?? undefined} />
                 </td>
-                <td className="text-sm">{u.departmentId ?? "—"}</td>
+                <td className="text-sm">{u.departmentId ? (deptName[u.departmentId] ?? u.departmentId) : "—"}</td>
                 <td className="text-sm">{u.managerId ? names[u.managerId] : "—"}</td>
                 <td className="text-sm">
                   {STATUS_TEXT[u.status]}

@@ -322,8 +322,12 @@ model AuditEvent {
   before         Json?
   after          Json?
   reason         String?
+  /// Rows written by one user action (one database transaction) share this id, so the log can show
+  /// them as one entry with its parts. Null for rows from before grouping and for imported history.
+  actionGroupId  String?
 
   @@index([organizationId, at])
+  @@index([organizationId, actionGroupId])
   @@index([organizationId, invoiceId])
   @@index([organizationId, actorId])
   @@index([organizationId, entityType, entityId])
