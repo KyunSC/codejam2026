@@ -116,6 +116,12 @@ export async function getDocumentFor(organizationId: string, user: User | null, 
 
 // ---------- The invoice form ----------
 
+/** The organization's tax codes, for the form's tax choice. Rates as strings, e.g. "0.13". */
+export async function listTaxCodes(organizationId: string) {
+  const rows = await db().taxCode.findMany({ where: { organizationId }, orderBy: { id: "asc" } });
+  return rows.map((r) => ({ id: r.id, description: r.description, rate: r.rate.toString() }));
+}
+
 function text(v: unknown): string | null {
   return typeof v === "string" && v.trim() ? v.trim() : null;
 }
