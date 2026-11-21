@@ -93,3 +93,62 @@ describe("validateParams", () => {
     expect(defaultValues([p(), p({ id: "n", value: 2 })])).toEqual({ m: 5, n: 2 });
   });
 });
+
+describe("text guard", () => {
+  function setup(W = 600, H = 400) {
+    const drawn: string[] = [];
+    class Ctx {
+      t = [1, 0, 0, 1, 0, 0];
+      canvas = { width: W, height: H };
+      font = "14px x";
+      measureText(s: string) {
+        return { width: s.length * 7, actualBoundingBoxLeft: 0, actualBoundingBoxRight: s.length * 7, actualBoundingBoxAscent: 10, actualBoundingBoxDescent: 3 };
+      }
+      getTransform() { const [a, b, c, d, e, f] = this.t; return { a, b, c, d, e, f }; }
+      scale(k: number) { this.t = [k, 0, 0, k, 0, 0]; }
+      fillText(s: string, ..._: number[]) { drawn.push(s); }
+      strokeText(s: string, ..._: number[]) { drawn.push("stroke:" + s); }
+      clearRect(..._: number[]) {}
+      fillRect(..._: number[]) {}
+    }
+    const win = { CanvasRenderingContext2D: Ctx, addEventListener() {}, parent: { postMessage() {} } };
+    new Function("window", "document", BRIDGE_JS)(win, { addEventListener() {} });
+    return { drawn, ctx: new Ctx() };
+  }
+
+  it("skips overlapping text and text past the edge", () => {
+    const { drawn, ctx } = setup();
+    ctx.fillText("Speed", 10, 20);
+    ctx.fillText("Height", 12, 22);
+    ctx.fillText("A long label", 560, 100);
+    expect(drawn).toEqual(["Speed"]);
+  });
+
+  it("keeps a drop shadow and a stroke-then-fill outline at hiDPI scale", () => {
+    const { drawn, ctx } = setup(1200, 800);
+    ctx.scale(2);
+    ctx.fillText("Speed", 101, 101);
+    ctx.fillText("Speed", 100, 100);
+    ctx.strokeText("Mass", 100, 200);
+    ctx.fillText("Mass", 100, 200);
+    expect(drawn).toEqual(["Speed", "Speed", "stroke:Mass", "Mass"]);
+  });
+
+  it("forgets text that was cleared or resized away within the same task", () => {
+    const { drawn, ctx } = setup();
+    ctx.fillText("t = 0.00 s", 10, 20);
+    ctx.clearRect(0, 0, 600, 400);
+    ctx.fillText("t = 1.00 s", 10, 20);
+    ctx.canvas.width = 500;
+    ctx.fillText("t = 2.00 s", 10, 20);
+    expect(drawn).toEqual(["t = 0.00 s", "t = 1.00 s", "t = 2.00 s"]);
+  });
+
+  it("never throws into the sim when measuring fails", () => {
+    const { drawn, ctx } = setup();
+    ctx.measureText = () => { throw new Error("boom"); };
+    expect(() => ctx.fillText("Speed", 10, 20)).not.toThrow();
+    expect(() => ctx.clearRect(0, 0, 10, 10)).not.toThrow();
+    expect(drawn).toEqual(["Speed"]);
+  });
+});

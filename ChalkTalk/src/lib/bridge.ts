@@ -11,7 +11,10 @@ export const SIM_WAIT_MS = 3000;
 // that would overlap text already drawn on the same canvas, run past the left
 // or right edge, or repeat SIM.title / SIM.question (the host shows those) is
 // skipped. Whatever is drawn first wins. The list of drawn boxes empties after
-// each task, so it works with any animation loop.
+// each task, so it works with any animation loop; clearRect/fillRect (or a
+// canvas resize) also forget the text they wipe, so a redraw in the same task
+// isn't hidden. A copy of the same string a few pixels off (a drop shadow or a
+// stroke-then-fill outline, even at hiDPI scale) is allowed.
 const TEXT_GUARD_JS = [
   "(function(){var C=window.CanvasRenderingContext2D;if(!C||!C.prototype.measureText)return;",
   "var P=C.prototype,F=P.fillText,S=P.strokeText,boxes=[],pend=false;",
@@ -21,18 +24,23 @@ const TEXT_GUARD_JS = [
   "if(q.length>12&&(s.indexOf(q.slice(0,24))>=0||(s.length>24&&q.indexOf(s)>=0)))return false;return true;}",
   "function box(c,s,x,y,mw){var m=c.measureText(s),l=m.actualBoundingBoxLeft||0,r=m.actualBoundingBoxRight,a=m.actualBoundingBoxAscent,d=m.actualBoundingBoxDescent;",
   "if(r==null)r=m.width;if(a==null){a=parseFloat(c.font)||10;d=a*0.25;}var w=l+r;if(mw>0&&w>mw){l*=mw/w;r*=mw/w;}",
-  "var T=c.getTransform(),X=[],Y=[];[[x-l,y-a],[x+r,y-a],[x-l,y+d],[x+r,y+d]].forEach(function(p){X.push(T.a*p[0]+T.c*p[1]+T.e);Y.push(T.b*p[0]+T.d*p[1]+T.f);});",
-  "return{c:c.canvas,s:s,x0:Math.min.apply(0,X),x1:Math.max.apply(0,X),y0:Math.min.apply(0,Y),y1:Math.max.apply(0,Y)};}",
+  "var b=rect(c,x-l,y-a,l+r,a+d);b.c=c.canvas;b.s=s;b.w=c.canvas.width;b.h=c.canvas.height;return b;}",
+  "function rect(c,x,y,w,h){var T=c.getTransform(),X=[],Y=[];[[x,y],[x+w,y],[x,y+h],[x+w,y+h]].forEach(function(p){X.push(T.a*p[0]+T.c*p[1]+T.e);Y.push(T.b*p[0]+T.d*p[1]+T.f);});",
+  "return{x0:Math.min.apply(0,X),x1:Math.max.apply(0,X),y0:Math.min.apply(0,Y),y1:Math.max.apply(0,Y)};}",
+  "function drop(c,x,y,w,h){if(!boxes.length||!c.getTransform)return;var k=rect(c,x,y,w,h);",
+  "boxes=boxes.filter(function(o){return o.c!==c.canvas||o.x1<=k.x0||o.x0>=k.x1||o.y1<=k.y0||o.y0>=k.y1;});}",
   "function ok(c,s,x,y,mw){s=String(s);var t=s.trim();if(!t)return true;if(!shown(t))return false;",
   "if(!c.getTransform||!isFinite(x)||!isFinite(y))return true;var b=box(c,s,x,y,mw),W=c.canvas.width;",
   "if(b.x1-b.x0<1)return true;if(b.x0<-2||b.x1>W+2)return false;",
-  "for(var i=0;i<boxes.length;i++){var o=boxes[i];if(o.c!==b.c)continue;",
-  "if(o.s===s&&Math.abs(o.x0-b.x0)<2&&Math.abs(o.y0-b.y0)<2)return true;",
+  "var tol=Math.max(2,0.3*Math.min(b.x1-b.x0,b.y1-b.y0));",
+  "for(var i=0;i<boxes.length;i++){var o=boxes[i];if(o.c!==b.c||o.w!==b.w||o.h!==b.h)continue;",
+  "if(o.s===s&&Math.abs(o.x0-b.x0)<tol&&Math.abs(o.y0-b.y0)<tol)return true;",
   "var ix=Math.min(o.x1,b.x1)-Math.max(o.x0,b.x0),iy=Math.min(o.y1,b.y1)-Math.max(o.y0,b.y0);",
   "if(ix>0&&iy>0&&ix*iy>0.1*Math.min((o.x1-o.x0)*(o.y1-o.y0),(b.x1-b.x0)*(b.y1-b.y0)))return false;}",
   "boxes.push(b);if(!pend){pend=true;Promise.resolve().then(clear);}return true;}",
   "function wrap(f){return function(s,x,y,mw){var go=true;try{go=ok(this,s,x,y,mw);}catch(_){}if(go)return f.apply(this,arguments);};}",
-  "P.fillText=wrap(F);P.strokeText=wrap(S);})();",
+  "function wrapR(f){return function(x,y,w,h){try{drop(this,x,y,w,h);}catch(_){}return f.apply(this,arguments);};}",
+  "P.fillText=wrap(F);P.strokeText=wrap(S);P.clearRect=wrapR(P.clearRect);P.fillRect=wrapR(P.fillRect);})();",
 ].join("");
 
 // Kept on a single line so that injecting it doesn't shift the line numbers
