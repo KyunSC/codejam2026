@@ -20,6 +20,7 @@ import {
   strokesBox,
   type Board,
   type BoardItem,
+  type BoardOp,
   type InkItem,
   type SimItem,
   type View,
@@ -67,6 +68,9 @@ const MAX_ZOOM = 2;
 /** How often the page checks whether Claude or an MCP client changed the board. */
 const POLL_MS = 2000;
 const ERASER_RADIUS = 12;
+/** Changes this close together (typing in a note) are one undo step. */
+const UNDO_GROUP_MS = 700;
+const MAX_UNDO = 100;
 const TOOLS: Array<{ id: Tool; label: string; key: string }> = [
   { id: "select", label: "Select", key: "v" },
   { id: "pen", label: "Pen", key: "p" },
@@ -240,27 +244,117 @@ export function BoardApp({ board, status }: { board: Board; status: ModelStatus 
     }
   }
 
+  // ---------- undo and redo ----------
+
+  /**
+   * Each step is the ops that take the items it touched back to how they were. Only those items are
+   * put back, so changes Claude made to other items in the meantime stay.
+   */
+  const undoStack = useRef<BoardOp[][]>([]);
+  const redoStack = useRef<BoardOp[][]>([]);
+  /** The step being made: each touched item as it was before (undefined: it didn't exist yet). */
+  const group = useRef<{ before: Map<string, BoardItem | undefined>; held: boolean } | null>(null);
+  const groupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  const refreshHistory = useCallback(() => {
+    setCanUndo(undoStack.current.length > 0 || !!group.current);
+    setCanRedo(redoStack.current.length > 0);
+  }, []);
+
+  /** Close the step being made and put it on the undo stack (unless it ended where it started). */
+  const commitGroup = useCallback(() => {
+    if (groupTimer.current) clearTimeout(groupTimer.current);
+    groupTimer.current = null;
+    const g = group.current;
+    group.current = null;
+    if (!g) return;
+    const now = new Map(itemsRef.current.map((it) => [it.id, it]));
+    const ops: BoardOp[] = [];
+    for (const [id, was] of g.before) {
+      const is = now.get(id);
+      if (was === is || (was && is && JSON.stringify(was) === JSON.stringify(is))) continue;
+      ops.push(was ? { type: "put", item: was } : { type: "delete", id });
+    }
+    if (ops.length) {
+      undoStack.current = [...undoStack.current, ops].slice(-MAX_UNDO);
+      redoStack.current = [];
+    }
+    refreshHistory();
+  }, [refreshHistory]);
+
+  /** Note what a change touched, as part of the current undo step. */
+  const recordChange = useCallback(
+    (prev: BoardItem[], next: BoardItem[]) => {
+      if (!group.current) group.current = { before: new Map(), held: false };
+      const g = group.current;
+      const old = new Map(prev.map((it) => [it.id, it]));
+      for (const op of diffItems(prev, next)) {
+        const id = op.type === "put" ? op.item.id : op.id;
+        if (!g.before.has(id)) g.before.set(id, old.get(id));
+      }
+      if (groupTimer.current) clearTimeout(groupTimer.current);
+      if (!g.held) groupTimer.current = setTimeout(commitGroup, UNDO_GROUP_MS);
+      refreshHistory();
+    },
+    [commitGroup, refreshHistory],
+  );
+
+  /** Keep the undo step open through a drag or eraser swipe; `release` closes it. */
+  const holdGroup = useCallback(() => {
+    commitGroup();
+    group.current = { before: new Map(), held: true };
+  }, [commitGroup]);
+
   const setItems = useCallback(
-    (fn: (items: BoardItem[]) => BoardItem[]) => {
-      const next = fn(itemsRef.current);
-      if (next === itemsRef.current) return;
+    (fn: (items: BoardItem[]) => BoardItem[], record = true) => {
+      const prev = itemsRef.current;
+      const next = fn(prev);
+      if (next === prev) return;
+      if (record) recordChange(prev, next);
       itemsRef.current = next;
       setItemsState(next);
       setSaveState("saving");
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => void save(), SAVE_DELAY_MS);
     },
-    [save],
+    [save, recordChange],
   );
 
+  /** Take a step off one stack, apply it, and put what it replaced on the other. */
+  const step = useCallback(
+    (from: { current: BoardOp[][] }, to: { current: BoardOp[][] }) => {
+      commitGroup();
+      const ops = from.current.at(-1);
+      if (!ops) return;
+      const now = new Map(itemsRef.current.map((it) => [it.id, it]));
+      const back: BoardOp[] = ops.map((op) => {
+        const id = op.type === "put" ? op.item.id : op.id;
+        const is = now.get(id);
+        return is ? { type: "put", item: is } : { type: "delete", id };
+      });
+      const next = applyOps(itemsRef.current, ops);
+      if (next.length > MAX_ITEMS) return;
+      from.current = from.current.slice(0, -1);
+      to.current = [...to.current, back].slice(-MAX_UNDO);
+      lastInk.current = null;
+      setItems(() => next, false);
+      setSelected((s) => (s && next.some((it) => it.id === s) ? s : null));
+      refreshHistory();
+    },
+    [commitGroup, setItems, refreshHistory],
+  );
+  const undo = useCallback(() => step(undoStack, redoStack), [step]);
+  const redo = useCallback(() => step(redoStack, undoStack), [step]);
+
   const patchItem = useCallback(
-    (id: string, patch: Partial<BoardItem>) =>
+    (id: string, patch: Partial<BoardItem>, record = true) =>
       setItems((list) => {
         const it = list.find((i) => i.id === id);
         // Nothing changes: keep the same list, so there's no save.
         if (!it || Object.entries(patch).every(([k, v]) => Object.is((it as unknown as Record<string, unknown>)[k], v))) return list;
         return list.map((i) => (i.id === id ? ({ ...i, ...patch } as BoardItem) : i));
-      }),
+      }, record),
     [setItems],
   );
 
@@ -365,8 +459,14 @@ export function BoardApp({ board, status }: { board: Board; status: ModelStatus 
   // Delete removes the selected item; Escape deselects and goes back to Select.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // In a note or field, the browser's own undo works on the text.
       if (isTyping(document.activeElement)) return;
-      if ((e.key === "Delete" || e.key === "Backspace") && selected) {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && !e.altKey && (e.key.toLowerCase() === "z" || (e.key.toLowerCase() === "y" && !e.shiftKey))) {
+        e.preventDefault();
+        if (e.key.toLowerCase() === "y" || e.shiftKey) redo();
+        else undo();
+      } else if ((e.key === "Delete" || e.key === "Backspace") && selected) {
         e.preventDefault();
         removeItem(selected);
       } else if (e.key === "Escape") {
@@ -380,11 +480,12 @@ export function BoardApp({ board, status }: { board: Board; status: ModelStatus 
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selected, removeItem]);
+  }, [selected, removeItem, undo, redo]);
 
   useEffect(
     () => () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
+      if (groupTimer.current) clearTimeout(groupTimer.current);
     },
     [],
   );
@@ -413,6 +514,8 @@ export function BoardApp({ board, status }: { board: Board; status: ModelStatus 
       lastInk.current = { id: ink.id, at: now };
       return [...list, ink];
     });
+    // Each stroke is its own undo step.
+    commitGroup();
   }
 
   function onBoardPointerDown(e: ReactPointerEvent) {
@@ -445,6 +548,7 @@ export function BoardApp({ board, status }: { board: Board; status: ModelStatus 
       e.preventDefault();
       const r = ERASER_RADIUS / camRef.current.s;
       let last = start;
+      holdGroup();
       setItems((list) => eraseAt(list, start.x, start.y, r));
       track(e, (_dx, _dy, ev) => {
         const p = toWorld(ev.clientX, ev.clientY);
@@ -457,7 +561,7 @@ export function BoardApp({ board, status }: { board: Board; status: ModelStatus 
           return out;
         });
         last = p;
-      });
+      }, commitGroup);
       return;
     }
     if (tool === "note") {
@@ -474,6 +578,8 @@ export function BoardApp({ board, status }: { board: Board; status: ModelStatus 
         ...NOTE_SIZE,
       };
       setItems((list) => [...list, note]);
+      // Adding the note is one step, typing in it the next.
+      commitGroup();
       setSelected(note.id);
       setFocusNote(note.id);
       setTool("select");
@@ -495,11 +601,15 @@ export function BoardApp({ board, status }: { board: Board; status: ModelStatus 
     if (!item) return;
     setSelected(id);
     setDragging(true);
+    holdGroup();
     const s = camRef.current.s;
     track(
       e,
       (dx, dy) => setItems((list) => list.map((it) => (it.id === id ? moveItem(item, Math.round(item.x + dx / s), Math.round(item.y + dy / s)) : it))),
-      () => setDragging(false),
+      () => {
+        setDragging(false);
+        commitGroup();
+      },
     );
   }
 
@@ -512,12 +622,16 @@ export function BoardApp({ board, status }: { board: Board; status: ModelStatus 
     setSelected(id);
     setDragging(true);
     const min = item.kind === "sim" ? { w: 480, h: 380 } : { w: 160, h: 100 };
+    holdGroup();
     const s = camRef.current.s;
     track(
       e,
       (dx, dy) =>
         patchItem(id, { w: Math.max(min.w, Math.round(item.w + dx / s)), h: Math.max(min.h, Math.round(item.h + dy / s)) }),
-      () => setDragging(false),
+      () => {
+        setDragging(false);
+        commitGroup();
+      },
     );
   }
 
@@ -660,7 +774,8 @@ export function BoardApp({ board, status }: { board: Board; status: ModelStatus 
                 <SimBox
                   item={it}
                   selected={selected === it.id}
-                  onPatch={(patch) => patchItem(it.id, patch)}
+                  // Slider moves can be undone; a finished generation or a change request can't be taken back.
+                  onPatch={(patch) => patchItem(it.id, patch, Object.keys(patch).every((k) => k === "values"))}
                   onDragStart={(e) => startDrag(e, it.id)}
                   onResizeStart={(e) => startResize(e, it.id)}
                   onDelete={() => removeItem(it.id)}
@@ -722,6 +837,29 @@ export function BoardApp({ board, status }: { board: Board; status: ModelStatus 
         >
           <ToolIcon name="sim" />
           <span className="tool-label">Simulation</span>
+        </button>
+        <span className="toolbar-sep" aria-hidden />
+        <button
+          type="button"
+          className="tool-btn"
+          data-testid="undo"
+          aria-label="Undo"
+          title="Undo (Ctrl/⌘ Z)"
+          disabled={!canUndo}
+          onClick={undo}
+        >
+          <ToolIcon name="undo" />
+        </button>
+        <button
+          type="button"
+          className="tool-btn"
+          data-testid="redo"
+          aria-label="Redo"
+          title="Redo (Ctrl/⌘ Shift Z)"
+          disabled={!canRedo}
+          onClick={redo}
+        >
+          <ToolIcon name="redo" />
         </button>
         <span className="toolbar-sep" aria-hidden />
         <button type="button" className="tool-btn" aria-label="Zoom out" title="Zoom out" onClick={() => zoomAt(1 / 1.25)}>

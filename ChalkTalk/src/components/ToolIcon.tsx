@@ -9,6 +9,8 @@ const PATHS: Record<string, string> = {
   plus: "M12 5v14M5 12h14",
   minus: "M5 12h14",
   share: "M12 15V3M7 8l5-5 5 5M5 14v6h14v-6",
+  undo: "M9 14L4 9l5-5M4 9h10.5a5.5 5.5 0 010 11H11",
+  redo: "M15 14l5-5-5-5M20 9H9.5a5.5 5.5 0 000 11H13",
 };
 
 export function ToolIcon({ name }: { name: keyof typeof PATHS | string }) {
