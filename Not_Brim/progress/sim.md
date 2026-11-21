@@ -12,7 +12,7 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 - [x] S1.2 `lib/model/*` (real, stand-in, index) and all fixtures, Vitest of stand-in + model selection. Attempts: 0
 - [x] S1.3 NDJSON helpers and `lib/sim-html.ts`, Vitest. Attempts: 1
 - [x] S1.4 `lib/bridge.ts` and `validateParams`, Vitest. Attempts: 0
-- [ ] S1.5 `/api/generate` and `/api/status`. Attempts: 0
+- [x] S1.5 `/api/generate` and `/api/status`. Attempts: 0
 - [ ] S1.6 `useSimSession` (no repair), `SimFrame`, `ParamSliders`, `GenerationStatus`, teacher page with both badges. Attempts: 0
 - [ ] S1.7 Playwright: pendulum → ready with 4 sliders; slider → applied; /dev/fixture error pages. Attempts: 0
 - [ ] S1.8 `scripts/try-topics.ts` (stand-in run proves plumbing; real run needs key). Attempts: 0
