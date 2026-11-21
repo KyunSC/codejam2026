@@ -1,12 +1,45 @@
+import Link from "next/link";
 import { Suspense } from "react";
-import { Breadcrumb, Card, SectionHeading, StateCard, TableCard, Timeline } from "@/components/ui";
+import { Breadcrumb, Card, SectionHeading, StateCard, Timeline } from "@/components/ui";
 import { requireUser } from "@/lib/auth/current";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { AppError } from "@/lib/http";
-import { ROLE_LABEL } from "@/lib/auth/permissions";
+import { canViewAudit, ROLE_LABEL } from "@/lib/auth/permissions";
 import { SOURCE_LABEL, statusLabel } from "@/lib/invoices/labels";
 import { getInvoiceFor } from "@/lib/invoices/service";
 import { describeAction } from "@/lib/audit-text";
+import { roleCan } from "@/lib/auth/matrix";
+import { db } from "@/lib/db";
+import { FLAG_KIND_RANK, flagKind } from "@/components/ui";
+import type { EvidenceItem, Flag as FlagT, FieldEvidence } from "@/lib/types";
+import { ChoicesForm, CodingTable, FlagPanel, type FlagView, type LineView } from "./review-panels";
+import { ApprovalPanel, type ChainStep } from "./approval-panel";
+import { REJECTION_REASONS, routePreview } from "@/lib/workflow/approvals";
+import { loadLiveRefs, personId } from "@/lib/workflow/refs";
+import { releaseEligibility } from "@/lib/rules/routing/route";
+
+const STEP_ROLE: Record<string, string> = {
+  dept_manager: "department manager",
+  finance_manager: "finance manager",
+  controller_admin: "controller",
+  cfo: "CFO",
+};
+
+const EVIDENCE_MARK: Record<FieldEvidence | "unchecked", { text: string; className: string }> = {
+  confirmed: { text: "✓ on the page", className: "text-[var(--green)]" },
+  not_in_text: { text: "not found in the page text", className: "text-[var(--red)]" },
+  uncertain: { text: "two reads disagree", className: "text-[var(--red)]" },
+  unreadable: { text: "unreadable", className: "text-[var(--red)]" },
+  missing: { text: "not printed", className: "muted" },
+  unchecked: { text: "not checked", className: "muted" },
+};
+
+const REVIEW_STATES = ["extracted", "needs_review", "coded"];
+
+function flagTitle(code: string): string {
+  const t = code.toLowerCase().replace(/_/g, " ");
+  return t[0].toUpperCase() + t.slice(1);
+}
 
 export default function InvoicePage({ params }: { params: Promise<{ id: string }> }) {
   return (
@@ -38,19 +71,121 @@ async function InvoiceView({ params }: { params: Promise<{ id: string }> }) {
   const { invoice: inv, history } = data;
   const title = inv.vendorName ?? inv.document?.fileName ?? "Untitled invoice";
   const docUrl = inv.document ? `/api/orgs/${org.slug}/documents/${inv.document.id}` : null;
+  const evidence = (inv.evidence ?? {}) as Record<string, FieldEvidence>;
+  const hasExtraction = inv.evidence !== null;
+  const mark = (key: string | null) => {
+    if (!key || !hasExtraction) return null;
+    const m = EVIDENCE_MARK[evidence[key] ?? "unchecked"];
+    return <span className={`ml-2 text-sm ${m.className}`}>{m.text}</span>;
+  };
 
-  const fields: [string, React.ReactNode][] = [
-    ["Vendor", inv.vendorName],
-    ["Invoice number", inv.invoiceNumber],
-    ["Invoice date", inv.invoiceDate && formatDate(inv.invoiceDate)],
-    ["Due date", inv.dueDate && formatDate(inv.dueDate)],
-    ["Currency", inv.currency],
-    ["PO number", inv.poNumber],
-    ["Subtotal", inv.subtotal && formatMoney(inv.subtotal, inv.currency)],
-    ["GST / HST", inv.gstHstAmount && formatMoney(inv.gstHstAmount, inv.currency)],
-    ["PST / QST", inv.pstQstAmount && formatMoney(inv.pstQstAmount, inv.currency)],
-    ["Total", inv.total && formatMoney(inv.total, inv.currency)],
+  const fields: [string, React.ReactNode, string | null][] = [
+    ["Vendor", inv.vendorName && `${inv.vendorName}${inv.vendorId ? ` (${inv.vendorId})` : ""}`, "vendorName"],
+    ["Invoice number", inv.invoiceNumber, "invoiceNumber"],
+    ["Invoice date", inv.invoiceDate && formatDate(inv.invoiceDate), "invoiceDate"],
+    ["Due date", inv.dueDate && formatDate(inv.dueDate), "dueDate"],
+    ["Currency", inv.currency, null],
+    ["PO number", inv.poNumber ?? inv.poId, "poNumber"],
+    ["Delivered to", inv.shipToProvince, "billToAddress"],
+    ["Department", inv.departmentId, null],
+    ["Subtotal", inv.subtotal && formatMoney(inv.subtotal, inv.currency), "subtotal"],
+    ["GST / HST", inv.gstHstAmount && formatMoney(inv.gstHstAmount, inv.currency), null],
+    ["PST / QST", inv.pstQstAmount && formatMoney(inv.pstQstAmount, inv.currency), null],
+    ["Total", inv.total && formatMoney(inv.total, inv.currency), "total"],
+    ["Total in CAD", inv.totalCad && inv.currency !== "CAD" ? formatMoney(inv.totalCad, "CAD") : null, null],
   ];
+
+  const canEdit = roleCan(user.role, "invoice.edit") && REVIEW_STATES.includes(inv.status);
+  const flags: FlagView[] = inv.flags
+    .map((f) => ({
+      id: f.id,
+      code: f.code,
+      title: flagTitle(f.code),
+      kind: flagKind({ code: f.code as FlagT["code"], klass: f.klass as FlagT["klass"] }),
+      klass: f.klass as FlagView["klass"],
+      effect: f.effect as FlagView["effect"],
+      status: f.status,
+      message: f.message,
+      evidence: (f.evidence ?? []) as unknown as EvidenceItem[],
+      resolution: f.resolutionNote ? `${f.resolvedById ?? ""} ${f.resolutionNote}`.trim() : null,
+    }))
+    .sort(
+      (a, b) =>
+        Number(b.status === "open") - Number(a.status === "open") ||
+        Number(b.effect === "hold") - Number(a.effect === "hold") ||
+        FLAG_KIND_RANK[a.kind] - FLAG_KIND_RANK[b.kind],
+    );
+  const canResolve = (f: FlagView) =>
+    roleCan(user.role, f.klass === "fraud" ? "flag.resolve.fraud" : "flag.resolve.data_policy");
+  const lines: LineView[] = inv.lines.map((l) => ({
+    lineNo: l.lineNo,
+    description: l.description,
+    amount: formatMoney(l.amount, inv.currency),
+    glSuggested: l.glSuggested,
+    glFinal: l.glFinal,
+    departmentSuggested: l.departmentSuggested,
+    departmentFinal: l.departmentFinal,
+    reason: (l.reason as { account?: string } | null)?.account ?? null,
+  }));
+  // ---- Approval chain ----
+  const people = await db().user.findMany({ where: { organizationId: org.id }, select: { id: true, externalId: true, fullName: true, status: true, delegateId: true } });
+  // Steps store row ids; the rules (release eligibility) speak dataset ids. Look up either.
+  const byPid = new Map(people.flatMap((p) => [[p.id, p], [personId(p), p]] as const));
+  const nameOf = (pid: string | null) => (pid ? (byPid.get(pid)?.fullName ?? pid) : "nobody");
+  const me = user.id;
+  const firstPending = inv.approvalSteps.find((s) => s.decision === "pending");
+  let chain: ChainStep[] = [];
+  let blocked: string[] = [];
+  let releaserIds: string[] | null = null;
+  let isPreview = false;
+  const mayPreview = !["employee", "approver"].includes(user.role);
+  if (inv.approvalSteps.length > 0) {
+    chain = inv.approvalSteps.map((s) => {
+      const why = (s.why ?? {}) as { ruleIds?: string[]; replacements?: string[] };
+      return {
+        who: nameOf(s.assignedToId),
+        role: STEP_ROLE[s.role] ?? s.role,
+        policy: [why.ruleIds?.join(", "), ...(why.replacements ?? []), s.comment ? `“${s.comment}”` : null].filter(Boolean).join(" · "),
+        delegateNote: s.onBehalfOfId ? `acting for ${nameOf(s.onBehalfOfId)} (on leave)` : null,
+        state: s.decision !== "pending" ? "done" : s.id === firstPending?.id ? "current" : "waiting",
+        decision: s.decision === "pending" ? null : s.decision,
+      };
+    });
+    if (inv.totalCad && ["pending_approval", "approved", "scheduled", "released"].includes(inv.status)) {
+      const refs = await loadLiveRefs(db(), org.id);
+      const asPeople = inv.approvalSteps.map((s) => ({ assignedToId: refs.people.toPerson(s.assignedToId), onBehalfOfId: refs.people.toPerson(s.onBehalfOfId) }));
+      releaserIds = releaseEligibility(Number(inv.totalCad), asPeople, refs.policyRules, refs).releaserIds;
+    }
+  } else if (inv.status === "coded" && mayPreview) {
+    const p = await db().$transaction((tx) => routePreview(tx, org.id, inv.id), { timeout: 60_000 });
+    isPreview = true;
+    chain = p.route.steps.map((s) => ({
+      who: nameOf(s.assignedToId),
+      role: STEP_ROLE[s.role] ?? s.role,
+      policy: [s.ruleIds.join(", "), ...s.replacements].filter(Boolean).join(" · "),
+      delegateNote: s.onBehalfOfId ? `acting for ${nameOf(s.onBehalfOfId)} (on leave)` : null,
+      state: "waiting",
+      decision: null,
+    }));
+    blocked = [...p.route.blocked, ...(p.release.blockedReason ? [p.release.blockedReason] : [])];
+    releaserIds = p.release.releaserIds;
+  }
+  const assignee = firstPending ? byPid.get(firstPending.assignedToId) : undefined;
+  const canDecide =
+    inv.status === "pending_approval" &&
+    roleCan(user.role, "invoice.decide") &&
+    !!firstPending &&
+    (firstPending.assignedToId === me || (assignee?.status === "on_leave" && assignee.delegateId === user.id));
+  const showApprovals = chain.length > 0 || inv.status === "coded";
+
+  const [accounts, departments, vendors, pos] = await Promise.all([
+    db().glAccount.findMany({ where: { organizationId: org.id, accountType: "expense" }, orderBy: { id: "asc" }, select: { id: true, name: true } }),
+    db().department.findMany({ where: { organizationId: org.id }, orderBy: { id: "asc" }, select: { id: true, name: true } }),
+    canEdit ? db().vendor.findMany({ where: { organizationId: org.id }, orderBy: { id: "asc" }, select: { id: true, legalName: true } }) : [],
+    canEdit && inv.vendorId
+      ? db().purchaseOrder.findMany({ where: { organizationId: org.id, vendorId: inv.vendorId, status: { not: "closed" } }, orderBy: { id: "asc" }, select: { id: true } })
+      : [],
+  ]);
 
   return (
     <>
@@ -69,6 +204,19 @@ async function InvoiceView({ params }: { params: Promise<{ id: string }> }) {
           { label: "Received", value: <span className="num">{formatDateTime(inv.createdAt)}</span> },
         ]}
       />
+
+      {flags.length > 0 && (
+        <section aria-labelledby="flags" className="mt-10">
+          <SectionHeading id="flags" level={3}>
+            What the checks found
+          </SectionHeading>
+          <div className="grid gap-5 lg:grid-cols-2">
+            {flags.map((f) => (
+              <FlagPanel key={f.id} slug={org.slug} invoiceId={inv.id} flag={f} canResolve={canResolve(f)} />
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="mt-10 grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <section aria-labelledby="doc">
@@ -106,12 +254,17 @@ async function InvoiceView({ params }: { params: Promise<{ id: string }> }) {
             </SectionHeading>
             <Card className="p-6">
               <dl className="m-0 grid grid-cols-[minmax(130px,auto)_1fr] gap-x-6 gap-y-3 text-[15px]">
-                {fields.map(([label, value]) => (
-                  <div key={label} className="contents">
-                    <dt className="muted">{label}</dt>
-                    <dd className="m-0 num">{value || <span className="muted">Not filled in</span>}</dd>
-                  </div>
-                ))}
+                {fields
+                  .filter(([label, value]) => value || label !== "Total in CAD")
+                  .map(([label, value, key]) => (
+                    <div key={label} className="contents">
+                      <dt className="muted">{label}</dt>
+                      <dd className="m-0 num">
+                        {value || <span className="muted">Not filled in</span>}
+                        {mark(key)}
+                      </dd>
+                    </div>
+                  ))}
               </dl>
               {!inv.vendorName && inv.document && (
                 <p className="muted m-0 mt-5 text-sm">The fields fill in once the file has been read.</p>
@@ -119,33 +272,77 @@ async function InvoiceView({ params }: { params: Promise<{ id: string }> }) {
             </Card>
           </section>
 
-          {inv.lines.length > 0 && (
+          {canEdit && (
+            <section aria-labelledby="choices">
+              <SectionHeading id="choices" level={3}>
+                Vendor, department and PO
+              </SectionHeading>
+              <ChoicesForm
+                slug={org.slug}
+                invoiceId={inv.id}
+                version={inv.version}
+                current={{ vendorId: inv.vendorId, departmentId: inv.departmentId, shipToProvince: inv.shipToProvince, poId: inv.poId }}
+                vendors={vendors.map((v) => ({ id: v.id, name: v.legalName }))}
+                departments={departments}
+                pos={pos.map((p) => p.id)}
+              />
+            </section>
+          )}
+
+          {lines.length > 0 && (
             <section aria-labelledby="lines">
               <SectionHeading id="lines" level={3}>
-                Lines
+                Lines and coding
               </SectionHeading>
-              <TableCard label="Invoice lines" minWidth={520}>
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>Description</th>
-                    <th className="amt">Qty</th>
-                    <th className="amt">Unit price</th>
-                    <th className="amt">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {inv.lines.map((l) => (
-                    <tr key={l.id}>
-                      <td className="num">{l.lineNo}</td>
-                      <td>{l.description}</td>
-                      <td className="amt">{l.quantity?.toString() ?? "—"}</td>
-                      <td className="amt">{formatMoney(l.unitPrice)}</td>
-                      <td className="amt">{formatMoney(l.amount)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </TableCard>
+              <CodingTable
+                slug={org.slug}
+                invoiceId={inv.id}
+                version={inv.version}
+                lines={lines}
+                accounts={accounts}
+                departments={departments}
+                editable={canEdit}
+              />
+            </section>
+          )}
+
+          {showApprovals && (
+            <section aria-labelledby="approvals">
+              <SectionHeading id="approvals" level={3}>
+                Approval chain
+              </SectionHeading>
+              <ApprovalPanel
+                slug={org.slug}
+                invoiceId={inv.id}
+                version={inv.version}
+                steps={chain}
+                isPreview={isPreview}
+                blocked={blocked}
+                releasers={releaserIds === null ? null : releaserIds.length ? releaserIds.map(nameOf).join(", ") : "nobody"}
+                canSubmit={inv.status === "coded" && roleCan(user.role, "invoice.submit")}
+                canDecide={canDecide}
+                canReopen={inv.status === "rejected" && roleCan(user.role, "invoice.edit")}
+                reasons={REJECTION_REASONS}
+              />
+            </section>
+          )}
+
+          {inv.payments.length > 0 && (
+            <section aria-labelledby="payment">
+              <SectionHeading id="payment" level={3}>
+                Payment
+              </SectionHeading>
+              <Card className="flex flex-col gap-2 p-6 text-[15px]">
+                {inv.payments.map((p) => (
+                  <div key={p.id}>
+                    {canViewAudit(user.role) ? <Link href={`/audit/pack/${p.id}`} className="font-bold">{p.id}</Link> : <b>{p.id}</b>} · {p.method} · {formatMoney(p.amount, p.currency)} · {p.status}
+                    <span className="muted"> · scheduled {formatDate(p.scheduledDate)}</span>
+                    {p.reference && <span className="muted num"> · {p.reference}</span>}
+                    {p.releasedById && <span className="muted"> · released by {nameOf(p.releasedById)}</span>}
+                    {p.failureReason && <span className="form-error block">{p.failureReason}</span>}
+                  </div>
+                ))}
+              </Card>
             </section>
           )}
 
