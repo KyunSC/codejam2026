@@ -139,6 +139,7 @@ export async function patchInvoice(
   ifMatch: number | null,
   patch: InvoicePatch,
 ) {
+  enforce(firstFailure(authorize(actor.matrix, "invoice.edit"), checkNotReadOnly(actor.matrix)));
   if (ifMatch === null || !Number.isInteger(ifMatch)) {
     throw new AppError(428, "VERSION_REQUIRED", "Send the version you edited as the If-Match header.");
   }

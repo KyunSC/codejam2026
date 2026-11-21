@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { DM_Sans } from "next/font/google";
 import { AppHeader } from "@/components/shell/app-header";
 import { AppFooter } from "@/components/shell/app-footer";
+import { AuditorBanner } from "@/components/shell/auditor-banner";
+import { Suspense } from "react";
 import { THEME_SCRIPT } from "@/components/shell/theme";
 import "./globals.css";
 
@@ -25,6 +27,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       </head>
       <body className="flex min-h-full flex-col">
         <AppHeader />
+        <Suspense fallback={null}>
+          <AuditorBanner />
+        </Suspense>
         <div className="flex flex-1 flex-col">{children}</div>
         <AppFooter />
       </body>

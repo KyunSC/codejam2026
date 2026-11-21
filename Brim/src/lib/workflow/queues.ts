@@ -2,6 +2,7 @@
  * Work queues read by the landing pages. Read-only.
  */
 import type { User } from "@/generated/prisma/client";
+import type { Role } from "@/lib/types";
 import { db } from "@/lib/db";
 
 /**
@@ -49,4 +50,103 @@ export async function waitingForMe(user: User) {
     actingFor: s.assignedToId !== me ? (names[s.assignedToId] ?? s.assignedToId) : s.onBehalfOfId ? (names[s.onBehalfOfId] ?? s.onBehalfOfId) : null,
     invoice: s.invoice,
   }));
+}
+
+// ---------- Landing pages and queues by role (BUILD_PLAN Screens) ----------
+
+
+/** Where each role lands: its own work. */
+export const LANDING: Record<Role, string> = {
+  employee: "/invoices",
+  ap_clerk: "/review",
+  approver: "/approvals",
+  finance_manager: "/approvals",
+  controller_admin: "/approvals",
+  auditor: "/audit",
+};
+
+/** Navigation by role: only what the role can open. */
+export function navFor(role: Role): Array<{ label: string; href: string }> {
+  switch (role) {
+    case "employee":
+      return [{ label: "My submissions", href: "/invoices" }, { label: "Vendors", href: "/vendors" }];
+    case "ap_clerk":
+      return [
+        { label: "Review queue", href: "/review" },
+        { label: "Invoices", href: "/invoices" },
+        { label: "Payments", href: "/payments" },
+        { label: "Vendors", href: "/vendors" },
+      ];
+    case "approver":
+      return [{ label: "Waiting for me", href: "/approvals" }, { label: "Invoices", href: "/invoices" }, { label: "Vendors", href: "/vendors" }];
+    case "finance_manager":
+      return [
+        { label: "Waiting for me", href: "/approvals" },
+        { label: "Payments", href: "/payments" },
+        { label: "Invoices", href: "/invoices" },
+        { label: "Vendors", href: "/vendors" },
+      ];
+    case "controller_admin":
+      return [
+        { label: "Waiting for me", href: "/approvals" },
+        { label: "Payments", href: "/payments" },
+        { label: "Invoices", href: "/invoices" },
+        { label: "Vendors", href: "/vendors" },
+        { label: "Policies", href: "/policies" },
+        { label: "Settings", href: "/settings" },
+        { label: "Audit log", href: "/audit" },
+      ];
+    case "auditor":
+      return [
+        { label: "Audit log", href: "/audit" },
+        { label: "Invoices", href: "/invoices" },
+        { label: "Payments", href: "/payments" },
+        { label: "Vendors", href: "/vendors" },
+        { label: "Policies", href: "/policies" },
+      ];
+  }
+}
+
+const REVIEW_STATES = ["received", "extracted", "needs_review", "coded", "rejected"];
+
+/**
+ * The AP clerk's review queue: invoices still in review, those with a flag that holds first, then any
+ * open flag, then oldest first; and the emails that need a person (no attachment, statements, payment
+ * questions, newsletters, and labels that failed).
+ */
+export async function reviewQueue(organizationId: string) {
+  const invoices = await db().invoice.findMany({
+    where: { organizationId, source: { not: "history" }, status: { in: REVIEW_STATES } },
+    include: {
+      flags: { where: { status: "open" }, select: { code: true, effect: true, klass: true } },
+      document: { select: { fileName: true } },
+      email: { select: { fromAddress: true, subject: true } },
+    },
+    orderBy: [{ receivedDate: "asc" }, { id: "asc" }],
+  });
+  const rank = (i: (typeof invoices)[number]) => (i.flags.some((f) => f.effect === "hold") ? 0 : i.flags.length ? 1 : 2);
+  const sorted = [...invoices].sort((a, b) => rank(a) - rank(b));
+  const emails = await db().inboxEmail.findMany({
+    where: {
+      organizationId,
+      OR: [{ label: { in: ["missing_attachment", "statement", "payment_inquiry", "other"] } }, { label: null, labelReason: { not: null } }],
+    },
+    orderBy: { receivedAt: "desc" },
+  });
+  return { invoices: sorted, emails };
+}
+
+/** Finance manager / controller work besides approval steps: vendors to approve, bank changes to verify, open fraud flags. */
+export async function financeQueue(user: User) {
+  const organizationId = user.organizationId;
+  const [vendors, bankChanges, fraud] = await Promise.all([
+    db().vendor.findMany({ where: { organizationId, status: "pending_review" }, orderBy: { id: "asc" } }),
+    db().bankChangeRequest.findMany({ where: { organizationId, status: "pending" }, include: { vendor: { select: { legalName: true } } }, orderBy: { requestedAt: "asc" } }),
+    db().flag.count({ where: { organizationId, status: "open", klass: "fraud" } }),
+  ]);
+  return {
+    vendors: vendors.map((v) => ({ id: v.id, legalName: v.legalName, mine: v.createdById === user.id })),
+    bankChanges: bankChanges.map((c) => ({ id: c.id, vendorId: c.vendorId, vendorName: c.vendor.legalName, channel: c.channel, mine: c.requestedById === user.id })),
+    openFraudFlags: fraud,
+  };
 }

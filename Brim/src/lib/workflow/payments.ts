@@ -18,7 +18,7 @@
 import Decimal from "decimal.js";
 import type { Prisma } from "@/generated/prisma/client";
 import { type Actor as AuditActor, logAction } from "@/lib/audit";
-import { canRelease, type StepRecord } from "@/lib/auth/matrix";
+import { authorize, canRelease, checkNotReadOnly, firstFailure, type StepRecord } from "@/lib/auth/matrix";
 import { config } from "@/lib/config";
 import { AppError } from "@/lib/http";
 import { transitionInvoice } from "@/lib/invoices/transition";
@@ -111,6 +111,7 @@ export async function preparePayment(
   invoiceId: string,
   scheduledDate?: string | null,
 ) {
+  enforce(firstFailure(authorize(actor.matrix, "payment.prepare"), checkNotReadOnly(actor.matrix)));
   const blockers = await paymentBlockers(tx, organizationId, invoiceId, "prepare");
   if (blockers.length) refuse(blockers);
   const inv = await tx.invoice.findFirstOrThrow({ where: { organizationId, id: invoiceId } });
@@ -159,6 +160,7 @@ export async function releasersFor(tx: Tx, organizationId: string, invoiceId: st
 }
 
 export async function releasePayment(tx: Tx, actor: WorkflowActor, organizationId: string, paymentId: string) {
+  enforce(firstFailure(authorize(actor.matrix, "payment.release"), checkNotReadOnly(actor.matrix)));
   const payment = await tx.payment.findFirst({ where: { organizationId, id: paymentId } });
   if (!payment) throw new AppError(404, "PAYMENT_NOT_FOUND", `No payment ${paymentId}.`);
   if (payment.status !== "scheduled") throw new AppError(409, "INVALID_STATE", `Payment ${paymentId} is ${payment.status}; only a scheduled payment is released.`);

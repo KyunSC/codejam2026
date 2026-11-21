@@ -16,7 +16,7 @@
 import Decimal from "decimal.js";
 import type { Prisma } from "@/generated/prisma/client";
 import { logAction } from "@/lib/audit";
-import { canDecideStep, type StepRecord } from "@/lib/auth/matrix";
+import { authorize, canDecideStep, checkNotReadOnly, firstFailure, type StepRecord } from "@/lib/auth/matrix";
 import { AppError } from "@/lib/http";
 import { bumpInvoiceVersion, transitionInvoice } from "@/lib/invoices/transition";
 import { releaseEligibility, type Route, route, routingInputFor, type RoutingInput } from "@/lib/rules/routing/route";
@@ -102,6 +102,7 @@ export async function routePreview(tx: Tx, organizationId: string, invoiceId: st
 
 
 export async function submit(tx: Tx, actor: WorkflowActor, organizationId: string, invoiceId: string, ifMatch: number | null) {
+  enforce(firstFailure(authorize(actor.matrix, "invoice.submit"), checkNotReadOnly(actor.matrix)));
   const row = await loadInvoice(tx, organizationId, invoiceId);
   if (ifMatch !== null && ifMatch !== row.version) {
     throw new AppError(409, "VERSION_CONFLICT", `Invoice ${invoiceId} changed since you opened it. Reload and try again.`);
@@ -174,6 +175,7 @@ export interface DecideInput {
 }
 
 export async function decide(tx: Tx, actor: WorkflowActor, input: DecideInput) {
+  enforce(firstFailure(authorize(actor.matrix, "invoice.decide"), checkNotReadOnly(actor.matrix)));
   const { organizationId, invoiceId } = input;
   const row = await loadInvoice(tx, organizationId, invoiceId);
   if (input.ifMatch !== null && input.ifMatch !== row.version) {
@@ -258,6 +260,7 @@ export async function decide(tx: Tx, actor: WorkflowActor, input: DecideInput) {
 
 /** Clerk reopens a rejected invoice for review (BUILD_PLAN: rejection ends the chain; reopen to needs_review). */
 export async function reopen(tx: Tx, actor: WorkflowActor, organizationId: string, invoiceId: string, reason: string | null) {
+  enforce(firstFailure(authorize(actor.matrix, "invoice.edit"), checkNotReadOnly(actor.matrix)));
   if (!reason?.trim()) throw new AppError(422, "REASON_REQUIRED", "Say why it is reopened.");
   return transitionInvoice(tx, { organizationId, invoiceId, to: "needs_review", actor: actor.audit, action: "invoice.reopen", reason });
 }
@@ -268,6 +271,7 @@ export async function setDelegation(
   input: { delegateId: string | null; onLeave: boolean },
 ) {
   const { user } = actor;
+  enforce(firstFailure(authorize(actor.matrix, "delegate.set_own"), checkNotReadOnly(actor.matrix)));
   let delegateRowId: string | null = null;
   if (input.delegateId) {
     const d = await tx.user.findFirst({

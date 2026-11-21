@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { roleCan } from "@/lib/auth/matrix";
+import { navFor } from "@/lib/workflow/queues";
 import { Suspense } from "react";
-import { ROLE_LABEL, canManageUsers, canViewAudit } from "@/lib/auth/permissions";
+import { ROLE_LABEL } from "@/lib/auth/permissions";
 import { readStaffSession, readUserSession } from "@/lib/auth/session";
 import { LogoutButton } from "./logout-button";
 import { MainNav, type NavItem } from "./main-nav";
@@ -35,14 +35,7 @@ export function AppHeader() {
 async function HeaderSession() {
   const [session, staff] = await Promise.all([readUserSession(), readStaffSession()]);
   const items: NavItem[] = [];
-  if (session) {
-    if (roleCan(session.user.role, "invoice.decide")) items.push({ label: "Waiting for me", href: "/approvals" });
-    items.push({ label: "Invoices", href: "/invoices" });
-    if (["ap_clerk", "finance_manager", "controller_admin", "auditor"].includes(session.user.role)) items.push({ label: "Payments", href: "/payments" });
-    items.push({ label: "Vendors", href: "/vendors" });
-    if (canManageUsers(session.user.role)) items.push({ label: "Settings", href: "/settings" });
-    if (canViewAudit(session.user.role)) items.push({ label: "Audit log", href: "/audit" });
-  }
+  if (session) items.push(...navFor(session.user.role));
   if (staff) items.push({ label: "Brim admin", href: "/admin" });
 
   return (

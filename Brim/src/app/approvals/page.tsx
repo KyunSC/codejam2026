@@ -6,7 +6,7 @@ import { requireUser } from "@/lib/auth/current";
 import { roleCan } from "@/lib/auth/matrix";
 import { db } from "@/lib/db";
 import { formatDate, formatMoney } from "@/lib/format";
-import { waitingForMe } from "@/lib/workflow/queues";
+import { financeQueue, waitingForMe } from "@/lib/workflow/queues";
 import { DelegationForm } from "./delegation-form";
 
 const ROLE_STEP: Record<string, string> = {
@@ -35,6 +35,7 @@ async function ApprovalsView() {
     orderBy: { fullName: "asc" },
     select: { id: true, externalId: true, fullName: true, title: true },
   });
+  const finance = roleCan(user.role, "vendor.approve") ? await financeQueue(user) : null;
   const myDelegate = user.delegateId ? colleagues.find((c) => c.id === user.delegateId) : undefined;
 
   return (
@@ -84,6 +85,42 @@ async function ApprovalsView() {
             ))}
           </tbody>
         </TableCard>
+      )}
+
+      {finance && (
+        <section aria-labelledby="finance" className="mt-12">
+          <SectionHeading id="finance" level={3}>
+            Also waiting for a finance manager or controller
+          </SectionHeading>
+          <div className="grid gap-5 md:grid-cols-3">
+            <div className="card p-5">
+              <p className="label m-0 mb-2">Vendors to approve ({finance.vendors.length})</p>
+              {finance.vendors.length === 0 && <p className="muted m-0 text-sm">None.</p>}
+              {finance.vendors.map((v) => (
+                <p key={v.id} className="m-0 text-[15px]">
+                  <Link href={`/vendors/${v.id}`}>{v.id} {v.legalName}</Link>
+                  {v.mine && <span className="muted text-sm"> (you created it: someone else approves)</span>}
+                </p>
+              ))}
+            </div>
+            <div className="card p-5">
+              <p className="label m-0 mb-2">Bank changes to verify ({finance.bankChanges.length})</p>
+              {finance.bankChanges.length === 0 && <p className="muted m-0 text-sm">None.</p>}
+              {finance.bankChanges.map((c) => (
+                <p key={c.id} className="m-0 text-[15px]">
+                  <Link href={`/vendors/${c.vendorId}`}>{c.id} · {c.vendorName}</Link>
+                  <span className="muted text-sm"> · by {c.channel.replace(/_/g, " ")}{c.mine ? " · you asked: someone else verifies" : ""}</span>
+                </p>
+              ))}
+            </div>
+            <div className="card p-5">
+              <p className="label m-0 mb-2">Open fraud flags</p>
+              <p className="m-0 text-[15px]">
+                {finance.openFraudFlags} open. <Link href="/fraud">Fraud watch</Link>
+              </p>
+            </div>
+          </div>
+        </section>
       )}
 
       <section aria-labelledby="delegate" className="mt-12 max-w-[640px]">

@@ -2,7 +2,7 @@
 
 Branch `loop/workflow`. One item per run. Notes under each item.
 
-Local env for every command (never Neon): `BRIM_LOCAL_DB_ONLY=1 DATABASE_URL=postgresql://localhost:5432/brim DATABASE_URL_UNPOOLED=<same> APP_TODAY=2026-11-02`. The shell's values win over `.env` because dotenv never overrides.
+Local env for every command (never Neon): `BRIM_LOCAL_DB_ONLY=1 DATABASE_URL=postgresql://localhost:5432/brim DATABASE_URL_UNPOOLED=<same> APP_TODAY=2026-11-02`. The shell's values win over `.env` because dotenv never overrides. In zsh, pass them as an array (`E=(A=1 B=2); env $E npm test`): an unquoted string variable is not word-split, so `DATABASE_URL` would silently fall back to `.env` (Neon). DB tests skip unless the host is local, so a run showing "skipped" means the env is wrong.
 
 - [x] 1. Local setup green: npm install, prisma generate, migrations + seed on local DB, ingest-inbox --run, test/typecheck pass.
   - No local Postgres existed on this machine; installed `postgresql@17` with Homebrew (`brew services start postgresql@17`), databases `brim` and `brim_test`.
@@ -68,7 +68,11 @@ Local env for every command (never Neon): `BRIM_LOCAL_DB_ONLY=1 DATABASE_URL=pos
   - Pages: `/audit/pack/[paymentId]`; `/audit` gains the workflow actions and records in its filters, invoice and payment filters, "Export these entries (CSV)" with the current filters, "Verify the chain", an auditor read-only banner, links from payment/vendor rows. Invoice screen links each payment to its pack for controller/auditor.
   - History payments have no bank snapshot; the pack shows the account on file on the paid date and says so.
   - Tested: history pack (PAY-00096 / AP-00100), new-payment pack with snapshot, CSV refused to the AP clerk, chain verifies and names the tampered row (in a rolled-back transaction).
-- [ ] 9. Navigation and landing pages per role; every route checks the matrix server-side.
+- [x] 9. Navigation and landing pages per role; every route checks the matrix server-side.
+  - `src/lib/workflow/queues.ts`: `LANDING` (employee → My submissions, AP clerk → Review queue, approver / finance manager / controller → Waiting for me, auditor → Audit log), `navFor(role)` (header shows only what the role can open), `reviewQueue`, `financeQueue`.
+  - Home and login send a logged-in person to their landing page. `/review` (AP clerk): invoices in review, held-by-a-check first, then flagged, then oldest; "Inbox: needs attention" for missing attachments, statements, payment questions (linked invoice), newsletters and failed labels. `/approvals` adds, for finance manager and controller: vendors to approve, bank changes to verify (marked when it is your own request), open fraud flags count. Auditor banner on every page.
+  - Server side: every workflow service now checks the matrix itself (not only its route), before any state check. `matrix-services.test.ts` calls 12 services as each of the six roles: allowed roles pass the guard, every other role gets FORBIDDEN / READ_ONLY_ROLE / FLAG_CLASS. It caught `decide` and `releasePayment` checking state before role (an employee got INVALID_STATE instead of 403); fixed.
+  - Nav links to `/policies` and `/fraud` land in items 10 and 11.
 - [ ] 10. Policy editor for the controller with "Try on an invoice" preview (LOCKED_RULE, BAD_CONDITION).
 - [ ] 11. Fraud watch page; sender domain flags shown; open fraud flag blocks release.
 - [ ] 12. Bank reconciliation per BUILD_PLAN Bonus; "Mark explained" audited.
