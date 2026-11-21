@@ -4,7 +4,8 @@ Branch: `loop/rules` · Roles and permissions, Resolution, Checks, Duplicate det
 
 Before starting:
 - Phase 0 (Next.js, Prisma, Vitest, `config.ts`, `APP_TODAY`) and `src/lib/types.ts` (`Extracted`, `NormalizedInvoice`) are already on `main`.
-- Branch from `main`: `git switch -c loop/rules`.
+- Branch from `main`: `git switch -c loop/rules`, then `npm install`.
+- No `.env` is needed. Tests pin `APP_TODAY` to 2026-11-02 in `vitest.config.mts`.
 - Run in auto mode or with an allowlist so the loop does not stall on a permission prompt.
 - This loop never connects to the database.
 - In Claude Code, open `/config` and check that auto-compact is on.
@@ -23,7 +24,7 @@ Paste the block below into Claude Code:
 ```
 /loop You are building Loop B (rules engine) for Brim AP automation, on branch loop/rules.
 Spec: Brim/BUILD_PLAN.md: Roles and permissions, Resolution, Checks, Duplicate detection, Smart coding, Approval routing. If it conflicts with PLAN.md, BUILD_PLAN wins; if it conflicts with the dataset, the dataset wins.
-Everything is pure TypeScript over the CSVs (load them with src/lib/dataset.ts), with no database and no UI. Thresholds come from src/lib/config.ts and "today" from src/lib/today.ts. Each check is one function (invoice, refs) => Flag[] with a table test (at least one firing and one non-firing case).
+Everything is pure TypeScript over the CSVs (load them with src/lib/dataset.ts), with no database and no UI. Thresholds come from src/lib/config.ts and "today" from src/lib/today.ts. Vitest pins APP_TODAY=2026-11-02; any script run outside Vitest (e.g. the history replay) must set APP_TODAY=2026-11-02 itself, so results match BUILD_PLAN. Each check is one function (invoice, refs) => Flag[] with a table test (at least one firing and one non-firing case).
 Each run: read Brim/progress/rules.md (create it if missing; first item: write a script that verifies the counts in BUILD_PLAN's Tables section and log any mismatch), pick the first unchecked item, implement it, run tests, commit, tick it.
 Hard rules:
 - Never open any file listed in brim_ap_dataset/sealed_invoices.txt.
