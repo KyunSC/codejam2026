@@ -60,7 +60,8 @@ describe("text-layer matching", () => {
     ["0", false],
     ["1500", true], // by value
     ["10", true],
-    ["15000", false], // "150.00 1 500,00" must not merge into one number
+    ["15000", false], // "150.00 1 500,00" must not merge into one number, nor "150.00" lose its point
+    ["HST 13%", true], // a label ending in a digit, followed by an amount
   ])("%j in text → %s", (value, found) => {
     expect(new TextIndex(TEXT).has(value, /^[\d$ ,.]+$/.test(value))).toBe(found);
   });

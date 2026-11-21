@@ -4,9 +4,9 @@
  * Text layer: a value is `confirmed` when it appears in the PDF's text layer, `not_in_text`
  * when a text layer exists and it does not.
  * - Text fields are compared as letters and digits only, lower case, so spacing, line breaks
- *   and punctuation do not matter. A value that starts or ends with a digit must not run into
- *   another digit in the text, so `1` is not found inside `2026`.
- * - Numbers (amounts, quantities) are compared by value: every run of one to four adjacent
+ *   and punctuation do not matter. A value that starts or ends with a digit must not continue a
+ *   number in the text, so `1` is not found inside `2026` (but `TPS 5 %` is found before `45,00`).
+ * - Numbers (amounts, quantities) that parse are compared by value only: every run of one to four adjacent
  *   number-like words in the text is parsed as an amount, and the field's value must be one of
  *   them. So `1,500.00` is found in `1 500,00 $`, and neighbouring columns such as
  *   `10  150.00  1 500,00` do not run together the way they would with spaces removed.
@@ -63,13 +63,30 @@ export function matchKey(s: string): string {
     .replace(/[^\p{L}\p{N}]/gu, "");
 }
 
+/** Letters and digits only, plus where the original had a separator before each kept character. */
+function keyWithBreaks(s: string): { key: string; breakBefore: boolean[] } {
+  let key = "";
+  const breakBefore: boolean[] = [];
+  let sep = false;
+  for (const ch of s.normalize("NFKC").toLowerCase()) {
+    if (/[\p{L}\p{N}]/u.test(ch)) {
+      key += ch;
+      for (let k = 0; k < ch.length; k++) breakBefore.push(sep);
+      sep = false;
+    } else sep = true;
+  }
+  breakBefore.push(true); // end of text
+  return { key, breakBefore };
+}
+
 /** The text layer, prepared once for many lookups. */
 export class TextIndex {
   readonly key: string;
+  private readonly breakBefore: boolean[];
   private readonly numbers = new Set<string>();
 
   constructor(text: string) {
-    this.key = matchKey(text);
+    ({ key: this.key, breakBefore: this.breakBefore } = keyWithBreaks(text));
     const words = text.split(/\s+/).filter((w) => w !== "");
     const numeric = (w: string) => /\d/.test(w) && /^[-+−(]?[$€]?[\d.,]+[$€]?[)-]?%?$/.test(w.replace(/[:;]$/, ""));
     for (let i = 0; i < words.length; i++) {
@@ -85,28 +102,37 @@ export class TextIndex {
     }
   }
 
+  /**
+   * Numbers that parse are matched by value only: with punctuation removed, `150.00` would
+   * otherwise match a value of `15000`. Everything else is matched as text.
+   */
   has(value: string, numericField: boolean): boolean {
     if (numericField) {
       const r = parseAmount(value);
-      if (r?.ok && this.numbers.has(r.value.toString())) return true;
+      if (r?.ok) return this.numbers.has(r.value.toString());
     }
-    return inTextLayer(value, this.key);
+    return this.hasText(value);
   }
-}
 
-export function inTextLayer(value: string, textKey: string): boolean {
-  const key = matchKey(value);
-  if (key === "") return false;
-  const digitStart = /^\p{N}/u.test(key);
-  const digitEnd = /\p{N}$/u.test(key);
-  for (let at = textKey.indexOf(key); at >= 0; at = textKey.indexOf(key, at + 1)) {
-    const before = textKey[at - 1];
-    const after = textKey[at + key.length];
-    if (digitStart && before !== undefined && /\p{N}/u.test(before)) continue;
-    if (digitEnd && after !== undefined && /\p{N}/u.test(after)) continue;
-    return true;
+  /**
+   * Letters and digits only. A value starting or ending with a digit must not continue a
+   * number that runs on in the text (`1` is not in `2026`); a separator in the text in between
+   * is enough (`TPS 5 %` is found in `TPS 5 % 45,00`).
+   */
+  hasText(value: string): boolean {
+    const key = matchKey(value);
+    if (key === "") return false;
+    const isDigit = (c: string | undefined) => c !== undefined && /\p{N}/u.test(c);
+    const digitStart = isDigit(key[0]);
+    const digitEnd = isDigit(key[key.length - 1]);
+    for (let at = this.key.indexOf(key); at >= 0; at = this.key.indexOf(key, at + 1)) {
+      const end = at + key.length;
+      if (digitStart && isDigit(this.key[at - 1]) && !this.breakBefore[at]) continue;
+      if (digitEnd && isDigit(this.key[end]) && !this.breakBefore[end]) continue;
+      return true;
+    }
+    return false;
   }
-  return false;
 }
 
 /** Every value-bearing field of an extraction, by path. Lists use their index: `lines.0.amount`. */
