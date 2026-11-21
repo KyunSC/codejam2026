@@ -1,7 +1,19 @@
 "use client";
 
-import { useRef, useSyncExternalStore } from "react";
-import { PETS, SPRITE_SIZE, petById, petSnapshot, spritePaths, subscribePet, writePetId, type Pet } from "@/lib/pets";
+import { useEffect, useRef, useSyncExternalStore } from "react";
+import {
+  PETS,
+  PICK_PET_EVENT,
+  SPRITE_SIZE,
+  petById,
+  petSnapshot,
+  petTuckedSnapshot,
+  spritePaths,
+  subscribePet,
+  writePetId,
+  writePetTucked,
+  type Pet,
+} from "@/lib/pets";
 
 /** A pet's pixel sprite on a light tile (the ink outlines need a light ground in both themes). */
 export function PetSprite({ pet, size }: { pet: Pet; size: number }) {
@@ -25,7 +37,15 @@ export function PetSprite({ pet, size }: { pet: Pet; size: number }) {
 export function PetPicker() {
   const petId = useSyncExternalStore(subscribePet, petSnapshot, () => null);
   const pet = petById(petId);
+  const tucked = useSyncExternalStore(subscribePet, petTuckedSnapshot, () => false);
   const dialog = useRef<HTMLDialogElement>(null);
+
+  // The perched "?" asks for the picker.
+  useEffect(() => {
+    const open = () => dialog.current?.showModal();
+    window.addEventListener(PICK_PET_EVENT, open);
+    return () => window.removeEventListener(PICK_PET_EVENT, open);
+  }, []);
 
   return (
     <>
@@ -62,11 +82,29 @@ export function PetPicker() {
             <h2 id="pet-dialog-title" className="pix text-[1.8rem] leading-none">
               Pick your lab pet
             </h2>
-            <p className="mt-2 text-muted">It keeps you company while you predict. Saved in this browser.</p>
+            <p className="mt-2 text-muted">
+              It keeps you company while you predict. Saved in this browser.
+              {tucked && pet ? " It's tucked away: pick a pet to bring it back." : null}
+            </p>
           </div>
-          <button type="button" className="btn-secondary min-h-[2.2rem] py-1" onClick={() => dialog.current?.close()}>
-            Close
-          </button>
+          <div className="flex shrink-0 gap-2">
+            {!tucked ? (
+              <button
+                type="button"
+                className="btn-secondary min-h-[2.2rem] py-1"
+                data-testid="pet-hide"
+                onClick={() => {
+                  writePetTucked(true);
+                  dialog.current?.close();
+                }}
+              >
+                Hide pet
+              </button>
+            ) : null}
+            <button type="button" className="btn-secondary min-h-[2.2rem] py-1" onClick={() => dialog.current?.close()}>
+              Close
+            </button>
+          </div>
         </div>
 
         <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3" role="list">
@@ -83,6 +121,7 @@ export function PetPicker() {
                   }`}
                   onClick={() => {
                     writePetId(p.id);
+                    writePetTucked(false);
                     dialog.current?.close();
                   }}
                 >
