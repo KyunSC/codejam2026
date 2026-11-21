@@ -6,13 +6,14 @@
  * - Submission: files an employee submits for their department, with an optional PO and note.
  *
  * Every arriving file is stored as a Document and gets one draft Invoice in status "received".
- * Each email and each draft is written to the audit log. Nothing is checked or skipped yet:
- * no duplicate, file-type or email-type handling. Each call is one transaction, so a failure
+ * Each email and each draft is written to the audit log. Identical files reuse the organization’s existing draft. Each call is one transaction, so a failure
  * stores nothing.
  */
-import { createHash } from "node:crypto";
+import { storeAndDraft, intakeEmail, labelFor } from "../pipeline/intake";
+import { hasAnthropicKey } from "../pipeline/extract/key";
+import { createLabeller } from "../pipeline/label";
 import type { Prisma } from "@/generated/prisma/client";
-import { type Actor, logAction } from "@/lib/audit";
+import { type Actor } from "@/lib/audit";
 import { parseEmails } from "@/lib/dataset";
 import { db } from "@/lib/db";
 
@@ -47,26 +48,16 @@ async function receive(
   file: IncomingFile,
   invoice: Omit<Prisma.InvoiceUncheckedCreateInput, "organizationId" | "documentId">,
 ) {
-  const doc = await tx.document.create({
-    data: {
-      organizationId,
-      sha256: createHash("sha256").update(file.bytes).digest("hex"),
-      fileName: file.name,
-      mimeType: file.mimeType || "application/octet-stream",
-      sizeBytes: file.bytes.byteLength,
-      content: Buffer.from(file.bytes),
-    },
-  });
-  const created = await tx.invoice.create({ data: { ...invoice, organizationId, documentId: doc.id } });
-  await logAction(tx, {
-    organizationId,
+  const out = await storeAndDraft(
+    tx,
+    file.name,
+    file.bytes,
+    { ...invoice, organizationId },
     actor,
-    action: "invoice.received",
-    entityType: "invoice",
-    entityId: created.id,
-    after: { ...created, fileName: doc.fileName, sha256: doc.sha256, sizeBytes: doc.sizeBytes },
-  });
-  return created;
+    false,
+    file.mimeType,
+  );
+  return out.invoiceId;
 }
 
 /** Inbox: store every email, and a document plus a draft invoice for each attachment that arrived. */
@@ -81,33 +72,18 @@ export async function ingestInbox(
   const result = emptyResult();
   result.unreferencedFiles = input.files.map((f) => f.name).filter((n) => !listed.has(n));
 
+  const labeller = hasAnthropicKey() ? createLabeller() : null;
+  const labels: Array<Awaited<ReturnType<typeof labelFor>>> = [];
+  for (const email of emails) labels.push(labeller ? await labelFor(db(), email, labeller, organizationId) : null);
   await db().$transaction(
     async (tx) => {
-      for (const e of emails) {
-        const email = await tx.inboxEmail.create({
-          data: {
-            organizationId,
-            sourceId: e.emailId,
-            fromName: e.fromName,
-            fromAddress: e.fromAddress,
-            toAddress: e.toAddress,
-            subject: e.subject,
-            body: e.body,
-            receivedAt: new Date(e.receivedAt),
-            attachmentNames: e.attachments,
-          },
-        });
-        await logAction(tx, { organizationId, actor, action: "email.received", entityType: "email", entityId: email.id, after: email });
-        result.emailIds.push(email.id);
-
-        for (const name of e.attachments) {
-          const file = filesByName.get(name);
-          if (!file) {
-            result.missingAttachments.push(name);
-            continue;
-          }
-          const invoice = await receive(tx, organizationId, actor, file, { source: "inbox", emailId: email.id });
-          result.invoiceIds.push(invoice.id);
+      for (const [i, email] of emails.entries()) {
+        const files = new Map(email.attachments.map((name) => [name, filesByName.get(name)?.bytes ?? null]));
+        const outcome = await intakeEmail(tx, email, { organizationId, actor, files, label: labels[i] });
+        result.emailIds.push(outcome.storedEmailId);
+        for (const attachment of outcome.attachments) {
+          if (attachment.status === "missing_file") result.missingAttachments.push(attachment.fileName);
+          else result.invoiceIds.push(attachment.invoiceId);
         }
       }
     },
@@ -117,13 +93,17 @@ export async function ingestInbox(
 }
 
 /** Upload: a document plus a draft invoice for each file. */
-export async function ingestUpload(organizationId: string, actor: Actor, input: { files: IncomingFile[] }): Promise<IntakeResult> {
+export async function ingestUpload(
+  organizationId: string,
+  actor: Actor,
+  input: { files: IncomingFile[] },
+): Promise<IntakeResult> {
   const result = emptyResult();
   const createdById = actor.type === "user" ? actor.userId : null;
   await db().$transaction(
     async (tx) => {
       for (const file of input.files) {
-        result.invoiceIds.push((await receive(tx, organizationId, actor, file, { source: "upload", createdById })).id);
+        result.invoiceIds.push(await receive(tx, organizationId, actor, file, { source: "upload", createdById }));
       }
     },
     { timeout: 60_000 },
@@ -147,7 +127,7 @@ export async function ingestSubmission(
           poNumber: input.poNumber,
           note: input.note,
         });
-        result.invoiceIds.push(invoice.id);
+        result.invoiceIds.push(invoice);
       }
     },
     { timeout: 60_000 },

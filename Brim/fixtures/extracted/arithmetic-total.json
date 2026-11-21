@@ -1,0 +1,51 @@
+{
+  "handMade": true,
+  "file": "evergreenenergyu_000850.pdf",
+  "sha256": "4cb78899986268c2443d6a1d95e2b37b24d707e9abc7c9f64833cae4a9116e1f",
+  "purpose": "Subtotal plus GST does not equal the printed total (a real error on the document)",
+  "extracted": {
+    "docType": "invoice",
+    "language": "en",
+    "vendor": {
+      "name": "Evergreen Energy Utility",
+      "address": "4432 Rue Sainte-Catherine Vancouver BC V4A 4R4",
+      "gstHstNumber": "879234965RT0001",
+      "qstNumber": null
+    },
+    "billTo": {
+      "name": "Harborline Logistics Inc.",
+      "address": "1055 W Hastings St, Suite 900, Vancouver BC V6E 2E9"
+    },
+    "invoiceNumber": "000850",
+    "invoiceDate": "2026-10-20",
+    "dueDate": "2026-11-10",
+    "terms": "Net 21",
+    "poNumber": null,
+    "creditNoteRef": null,
+    "currency": "CAD",
+    "lines": [
+      {
+        "description": "Energy - October",
+        "quantity": "1",
+        "unitPrice": "$3,180.00",
+        "amount": "$3,180.00"
+      }
+    ],
+    "subtotal": "$3,180.00",
+    "taxes": [
+      {
+        "label": "GST (5%)",
+        "amount": "$159.00"
+      }
+    ],
+    "total": "$3,439.00",
+    "remit": {
+      "institution": "002",
+      "transit": "20338",
+      "account": "331792955",
+      "text": "EFT / virement bancaire - Evergreen Energy Utility"
+    },
+    "notes": [],
+    "unreadable": []
+  }
+}

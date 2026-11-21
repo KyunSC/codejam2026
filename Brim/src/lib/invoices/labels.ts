@@ -21,6 +21,7 @@ export const SENT_STATUSES = ["released", "paid"];
 
 export const SOURCE_LABEL: Record<string, string> = {
   inbox: "AP inbox",
+  history: "Imported history",
   upload: "Upload",
   submission: "Employee submission",
   manual: "Invoice form",

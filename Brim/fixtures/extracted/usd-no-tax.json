@@ -1,0 +1,46 @@
+{
+  "handMade": true,
+  "file": "sparkgridcrminc_FA002342.pdf",
+  "sha256": "3c8dbf5ac4c129cc523b01db8f54b73d7df7a6acbe87907e17d598e608547995",
+  "purpose": "US vendor billing in USD with no tax and no bank details (pays by card); the GST number printed is the bill-to's",
+  "extracted": {
+    "docType": "invoice",
+    "language": "en",
+    "vendor": {
+      "name": "Sparkgrid CRM Inc.",
+      "address": "7348 Rue Sainte-Catherine Austin TX 35030",
+      "gstHstNumber": null,
+      "qstNumber": null
+    },
+    "billTo": {
+      "name": "Harborline Logistics Inc.",
+      "address": "1055 W Hastings St, Suite 900, Vancouver BC V6E 2E9"
+    },
+    "invoiceNumber": "FA-002342",
+    "invoiceDate": "2026-10-26",
+    "dueDate": "2026-11-25",
+    "terms": "Net 30",
+    "poNumber": null,
+    "creditNoteRef": null,
+    "currency": "USD",
+    "lines": [
+      {
+        "description": "Sparkgrid CRM Enterprise (15 seats)",
+        "quantity": "1",
+        "unitPrice": "$1,950.00",
+        "amount": "$1,950.00"
+      }
+    ],
+    "subtotal": "$1,950.00",
+    "taxes": [],
+    "total": "$1,950.00",
+    "remit": {
+      "institution": null,
+      "transit": null,
+      "account": null,
+      "text": "Pay by credit card at our online portal."
+    },
+    "notes": [],
+    "unreadable": []
+  }
+}

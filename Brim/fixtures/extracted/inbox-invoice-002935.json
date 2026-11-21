@@ -1,0 +1,57 @@
+{
+  "handMade": true,
+  "file": "Invoice 002935.pdf",
+  "sha256": "79b9cf7f71f8f836370d6e76ae259322fc4630430b50eb56604b3f76265b87b1",
+  "purpose": "Inbox file, written by hand from its text layer (checked against the rendered page)",
+  "extracted": {
+    "docType": "invoice",
+    "language": "en",
+    "vendor": {
+      "name": "Queen Street Properties Inc.",
+      "address": "9154 King St W Hamilton ON K9P 1X2",
+      "gstHstNumber": "452214103RT0001",
+      "qstNumber": null
+    },
+    "billTo": {
+      "name": "Harborline Logistics Inc.",
+      "address": "88 Queens Quay W, Suite 1400, Toronto ON M5J 0B8"
+    },
+    "invoiceNumber": "002935",
+    "invoiceDate": "2026-11-01",
+    "dueDate": "2026-11-01",
+    "terms": "Due on receipt",
+    "poNumber": null,
+    "creditNoteRef": null,
+    "currency": "CAD",
+    "lines": [
+      {
+        "description": "Base rent - Toronto HQ",
+        "quantity": "1",
+        "unitPrice": "$14,500.00",
+        "amount": "$14,500.00"
+      },
+      {
+        "description": "Operating costs (CAM) - Toronto HQ",
+        "quantity": "1",
+        "unitPrice": "$2,100.00",
+        "amount": "$2,100.00"
+      }
+    ],
+    "subtotal": "$16,600.00",
+    "taxes": [
+      {
+        "label": "HST (13%)",
+        "amount": "$2,158.00"
+      }
+    ],
+    "total": "$18,758.00",
+    "remit": {
+      "institution": "003",
+      "transit": "14713",
+      "account": "710061421",
+      "text": "EFT / virement bancaire - Queen Street Properties Inc."
+    },
+    "notes": [],
+    "unreadable": []
+  }
+}

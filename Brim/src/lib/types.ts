@@ -318,3 +318,44 @@ export interface Flag {
     contractIds?: string[];
   };
 }
+
+// ---------- Approval policy (BUILD_PLAN "Approval routing", appended by Loop A item 1.2) ----------
+
+/** Approval step roles, ranked in this order. */
+export type StepRole = "dept_manager" | "finance_manager" | "controller_admin" | "cfo";
+
+/**
+ * One condition of a policy rule. A rule's `when` list holds when every entry holds;
+ * an empty list means "always". `any` holds when at least one of its entries holds
+ * (P05 is "pending_review OR new"). `poPresent` is needed by P13 ("no PO is present").
+ */
+export type Condition =
+  | { field: "totalCad"; op: "gt" | "lte"; value: number }
+  | { field: "vendor.status"; op: "in"; value: string[] }
+  | { field: "vendor.isNew"; op: "eq"; value: boolean }
+  | { field: "vendor.category"; op: "in"; value: string[] }
+  | { field: "vendor.requiresPo"; op: "eq"; value: boolean }
+  | { field: "poPresent"; op: "eq"; value: boolean }
+  | { field: "department"; op: "in"; value: string[] }
+  /** An open or overridden flag code. */
+  | { field: "flag"; op: "in"; value: string[] }
+  | { any: Condition[] };
+
+export type Effect =
+  | { kind: "requireSteps"; steps: StepRole[] }
+  | { kind: "hold"; flag: FlagCode }
+  | { kind: "releaseBy"; roles: Role[]; maxCad: number | null }
+  | { kind: "invariant"; name: "noSelfApproval" | "delegateWhenOnLeave" | "approverCannotRelease" };
+
+export interface PolicyRule {
+  id: string;
+  type: "approval" | "payment_release" | "match";
+  active: boolean;
+  /** Locked rules (P07, P08, P11) are shown in the editor but cannot be switched off. */
+  locked: boolean;
+  when: Condition[];
+  effect: Effect;
+  /** The CSV's condition and requirement, kept for display. */
+  sourceText: string;
+  note: string;
+}

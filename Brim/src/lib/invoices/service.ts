@@ -61,8 +61,8 @@ export async function listInvoicesFor(user: User, f: InvoiceFilter = {}) {
           }
         : {},
       f.status && STATUS_LABEL[f.status] ? { status: f.status } : {},
-      f.source && ["inbox", "upload", "submission", "manual"].includes(f.source)
-        ? { source: f.source as "inbox" | "upload" | "submission" | "manual" }
+      f.source && ["inbox", "upload", "submission", "manual", "history"].includes(f.source)
+        ? { source: f.source as "inbox" | "upload" | "submission" | "manual" | "history" }
         : {},
     ],
   };

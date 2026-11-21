@@ -36,6 +36,10 @@ Node 20.19 or later.
 - Brim staff log in from the footer link (`/admin/login`) to onboard and manage organizations. Scripts can call `/api/admin/*` with `Authorization: Bearer $BRIM_ADMIN_TOKEN` instead.
 - `.env` needs `SESSION_SECRET` (signs the login cookies) and `BRIM_ADMIN_TOKEN`.
 
+## Harborline pipeline
+
+Run `BRIM_LOCAL_DB_ONLY=1 npm run db:seed` after applying the migrations locally. The import reuses Harborline logins and runs once per organization. Repeating it preserves invoices, passwords, and audit history. The development inbox is `brim_ap_dataset/inbox/emails.open.json`, containing the 44 open messages. Run `npm run script -- scripts/ingest-inbox.ts --run` to process their attachments.
+
 ## Shared code
 
 | File | Owner | Rule |

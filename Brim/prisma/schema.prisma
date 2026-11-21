@@ -14,18 +14,30 @@ datasource db {
 
 /// A Brim customer. Managed only through the Brim admin API.
 model Organization {
-  id          String       @id @default(cuid())
+  flagRows              Flag[]
+  policyRuleRows        PolicyRule[]
+  cardTransactionRows   CardTransaction[]
+  bankStatementLineRows BankStatementLine[]
+  fxRateRows            FxRate[]
+  purchaseOrderRows     PurchaseOrder[]
+  contractRows          Contract[]
+  vendorRows            Vendor[]
+  taxCodeRows           TaxCode[]
+  glAccountRows         GlAccount[]
+  departmentRows        Department[]
+  datasetImportedAt     DateTime?
+  id                    String              @id @default(cuid())
   /// URL name, e.g. "harborline". Used in every /api/orgs/{slug}/ path. Never changes.
-  slug        String       @unique
-  name        String
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  users          User[]
-  accessRequests AccessRequest[]
-  invoices       Invoice[]
-  documents   Document[]
-  emails      InboxEmail[]
-  auditEvents AuditEvent[]
+  slug                  String              @unique
+  name                  String
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  users                 User[]
+  accessRequests        AccessRequest[]
+  invoices              Invoice[]
+  documents             Document[]
+  emails                InboxEmail[]
+  auditEvents           AuditEvent[]
 }
 
 // ---------- Users ----------
@@ -123,14 +135,18 @@ model BrimStaff {
 
 /// How an invoice entered the system.
 enum IntakeSource {
-  inbox      // attachment on an email from the AP inbox
-  upload     // file uploaded directly by an AP clerk
+  history
+  inbox // attachment on an email from the AP inbox
+  upload // file uploaded directly by an AP clerk
   submission // file submitted by an employee for their department
-  manual     // typed into the invoice form, no file
+  manual // typed into the invoice form, no file
 }
 
 /// One stored file. The bytes live in the database so the app needs no file store.
 model Document {
+  url            String?
+  pageCount      Int?
+  textLayer      String?
   id             String       @id @default(cuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
@@ -147,6 +163,13 @@ model Document {
 
 /// One email from the AP inbox, as received.
 model InboxEmail {
+  label           String?
+  labelReason     String?
+  labelSource     String?
+  linkedInvoiceId String?
+  linkedVendorId  String?
+  senderCheck     Json?
+  source          String       @default("inbox") // inbox | upload
   id              String       @id @default(cuid())
   organizationId  String
   organization    Organization @relation(fields: [organizationId], references: [id])
@@ -169,43 +192,73 @@ model InboxEmail {
 /// An invoice. Intake creates it with only where it came from; extraction or the invoice form
 /// fills the fields printed on the document. A field nobody has filled is null.
 model Invoice {
-  id             String        @id @default(cuid())
-  organizationId String
-  organization   Organization  @relation(fields: [organizationId], references: [id])
-  source         IntakeSource
+  kind              String         @default("invoice") // invoice | credit_note
+  heldFrom          String?
+  version           Int            @default(1)
+  vendorId          String?
+  vendor            Vendor?        @relation(fields: [organizationId, vendorId], references: [organizationId, id], onDelete: Restrict)
+  numberKey         String?
+  digitsKey         String?
+  receivedDate      DateTime       @default(now()) @db.Date
+  fxRateToCad       Decimal?       @db.Decimal(10, 4)
+  totalCad          Decimal?       @db.Decimal(14, 2)
+  shipToProvince    String?
+  departmentId      String?
+  requesterId       String?
+  poId              String?
+  contractId        String?
+  creditOfInvoiceId String?
+  docType           String?
+  extracted         Json?
+  evidence          Json?
+  normalized        Json?
+  taxes             InvoiceTax[]
+  flags             Flag[]
+  approvalSteps     ApprovalStep[]
+  payments          Payment[]
+  id                String         @id @default(cuid())
+  organizationId    String
+  organization      Organization   @relation(fields: [organizationId], references: [id])
+  source            IntakeSource
   /// See InvoiceStatus in src/lib/types.ts. Every new invoice starts as "received".
-  status         String        @default("received")
+  status            String         @default("received")
   /// The stored file. Null for an invoice typed into the form.
-  documentId     String?
-  document       Document?     @relation(fields: [documentId], references: [id])
-  emailId        String?
-  email          InboxEmail?   @relation(fields: [emailId], references: [id])
+  documentId        String?
+  /// Zero for the canonical draft. Positive values retain pre-migration invoices sharing a document.
+  documentSequence  Int            @default(0)
+  document          Document?      @relation(fields: [documentId], references: [id])
+  emailId           String?
+  email             InboxEmail?    @relation(fields: [emailId], references: [id])
   /// Who brought it in: the uploader, submitter or form user. Null for the inbox.
-  createdById    String?
-  createdBy      User?         @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
+  createdById       String?
+  createdBy         User?          @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
   /// The person whose action the invoice is waiting for, e.g. the next approver.
-  assignedToId   String?
-  assignedTo     User?         @relation("InvoiceAssignedTo", fields: [assignedToId], references: [id])
+  assignedToId      String?
+  assignedTo        User?          @relation("InvoiceAssignedTo", fields: [assignedToId], references: [id])
   /// PO number the submitter typed, as typed.
-  poNumber       String?
+  poNumber          String?
   /// Free-text note from whoever brought it in.
-  note           String?
+  note              String?
 
   // Fields printed on the invoice.
-  vendorName     String?
-  invoiceNumber  String?
-  invoiceDate    DateTime?     @db.Date
-  dueDate        DateTime?     @db.Date
-  currency       String?
-  subtotal       Decimal?      @db.Decimal(14, 2)
-  gstHstAmount   Decimal?      @db.Decimal(14, 2)
-  pstQstAmount   Decimal?      @db.Decimal(14, 2)
-  total          Decimal?      @db.Decimal(14, 2)
-  lines          InvoiceLine[]
+  vendorName    String?
+  invoiceNumber String?
+  invoiceDate   DateTime?     @db.Date
+  dueDate       DateTime?     @db.Date
+  currency      String?
+  subtotal      Decimal?      @db.Decimal(14, 2)
+  gstHstAmount  Decimal?      @db.Decimal(14, 2)
+  pstQstAmount  Decimal?      @db.Decimal(14, 2)
+  total         Decimal?      @db.Decimal(14, 2)
+  lines         InvoiceLine[]
 
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @default(now()) @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
+  @@unique([documentId, documentSequence])
+  @@index([organizationId, vendorId, numberKey])
+  @@index([organizationId, vendorId, digitsKey])
+  @@index([organizationId, vendorId, total])
   @@index([organizationId, status])
   @@index([organizationId, createdById])
   @@index([organizationId, assignedToId])
@@ -213,14 +266,22 @@ model Invoice {
 
 /// One line printed on an invoice.
 model InvoiceLine {
-  id          String   @id @default(cuid())
-  invoiceId   String
-  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  lineNo      Int
-  description String
-  quantity    Decimal? @db.Decimal(14, 4)
-  unitPrice   Decimal? @db.Decimal(14, 4)
-  amount      Decimal? @db.Decimal(14, 2)
+  lineType            String? // goods | services
+  glSuggested         String?
+  glFinal             String?
+  departmentSuggested String?
+  departmentFinal     String?
+  reason              Json?
+  gstHstCode          String?
+  pstQstCode          String?
+  id                  String   @id @default(cuid())
+  invoiceId           String
+  invoice             Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  lineNo              Int
+  description         String
+  quantity            Decimal? @db.Decimal(14, 4)
+  unitPrice           Decimal? @db.Decimal(14, 4)
+  amount              Decimal? @db.Decimal(14, 2)
 
   @@unique([invoiceId, lineNo])
 }
@@ -229,15 +290,21 @@ model InvoiceLine {
 
 /// Who took an action.
 enum ActorType {
-  user       // a person at the organization (actorId = User.id)
-  llm        // a model call (actorId = model id, e.g. "claude-sonnet-5-5")
-  system     // the app itself, e.g. a scheduled job
+  user // a person at the organization (actorId = User.id)
+  llm // a model call (actorId = model id, e.g. "claude-sonnet-5-5")
+  system // the app itself, e.g. a scheduled job
   brim_admin // Brim staff through the admin API
 }
 
 /// One action, by anyone, on anything. Append-only: the app never updates or deletes a row.
 /// Written by src/lib/audit.ts inside the same transaction as the change it records.
 model AuditEvent {
+  actorRole      String?
+  source         String       @default("app")
+  paymentId      String?
+  vendorId       String?
+  prevHash       String?
+  hash           String?
   seq            BigInt       @id @default(autoincrement())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
@@ -260,4 +327,303 @@ model AuditEvent {
   @@index([organizationId, invoiceId])
   @@index([organizationId, actorId])
   @@index([organizationId, entityType, entityId])
+}
+
+model Department {
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  id              String // D01
+  name            String
+  costCentre      String
+  annualBudgetCad Decimal      @db.Decimal(14, 2)
+  managerUserId   String
+
+  @@id([organizationId, id])
+}
+
+model GlAccount {
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  id             String // account number, e.g. "6210"
+  name           String
+  accountType    String // asset | expense | liability
+  notes          String?
+
+  @@id([organizationId, id])
+}
+
+model TaxCode {
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  id             String // HST13, GST5, PST7_BC, QST9975, EXEMPT, FOREIGN
+  description    String
+  rate           Decimal      @db.Decimal(8, 5)
+  appliesTo      String // all | goods
+  recoverable    String // yes | no | n/a
+  glAccount      String?
+
+  @@id([organizationId, id])
+}
+
+model Vendor {
+  organizationId         String
+  organization           Organization @relation(fields: [organizationId], references: [id])
+  id                     String // V001
+  legalName              String
+  category               String
+  defaultGlAccount       String
+  address                String
+  provinceOrState        String
+  country                String // CA | US
+  gstHstNumber           String?
+  qstNumber              String?
+  paymentTermsDays       Int
+  earlyPayDiscount       String?
+  preferredPaymentMethod String // EFT | CHEQUE | CARD
+  acceptsCardPayment     Boolean
+  apContactEmail         String
+  requiresPo             Boolean
+  status                 String // active | pending_review | on_hold
+  onboardedAt            DateTime     @db.Date
+  createdById            String? // set for vendors onboarded in the app (FOUR_EYES)
+
+  bankAccounts VendorBankAccount[]
+  bankChanges  BankChangeRequest[]
+  invoices     Invoice[]
+  payments     Payment[]
+
+  @@id([organizationId, id])
+}
+
+model VendorBankAccount {
+  organizationId  String
+  id              String    @id @default(cuid())
+  vendorId        String
+  vendor          Vendor    @relation(fields: [organizationId, vendorId], references: [organizationId, id], onDelete: Restrict)
+  institution     String?
+  transit         String?
+  account         String?
+  last4           String
+  validFrom       DateTime  @db.Date
+  validTo         DateTime? @db.Date
+  /// The change request that made this account live, if any.
+  changeRequestId String?
+  source          String    @default("app") // app | history
+
+  @@index([vendorId])
+}
+
+model BankChangeRequest {
+  organizationId     String
+  id                 String // BC-001 …
+  vendorId           String
+  vendor             Vendor    @relation(fields: [organizationId, vendorId], references: [organizationId, id], onDelete: Restrict)
+  oldLast4           String
+  /// The history CSV records only the last 4 digits of the new account.
+  newLast4           String
+  newInstitution     String?
+  newTransit         String?
+  newAccount         String?
+  channel            String // email_request | phone_callback_verified | vendor_portal
+  requestedById      String
+  requestedAt        DateTime  @db.Date
+  status             String // pending | verified | rejected
+  verifiedById       String?
+  verifiedAt         DateTime?
+  verifiedByCallback Boolean   @default(false)
+  note               String?
+  source             String    @default("app") // app | history
+
+  @@id([organizationId, id])
+  @@index([vendorId])
+}
+
+model Contract {
+  organizationId      String
+  organization        Organization @relation(fields: [organizationId], references: [id])
+  id                  String // C001
+  vendorId            String
+  description         String
+  billingType         String // fixed_monthly | rate_card | retainer | blanket
+  monthlyFee          Decimal?     @db.Decimal(14, 2)
+  currency            String
+  hourlyRateCap       Decimal?     @db.Decimal(14, 2)
+  /// As written in the CSV: 12 means 12%.
+  fuelSurchargeCapPct Decimal?     @db.Decimal(6, 2)
+  notToExceedMonthly  Decimal?     @db.Decimal(14, 2)
+  startDate           DateTime     @db.Date
+  endDate             DateTime     @db.Date
+  autoRenew           Boolean
+  status              String // active | expired
+
+  @@id([organizationId, id])
+  @@index([vendorId])
+}
+
+model PurchaseOrder {
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  id              String // PO-2026-0001
+  vendorId        String
+  departmentId    String
+  requesterUserId String
+  issueDate       DateTime     @db.Date
+  description     String
+  /// Pre-tax.
+  totalAmount     Decimal      @db.Decimal(14, 2)
+  currency        String
+  status          String // open | closed | partially_invoiced
+  approvedBy      String
+
+  @@id([organizationId, id])
+  @@index([vendorId])
+}
+
+model FxRate {
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  date           DateTime     @db.Date
+  usdToCad       Decimal      @db.Decimal(10, 4)
+
+  @@id([organizationId, date])
+}
+
+model BankStatementLine {
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  id             String // bank_txn_id
+  postedDate     DateTime     @db.Date
+  description    String
+  debit          Decimal?     @db.Decimal(14, 2)
+  credit         Decimal?     @db.Decimal(14, 2)
+  source         String       @default("history") // history | simulated
+
+  @@id([organizationId, id])
+}
+
+model CardTransaction {
+  organizationId     String
+  organization       Organization @relation(fields: [organizationId], references: [id])
+  id                 String // CT-00001
+  cardId             String
+  cardholderUserId   String
+  postedDate         DateTime     @db.Date
+  merchantDescriptor String
+  mcc                String
+  amount             Decimal      @db.Decimal(14, 2)
+  currency           String
+  amountCad          Decimal      @db.Decimal(14, 2)
+  source             String // employee_card | ap_virtual_card
+  receiptAttached    Boolean
+  memo               String?
+  origin             String       @default("history") // history | simulated
+
+  @@id([organizationId, id])
+  @@index([merchantDescriptor])
+}
+
+model PolicyRule {
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  id             String // P01 …
+  type           String // approval | payment_release | match
+  active         Boolean      @default(true)
+  locked         Boolean      @default(false)
+  when           Json // Condition[]
+  effect         Json // Effect
+  sourceText     String
+  note           String
+  updatedById    String?
+
+  @@id([organizationId, id])
+}
+
+model InvoiceTax {
+  id             String   @id @default(cuid())
+  invoiceId      String
+  invoice        Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  labelPrinted   String
+  taxCode        String?
+  ratePrinted    Decimal? @db.Decimal(8, 5)
+  amount         Decimal  @db.Decimal(14, 2)
+  expectedAmount Decimal? @db.Decimal(14, 2)
+
+  @@index([invoiceId])
+}
+
+model Flag {
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  id             String       @id @default(cuid())
+  invoiceId      String?
+  invoice        Invoice?     @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  vendorId       String?
+  paymentId      String?
+  bankTxnId      String?
+  code           String
+  klass          String // data | policy | fraud
+  effect         String // hold | route | info
+  status         String       @default("open") // open | fixed | overridden | confirmed
+  message        String
+  evidence       Json
+  related        Json?
+  resolvedById   String?
+  resolvedAt     DateTime?
+  resolutionNote String?
+  createdAt      DateTime     @default(now())
+
+  @@index([invoiceId])
+  @@index([vendorId])
+  @@index([code, status])
+}
+
+model ApprovalStep {
+  organizationId String
+  id             String // history: approval_id (APR-0001); app: cuid
+  invoiceId      String
+  invoice        Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  stepNo         Int
+  role           String // dept_manager | finance_manager | controller_admin | cfo
+  assignedToId   String
+  onBehalfOfId   String?
+  limitCad       Decimal   @db.Decimal(14, 2)
+  why            Json
+  decision       String    @default("pending") // pending | approved | rejected
+  decidedById    String?
+  decidedAt      DateTime?
+  comment        String?
+
+  @@id([organizationId, id])
+  @@unique([invoiceId, stepNo])
+  @@index([assignedToId, decision])
+}
+
+model Payment {
+  organizationId String
+  id             String // PMT-00001 …
+  invoiceId      String
+  invoice        Invoice   @relation(fields: [invoiceId], references: [id])
+  vendorId       String
+  vendor         Vendor    @relation(fields: [organizationId, vendorId], references: [organizationId, id], onDelete: Restrict)
+  method         String // EFT | CHEQUE | CARD
+  scheduledDate  DateTime  @db.Date
+  paidDate       DateTime? @db.Date
+  currency       String
+  amount         Decimal   @db.Decimal(14, 2)
+  fxRateToCad    Decimal   @db.Decimal(10, 4)
+  amountCad      Decimal   @db.Decimal(14, 2)
+  discountTaken  Decimal   @default(0) @db.Decimal(14, 2)
+  reference      String?
+  /// scheduled | released | sent | settled | failed
+  status         String
+  preparedById   String
+  releasedById   String?
+  releasedAt     DateTime?
+  failureReason  String?
+  bankSnapshot   Json?
+  source         String    @default("app") // app | history
+
+  @@id([organizationId, id])
+  @@index([invoiceId])
+  @@index([status])
 }

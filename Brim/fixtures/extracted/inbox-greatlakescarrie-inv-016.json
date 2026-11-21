@@ -1,0 +1,81 @@
+{
+  "handMade": true,
+  "file": "greatlakescarrie-inv-016.pdf",
+  "sha256": "45d3beed6aa7002a0788d13f95baef0195ec2f1fb27fc69c7d928ab1b8897ed1",
+  "purpose": "Inbox file, written by hand from its text layer (checked against the rendered page)",
+  "extracted": {
+    "docType": "invoice",
+    "language": "en",
+    "vendor": {
+      "name": "Great Lakes Carriers Inc.",
+      "address": "6086 Centre St Hamilton ON P7M 6H6",
+      "gstHstNumber": "367912731RT0001",
+      "qstNumber": null
+    },
+    "billTo": {
+      "name": "Harborline Logistics Inc.",
+      "address": "88 Queens Quay W, Suite 1400, Toronto ON M5J 0B8"
+    },
+    "invoiceNumber": "GR26-2271",
+    "invoiceDate": "2026-10-26",
+    "dueDate": "2026-11-25",
+    "terms": "Net 30",
+    "poNumber": null,
+    "creditNoteRef": null,
+    "currency": "CAD",
+    "lines": [
+      {
+        "description": "LTL shipment Edmonton-Calgary",
+        "quantity": "1",
+        "unitPrice": "$499.70",
+        "amount": "$499.70"
+      },
+      {
+        "description": "LTL shipment Ottawa-Saskatoon",
+        "quantity": "1",
+        "unitPrice": "$192.79",
+        "amount": "$192.79"
+      },
+      {
+        "description": "LTL shipment Montreal-Edmonton",
+        "quantity": "1",
+        "unitPrice": "$993.42",
+        "amount": "$993.42"
+      },
+      {
+        "description": "LTL shipment Edmonton-Hamilton",
+        "quantity": "1",
+        "unitPrice": "$1,711.18",
+        "amount": "$1,711.18"
+      },
+      {
+        "description": "LTL shipment Vancouver-Edmonton",
+        "quantity": "1",
+        "unitPrice": "$437.10",
+        "amount": "$437.10"
+      },
+      {
+        "description": "Fuel surcharge (9.49%)",
+        "quantity": "1",
+        "unitPrice": "$363.86",
+        "amount": "$363.86"
+      }
+    ],
+    "subtotal": "$4,198.05",
+    "taxes": [
+      {
+        "label": "HST (13%)",
+        "amount": "$545.75"
+      }
+    ],
+    "total": "$4,743.80",
+    "remit": {
+      "institution": "010",
+      "transit": "66160",
+      "account": "234408577",
+      "text": "EFT / virement bancaire - Great Lakes Carriers Inc."
+    },
+    "notes": [],
+    "unreadable": []
+  }
+}

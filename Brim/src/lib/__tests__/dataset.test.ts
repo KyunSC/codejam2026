@@ -69,7 +69,7 @@ describe("dataset loaders", () => {
       bankStatement: 354,
       cardTransactions: 590,
       fxRates: 306,
-      emails: 59,
+      emails: 44,
     });
   });
 

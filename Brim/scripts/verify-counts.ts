@@ -155,11 +155,11 @@ export function verifyCounts(
   eq("incoming_invoices", "sealed entries present in the folder", 15, sealed.filter((s) => incomingFiles.includes(s)).length);
 
   // emails
-  eq("inbox/emails.json", "emails", 59, ds.emails.length);
-  eqCounts("inbox/emails.json", "attachments per email", { "1": 54, "2": 1, "0": 4 },
+  eq("inbox/emails.open.json", "emails", 44, ds.emails.length);
+  eqCounts("inbox/emails.open.json", "attachments per email", { "1": 39, "2": 1, "0": 4 },
     countBy(ds.emails, (e) => String(e.attachments.length)));
   const received = ds.emails.map((e) => e.receivedAt.slice(0, 10)).sort();
-  eq("inbox/emails.json", "received range", "2026-10-20 to 2026-11-02", `${received[0]} to ${received[received.length - 1]}`);
+  eq("inbox/emails.open.json", "received range", "2026-10-20 to 2026-11-02", `${received[0]} to ${received[received.length - 1]}`);
 
   // people who matter
   const u = (id: string) => ds.users.find((x) => x.userId === id);

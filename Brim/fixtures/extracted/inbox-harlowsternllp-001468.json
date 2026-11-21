@@ -1,0 +1,57 @@
+{
+  "handMade": true,
+  "file": "harlowsternllp_001468.pdf",
+  "sha256": "e111d63defa56a57c2eeb67b02cdc1beff1250a45fa6a1c48dec778e8647ba79",
+  "purpose": "Inbox file, written by hand from its text layer (checked against the rendered page)",
+  "extracted": {
+    "docType": "invoice",
+    "language": "en",
+    "vendor": {
+      "name": "Harlow & Stern LLP",
+      "address": "8817 Harbour Rd Toronto ON N7S 1L9",
+      "gstHstNumber": "134920677RT0001",
+      "qstNumber": null
+    },
+    "billTo": {
+      "name": "Harborline Logistics Inc.",
+      "address": "1055 W Hastings St, Suite 900, Vancouver BC V6E 2E9"
+    },
+    "invoiceNumber": "001468",
+    "invoiceDate": "2026-10-06",
+    "dueDate": "2026-11-05",
+    "terms": "Net 30",
+    "poNumber": null,
+    "creditNoteRef": null,
+    "currency": "CAD",
+    "lines": [
+      {
+        "description": "Legal services - Lease amendment",
+        "quantity": "38",
+        "unitPrice": "$396.46",
+        "amount": "$15,065.48"
+      },
+      {
+        "description": "Disbursements and filing fees",
+        "quantity": "1",
+        "unitPrice": "$298.27",
+        "amount": "$298.27"
+      }
+    ],
+    "subtotal": "$15,363.75",
+    "taxes": [
+      {
+        "label": "GST (5%)",
+        "amount": "$768.19"
+      }
+    ],
+    "total": "$16,131.94",
+    "remit": {
+      "institution": "004",
+      "transit": "18643",
+      "account": "736063279",
+      "text": "EFT / virement bancaire - Harlow & Stern LLP"
+    },
+    "notes": [],
+    "unreadable": []
+  }
+}
