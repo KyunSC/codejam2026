@@ -14,6 +14,18 @@ export const hasLocalDb = (() => {
   return !!host && LOCAL.has(host);
 })();
 
+/**
+ * True when the local database also holds the inbox drafts (after `ingest-inbox.ts --run`, which needs the
+ * LLM). CI seeds but does not ingest, so tests built on the drafts skip there.
+ */
+export const hasInboxDrafts: boolean = hasLocalDb
+  ? await (async () => {
+      const { db } = await import("@/lib/db");
+      // The seed stores the files as documents; only ingestion makes invoices of them.
+      return (await db().invoice.count({ where: { document: { fileName: "Invoice HA26-2766.pdf" } } })) > 0;
+    })()
+  : false;
+
 class Rollback extends Error {}
 
 /** Runs `fn` in a transaction and rolls it back. */

@@ -2,7 +2,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
-import { harborline, hasLocalDb, rollback } from "@/lib/workflow-test/local-db";
+import { harborline, hasInboxDrafts, hasLocalDb, rollback } from "@/lib/workflow-test/local-db";
 import { workflowActor } from "../guard";
 import { processInvoice } from "../process";
 import { patchInvoice, resolveFlag } from "../review";
@@ -18,7 +18,7 @@ async function setup(tx: Prisma.TransactionClient, fileName: string) {
   return { org, id: inv.id, as, flag, fresh };
 }
 
-describe.runIf(hasLocalDb)("review actions", () => {
+describe.runIf(hasInboxDrafts)("review actions", () => {
   const prisma = hasLocalDb ? db() : (undefined as never);
   afterAll(async () => {
     if (hasLocalDb) await prisma.$disconnect();

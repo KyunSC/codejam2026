@@ -1,7 +1,7 @@
 /** Fraud watch and the release block, against the local database, rolled back. */
 import { afterAll, describe, expect, it, vi } from "vitest";
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
-import { harborline, hasLocalDb } from "@/lib/workflow-test/local-db";
+import { harborline, hasInboxDrafts } from "@/lib/workflow-test/local-db";
 
 class Rollback extends Error {}
 
@@ -21,7 +21,7 @@ async function withTx(prisma: PrismaClient, fn: (tx: Prisma.TransactionClient) =
     });
 }
 
-describe.runIf(hasLocalDb)("fraud watch", () => {
+describe.runIf(hasInboxDrafts)("fraud watch", () => {
   let prisma: PrismaClient;
   afterAll(async () => {
     vi.doUnmock("@/lib/db");

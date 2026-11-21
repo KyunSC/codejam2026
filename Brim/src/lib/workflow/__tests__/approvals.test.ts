@@ -5,7 +5,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
-import { harborline, hasLocalDb, rollback } from "@/lib/workflow-test/local-db";
+import { harborline, hasInboxDrafts, hasLocalDb, rollback } from "@/lib/workflow-test/local-db";
 import { decide, routePreview, setDelegation, submit } from "../approvals";
 import { workflowActor } from "../guard";
 import { patchInvoice } from "../review";
@@ -72,7 +72,8 @@ describe.runIf(hasLocalDb)("approvals: BUILD_PLAN worked examples", () => {
     });
   });
 
-  it("2. D07 rent invoice, $18,758.00 (V036) → U003 for U012, then U002; release U001 only", async () => {
+  // Uses the inbox draft "Invoice 002935.pdf": skipped where the inbox was not ingested (CI).
+  it.skipIf(!hasInboxDrafts)("2. D07 rent invoice, $18,758.00 (V036) → U003 for U012, then U002; release U001 only", async () => {
     await rollback(prisma, async (tx) => {
       const c = await ctx(tx);
       const inv = await tx.invoice.findFirstOrThrow({ where: { organizationId: c.org, document: { fileName: "Invoice 002935.pdf" } } });

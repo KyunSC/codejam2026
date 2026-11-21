@@ -4,7 +4,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
-import { harborline, hasLocalDb, rollback } from "@/lib/workflow-test/local-db";
+import { harborline, hasInboxDrafts, hasLocalDb, rollback } from "@/lib/workflow-test/local-db";
 import { needsReview, processInvoice } from "../process";
 
 describe("needsReview", () => {
@@ -22,7 +22,7 @@ async function byFile(tx: Prisma.TransactionClient, organizationId: string, file
   return tx.invoice.findFirstOrThrow({ where: { organizationId, document: { fileName } }, select: { id: true } });
 }
 
-const hasDrafts = hasLocalDb;
+const hasDrafts = hasInboxDrafts;
 
 describe.runIf(hasDrafts)("processInvoice on the local inbox drafts", () => {
   const prisma = hasLocalDb ? db() : (undefined as never);
