@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CHAT_EFFORT, MAX_TOKENS, SIM_EFFORT, MODEL, hasKey, llmConfig, useStandIn } from "./config";
+import { CHAT_EFFORT, MAX_TOKENS, MODEL, SIM_EFFORT, hasKey, llmConfig, useStandIn } from "./config";
 
 afterEach(() => {
   vi.unstubAllEnvs();
