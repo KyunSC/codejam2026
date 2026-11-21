@@ -12,11 +12,12 @@
  */
 import { randomUUID } from "node:crypto";
 import type { Prisma } from "@/generated/prisma/client";
+import { auditHash, GENESIS_HASH } from "./audit/chain";
 import { db } from "./db";
 
 /** Who acted. A delegate acting for someone on leave passes that person as onBehalfOfId. */
 export type Actor =
-  | { type: "user"; userId: string; onBehalfOfId?: string }
+  | { type: "user"; userId: string; onBehalfOfId?: string; role?: string }
   | { type: "llm"; model: string }
   | { type: "system" }
   | { type: "brim_admin"; staffId?: string };
@@ -30,6 +31,8 @@ export interface ActionInput {
   entityId: string;
   /** Set whenever the action concerns an invoice. Filled in from entityId for entityType "invoice". */
   invoiceId?: string | null;
+  paymentId?: string | null;
+  vendorId?: string | null;
   /** State before and after. Pass plain objects; Decimal, Date and BigInt are converted. */
   before?: unknown;
   after?: unknown;
@@ -72,35 +75,74 @@ export function actionGroupFor(tx: object): string | null {
   return id;
 }
 
+/**
+ * Appends one row and links it into the organization's hash chain (src/lib/audit/chain.ts).
+ * A transaction-scoped advisory lock per organization serialises writers, so two concurrent
+ * transactions cannot both link to the same previous row. The action group id is not hashed.
+ */
 export async function logAction(tx: Prisma.TransactionClient, input: ActionInput) {
   const { actor } = input;
+  const organizationId = input.organizationId;
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"audit:" + organizationId}))`;
+  const last = await tx.auditEvent.findFirst({
+    where: { organizationId, hash: { not: null } },
+    orderBy: { seq: "desc" },
+    select: { hash: true },
+  });
+  const prevHash = last?.hash ?? GENESIS_HASH;
+
+  let actorRole: string | null = null;
+  if (actor.type === "user") {
+    actorRole =
+      actor.role ??
+      (await tx.user.findUnique({ where: { id: actor.userId }, select: { role: true } }))?.role ??
+      null;
+  } else {
+    actorRole = actor.type;
+  }
+
+  const fields = {
+    at: new Date(),
+    actorId:
+      actor.type === "user"
+        ? actor.userId
+        : actor.type === "llm"
+          ? actor.model
+          : actor.type === "brim_admin"
+            ? (actor.staffId ?? null)
+            : null,
+    actorRole,
+    onBehalfOfId: actor.type === "user" ? (actor.onBehalfOfId ?? null) : null,
+    action: input.action,
+    entityType: input.entityType,
+    entityId: input.entityId,
+    invoiceId: input.invoiceId ?? (input.entityType === "invoice" ? input.entityId : null),
+    paymentId: input.paymentId ?? (input.entityType === "payment" ? input.entityId : null),
+    vendorId: input.vendorId ?? (input.entityType === "vendor" ? input.entityId : null),
+    before: toJson(input.before) ?? null,
+    after: toJson(input.after) ?? null,
+    reason: input.reason ?? null,
+    source: "app" as const,
+  };
+  const hash = auditHash(prevHash, fields);
   return tx.auditEvent.create({
     data: {
+      ...fields,
       actionGroupId: actionGroupFor(tx),
-      organizationId: input.organizationId,
+      organizationId,
       actorType: actor.type,
-      actorId:
-        actor.type === "user"
-          ? actor.userId
-          : actor.type === "llm"
-            ? actor.model
-            : actor.type === "brim_admin"
-              ? (actor.staffId ?? null)
-              : null,
-      onBehalfOfId: actor.type === "user" ? (actor.onBehalfOfId ?? null) : null,
-      action: input.action,
-      entityType: input.entityType,
-      entityId: input.entityId,
-      invoiceId: input.invoiceId ?? (input.entityType === "invoice" ? input.entityId : null),
-      before: toJson(input.before),
-      after: toJson(input.after),
-      reason: input.reason ?? null,
+      before: fields.before ?? undefined,
+      after: fields.after ?? undefined,
+      prevHash,
+      hash,
     },
   });
 }
 
 export interface AuditFilter {
   invoiceId?: string;
+  paymentId?: string;
+  vendorId?: string;
   actorId?: string;
   actorType?: Actor["type"];
   action?: string;
@@ -135,6 +177,8 @@ export async function listActions(organizationId: string, f: AuditFilter = {}) {
     where: {
       organizationId,
       invoiceId: f.invoiceId,
+      paymentId: f.paymentId,
+      vendorId: f.vendorId,
       actorId: f.actorId,
       actorType: f.actorType,
       action: f.action,

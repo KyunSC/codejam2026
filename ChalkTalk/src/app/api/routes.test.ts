@@ -12,6 +12,7 @@ import { store } from "@/lib/store";
 
 import { POST as askClaude } from "./boards/[id]/ask/route";
 import { POST as saveOps } from "./boards/[id]/ops/route";
+import { POST as shareBoard } from "./boards/[id]/share/route";
 import { POST as mcp } from "./mcp/route";
 import { POST as createBoard, GET as listBoards } from "./boards/route";
 import { GET as getBoard } from "./boards/[id]/route";
@@ -220,6 +221,34 @@ describe("/api/boards", () => {
     expect(copy.title).toBe("Two Pendulums, Two Masses");
     expect(copy.items.map((i) => i.kind)).toEqual(["note", "sim"]);
     expect((await newBoard({ demo: "nope" })).res.status).toBe(404);
+  });
+});
+
+describe("/api/boards/[id]/share", () => {
+  it("makes one link per board, and the link makes each student their own copy", async () => {
+    const { id } = await newBoard({ demo: "pendulum" });
+    const share = async () => (await (await shareBoard(new Request("http://test", { method: "POST" }), boardCtx(id))).json()) as { url: string };
+    const { url } = await share();
+    expect(url).toMatch(/^\/s\/[0-9a-f]{32}$/);
+    expect((await share()).url).toBe(url);
+    expect((await shareBoard(new Request("http://test", { method: "POST" }), boardCtx("000000000000"))).status).toBe(404);
+
+    const token = url.slice(3);
+    const a = await newBoard({ share: token });
+    const b = await newBoard({ share: token });
+    expect(a.res.status).toBe(201);
+    expect(new Set([id, a.id, b.id]).size).toBe(3);
+    const copy = (await (await getBoard(new Request("http://test"), boardCtx(a.id))).json()) as {
+      title: string;
+      items: Array<{ kind: string; code?: string }>;
+      shareToken?: string;
+      log: Array<{ text: string }>;
+    };
+    expect(copy.title).toBe("Two Pendulums, Two Masses");
+    expect(copy.items.find((i) => i.kind === "sim")?.code).toContain("window.SIM");
+    expect(copy.shareToken).toBeUndefined();
+    expect(copy.log.map((e) => e.text)).toEqual(['The student opened their own copy of the shared board "Two Pendulums, Two Masses".']);
+    expect((await newBoard({ share: "0".repeat(32) })).res.status).toBe(404);
   });
 });
 

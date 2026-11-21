@@ -28,6 +28,8 @@ import { createExtractor, type ExtractResult, type Extractor } from "./extract";
 import { inspectDocument, type Inspection } from "./inspect";
 import { normalizeDetailed, type NormalizeResult } from "./normalize";
 import { sealedFileNames } from "./sealed";
+import { transitionInvoice } from "../invoices/transition";
+import { processInvoice } from "../workflow/process";
 import { logAction } from "../audit";
 import { harborlineId, transactionsOn, type Db, type InTransaction } from "./tx";
 
@@ -173,17 +175,29 @@ async function labelEmailByDocument(
   docType: Extracted["docType"],
 ): Promise<void> {
   if (!emailId) return;
-  await tx.inboxEmail.updateMany({
+  const labelReason = `The attachment is ${docType.replace("_", " ")}.`;
+  const { count } = await tx.inboxEmail.updateMany({
     where: { organizationId, id: emailId, label: null },
-    data: { label: docType, labelReason: `The attachment is ${docType.replace("_", " ")}.`, labelSource: "rule" },
+    data: { label: docType, labelReason, labelSource: "rule" },
   });
+  if (count === 1) {
+    await logAction(tx as Prisma.TransactionClient, {
+      organizationId,
+      actor: { type: "system" },
+      action: "email.label",
+      entityType: "email",
+      entityId: emailId,
+      before: { label: null },
+      after: { label: docType, labelReason, labelSource: "rule" },
+    });
+  }
 }
 
 /**
  * Writes one prepared draft. Only moves a draft that is still `received`, so two runs cannot
  * both write it. Returns the end state.
  */
-export async function commit(tx: Tx, p: Prepared): Promise<RunOutcome> {
+export async function commit(tx: Tx, p: Prepared, opts: { process?: boolean } = {}): Promise<RunOutcome> {
   const { organizationId } = p;
   const out = (end: EndState, detail: string): RunOutcome => ({
     invoiceId: p.invoiceId,
@@ -201,20 +215,17 @@ export async function commit(tx: Tx, p: Prepared): Promise<RunOutcome> {
   }
   if (p.kind === "not_extracted") return out("not_extracted", p.detail);
 
-  const move = async (data: Prisma.InvoiceUncheckedUpdateManyInput) => {
-    const { count } = await tx.invoice.updateMany({
-      where: { organizationId, id: p.invoiceId, status: "received" },
-      data,
-    });
-    if (count !== 1) throw new Error(`Invoice ${p.invoiceId} is no longer received; another run moved it.`);
-    await logAction(tx, {
+  // Every status write goes through the guarded transition; it only moves a draft still `received`.
+  const move = async ({ status, ...data }: Prisma.InvoiceUncheckedUpdateManyInput & { status: "needs_review" | "extracted" }) => {
+    const current = await tx.invoice.findFirst({ where: { organizationId, id: p.invoiceId }, select: { status: true } });
+    if (current?.status !== "received") throw new Error(`Invoice ${p.invoiceId} is no longer received; another run moved it.`);
+    await transitionInvoice(tx, {
       organizationId,
+      invoiceId: p.invoiceId,
+      to: status,
       actor: { type: "system" },
       action: "invoice.processed",
-      entityType: "invoice",
-      entityId: p.invoiceId,
-      before: { status: "received" },
-      after: { status: data.status },
+      data,
     });
   };
 
@@ -293,6 +304,10 @@ export async function commit(tx: Tx, p: Prepared): Promise<RunOutcome> {
       })),
     });
   }
+  // Resolve, check and code it straight away (Loop C processInvoice), in the same transaction.
+  if (opts.process !== false) {
+    await processInvoice(tx as Prisma.TransactionClient, { organizationId, invoiceId: p.invoiceId, actor: { type: "system" } });
+  }
   if (needsReview) {
     const fields = reviewFields.map((f) => `${f.field} (${f.evidence.replace("_", " ")})`).join(", ");
     return out("needs_review", `Needs a person to check: ${fields}.`);
@@ -305,6 +320,8 @@ export interface RunOptions {
   /** Only these drafts; default every draft in `received`, oldest first. */
   invoiceIds?: string[];
   inTransaction?: InTransaction;
+  /** Run processInvoice after extraction (default true). */
+  process?: boolean;
 }
 
 /** Runs every `received` draft through the stages, one transaction per draft. */
@@ -325,7 +342,7 @@ export async function runPipeline(prisma: Db, opts: RunOptions = {}): Promise<Ru
   for (const id of ids) {
     try {
       const p = await prepare(prisma, id, extractor, organizationId);
-      out.push(await inTransaction((tx) => commit(tx, p)));
+      out.push(await inTransaction((tx) => commit(tx, p, { process: opts.process })));
     } catch (e) {
       // A database problem on one draft must not stop the batch; the draft stays received.
       out.push({ invoiceId: id, fileName: null, end: "not_extracted", detail: (e as Error).message });

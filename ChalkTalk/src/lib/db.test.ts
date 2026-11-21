@@ -55,6 +55,11 @@ describe.skipIf(!url)("Postgres stores", () => {
     expect(await s.getBoard(b.id)).toMatchObject({ items: [note], title: "Pendulums", version: 1 });
     expect(await s.change("000000000000", () => ({ items: [] }))).toBeNull();
     expect((await s.listBoards([b.id])).map((x) => x.title)).toEqual(["Pendulums"]);
+    const shared = await s.share(b.id);
+    expect(shared?.shareToken).toMatch(/^[0-9a-f]{32}$/);
+    expect((await s.share(b.id))?.shareToken).toBe(shared?.shareToken);
+    expect((await s.getSharedBoard(shared!.shareToken!))?.id).toBe(b.id);
+    expect(await s.getSharedBoard("0".repeat(32))).toBeNull();
     // Two changes at once both land: each one reads the other's result.
     await Promise.all([1, 2].map((n) => s.change(b.id, (cur) => ({ items: [...cur.items, { ...note, id: `n${n}` }] }))));
     expect((await s.getBoard(b.id))?.items.map((i) => i.id).sort()).toEqual(["a1", "n1", "n2"]);

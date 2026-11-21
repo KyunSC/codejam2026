@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { BoardSummary } from "@/lib/board";
@@ -91,18 +92,18 @@ export function BoardsHome({ status }: { status: ModelStatus }) {
   return (
     <main className="min-h-screen bg-paper px-6 py-6">
       <div className="mx-auto flex max-w-5xl flex-col gap-8">
-        <header className="flex items-center gap-4">
+        <header className="flex flex-wrap items-center gap-4">
           <Logo />
           <span className="flex-1" />
           <ModelBadge status={status} />
         </header>
 
         <section className="flex flex-col gap-4" aria-labelledby="mine">
-          <div className="flex items-center gap-4">
-            <h1 id="mine" className="pix flex-1 text-[1.6rem]">
+          <div className="flex flex-wrap items-center gap-4">
+            <h1 id="mine" className="pix flex-1 text-[1.25rem] sm:text-[1.6rem]">
               My whiteboards
             </h1>
-            <button type="button" className="btn-primary" data-testid="new-board" disabled={busy} onClick={() => void create({})}>
+            <button type="button" className="btn-primary shrink-0" data-testid="new-board" disabled={busy} onClick={() => void create({})}>
               New whiteboard
             </button>
           </div>
@@ -118,24 +119,31 @@ export function BoardsHome({ status }: { status: ModelStatus }) {
               No whiteboards yet. Start a new one, or open a demo below.
             </p>
           ) : (
-            <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" data-testid="my-boards">
+            <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3" data-testid="my-boards">
               {boards.map((b) => (
-                <li key={b.id} className="card flex flex-col gap-1 p-4">
-                  <a href={`/b/${b.id}`} className="font-bold underline-offset-4 hover:underline" data-testid="board-card">
-                    {b.title}
-                  </a>
-                  <span className="text-muted">
-                    {b.itemCount} item{b.itemCount === 1 ? "" : "s"} · {ago(b.updatedAt)}
-                  </span>
+                <li key={b.id} className="relative min-w-0">
+                  {/* The whole card opens the board; the × only drops it from this list. */}
+                  <Link
+                    href={`/b/${b.id}`}
+                    className="card flex flex-col gap-1 p-4 pr-12 transition-transform hover:-translate-x-0.5 hover:-translate-y-0.5"
+                    data-testid="board-card"
+                  >
+                    <span className="truncate font-bold">{b.title}</span>
+                    <span className="text-muted">
+                      {b.itemCount} item{b.itemCount === 1 ? "" : "s"} · {ago(b.updatedAt)}
+                    </span>
+                  </Link>
                   <button
                     type="button"
-                    className="self-start text-muted underline-offset-4 hover:underline"
+                    className="item-x absolute right-2 top-2"
+                    aria-label={`Remove ${b.title} from my whiteboards`}
+                    title="Remove from my whiteboards (the board itself isn't deleted)"
                     onClick={() => {
                       forgetBoard(b.id);
                       setBoards((list) => (list ?? []).filter((x) => x.id !== b.id));
                     }}
                   >
-                    Remove from list
+                    ×
                   </button>
                 </li>
               ))}
@@ -144,10 +152,10 @@ export function BoardsHome({ status }: { status: ModelStatus }) {
         </section>
 
         <section className="flex flex-col gap-4" aria-labelledby="demos">
-          <h2 id="demos" className="pix text-[1.3rem]">
+          <h2 id="demos" className="pix text-[1.1rem] sm:text-[1.3rem]">
             Demo whiteboards
           </h2>
-          <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" data-testid="demo-boards">
+          <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3" data-testid="demo-boards">
             {demos.map((d) => (
               <li key={d.slug} className="card flex flex-col gap-2 p-4">
                 <span className="font-bold">{d.title}</span>

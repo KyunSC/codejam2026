@@ -6,7 +6,7 @@ A big whiteboard shared by a student and Claude. The student types notes, handwr
 
 ```bash
 npm install
-npx playwright install chromium   # only needed for the tests and scripts
+npx playwright install chromium   # only needed for the scripts
 npm run dev                        # http://localhost:3000: your whiteboards
 ```
 
@@ -34,7 +34,7 @@ Set these in the Vercel project's Environment Variables, then redeploy:
 
 | Variable | Needed for |
 | -- | -- |
-| `DATABASE_URL` | Boards, saved sims (homework links) and saved demos. A Postgres connection string, e.g. a Neon pooled URL with `?sslmode=require`. The app creates its `livesim_*` tables on first use. Without it the deployed app can't save and says so. |
+| `DATABASE_URL` | Boards, older single-simulation homework links and saved demos. A Postgres connection string, e.g. a Neon pooled URL with `?sslmode=require`. The app creates its `livesim_*` tables on first use. Without it the deployed app can't save and says so. |
 | `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL`, `LLM_BASE_URL` | The real model (see above). Without a key the app runs the offline stand-in. |
 
 Vercel's filesystem is read-only and not shared between function instances, so the JSON files under `data/` only work locally. Locally, leave `DATABASE_URL` blank to keep using them. To run the Postgres store tests: `TEST_DATABASE_URL=postgres://… npm test`.
@@ -45,9 +45,8 @@ Vercel's filesystem is read-only and not shared between function instances, so t
 - **The toolbox bar**: back to your boards, the board's title (click to rename), then **Select** (V), **Pen** (P, with colours), **Eraser** (E: removes the strokes it passes over), **Note** (N: click to place, then type), **Simulation** (S: a popup asks what to show, then the model writes it), and zoom out / reset / in. Scroll to pan, ctrl/cmd + scroll to zoom, or drag empty space with Select. With Select, drag an item by its top bar, resize from the corner, and delete with × or the Delete key.
 - **Saving and changes from others**: the page sends only what changed, and the server applies it on top of the latest board, so changes Claude or an MCP client made meanwhile survive. The page checks for newer versions every two seconds. Every change goes into the board's **changelog** (who did what, newest last), which Claude reads.
 - **Ask Claude**: optionally type a message, then press the button. Claude gets every item (who made it, where, its text, each sim's title, question and slider values), the changelog and a picture of the board, then acts through the board tools, seeing each tool's result, for up to six rounds. Steps that didn't work are listed under the button. Claude's items have blue borders.
-- **In a simulation box**: one automatic repair if it breaks ("Fixing a glitch…"), then "Try again". **Change** asks for a plain-language edit (moved sliders keep their values). **Share with students** makes a homework variation and copies an unlisted homework link; students write a prediction before Run reveals the sim.
-- **Class predictions** appear under the sliders in each shared box. The count in the box header jumps to the panel. Reload or bookmark the board to return to it.
-- Students can scan the share QR, add their name, predict before Run, and send a reflection afterward. Anyone with the homework link can submit and read answers. Older ID-only links open in practice mode.
+- **In a simulation box**: one automatic repair if it breaks ("Fixing a glitch…"), then "Try again". **Change** asks for a plain-language edit (moved sliders keep their values).
+- **Share** (in the toolbox bar) makes the board's student link and shows it with a QR code. Each student who opens it gets their own copy of the whole board (notes, handwriting and simulations, already running) to work on with Claude; opening the link again in the same browser returns to that copy. The teacher's board doesn't change. Homework links shared from a single simulation before this still open that simulation.
 
 ## MCP server
 
@@ -65,7 +64,6 @@ There's no sign-in: anyone with a board's id can change it, the same as anyone w
 | -- | -- |
 | `npm run lint`, `npm run typecheck` | ESLint, then route typegen plus `tsc --noEmit` |
 | `npm test` | Vitest (pure modules, stores, routes, stand-in) |
-| `npm run e2e` | Playwright against its own dev server on :3100, in stand-in mode. Fails on any app console error |
 | `npm run try-topics` | Runs three physics confusions (projectile, spring, collision) through the UI and writes time to first code, stream done, interactive, tokens and repairs into `progress/report.md`. Needs a key for real numbers; without one it only proves the plumbing |
 | `npm run make-demos` | Regenerates `data/demos/pendulum.json` and `falling.json` with the real model, keeping only code that reached `ready`. Needs a key; skips itself otherwise, leaving the hand-made placeholders |
 

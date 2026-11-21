@@ -8,6 +8,7 @@ const PATHS: Record<string, string> = {
   sim: "M4 19h16M7 16V9M12 16V5M17 16v-4",
   plus: "M12 5v14M5 12h14",
   minus: "M5 12h14",
+  share: "M12 15V3M7 8l5-5 5 5M5 14v6h14v-6",
 };
 
 export function ToolIcon({ name }: { name: keyof typeof PATHS | string }) {

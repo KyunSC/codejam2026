@@ -3,22 +3,22 @@
 import type { ModelStatus } from "@/lib/types";
 
 /** Which model answers: the offline stand-in (and why), or the provider and model from .env.local. */
-export function ModelBadge({ status }: { status: ModelStatus }) {
+export function ModelBadge({ status, compact = false }: { status: ModelStatus; compact?: boolean }) {
   if (status.standIn) {
     return (
       <span
-        className="chip bg-gold"
+        className="chip shrink-0 bg-gold"
         data-testid="stand-in-badge"
-        title={`${status.reason ?? "No API key."} Replaying hand-made simulations.`}
+        title={`Offline stand-in: ${status.reason ?? "no API key."} Replies and simulations are hand-made replays.`}
       >
-        Offline stand-in
+        {compact ? "Offline" : "Offline stand-in"}
       </span>
     );
   }
   return (
-    <span className="chip bg-[#c6d0da]" data-testid="model-badge" title={`${status.provider} · ${status.model ?? ""}`}>
+    <span className="chip shrink-0 bg-[#c6d0da]" data-testid="model-badge" title={`${status.provider} · ${status.model ?? ""}`}>
       {status.assistant === "AI" ? status.provider : status.assistant}
-      {status.model ? <span className="ml-1 font-normal opacity-70">{status.model}</span> : null}
+      {status.model && !compact ? <span className="ml-1 font-normal opacity-70">{status.model}</span> : null}
     </span>
   );
 }
