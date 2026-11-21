@@ -83,6 +83,28 @@ interface Run {
   initial?: Record<string, number>;
   carry?: { values: Record<string, number>; defaults: Record<string, number> };
   watchdog: ReturnType<typeof setTimeout> | null;
+  repaired: boolean;
+  usage: Usage | null;
+}
+
+/** One machine-readable line per finished run, for scripts/try-topics.ts. */
+function logRun(run: Run, outcome: "ready" | "failed", detail?: string) {
+  const t = run.timings;
+  const since = (x: number | null) => (x === null || t.submit === null ? null : Math.round(x - t.submit));
+  console.log(
+    "[sim] run " +
+      JSON.stringify({
+        kind: run.kind,
+        outcome,
+        firstDeltaMs: since(t.firstDelta),
+        streamDoneMs: since(t.streamDone),
+        readyMs: since(t.ready),
+        inputTokens: run.usage?.input_tokens ?? null,
+        outputTokens: run.usage?.output_tokens ?? null,
+        repaired: run.repaired,
+        detail: detail ?? null,
+      }),
+  );
 }
 
 export interface SessionOptions {
@@ -121,6 +143,7 @@ export function useSimSession(options: SessionOptions = {}) {
       if (!isCurrent(run)) return;
       clearWatchdog(run);
       console.warn("[sim] failed:", message);
+      logRun(run, "failed", message);
       update({
         state: "failed",
         srcdoc: null,
@@ -162,6 +185,8 @@ export function useSimSession(options: SessionOptions = {}) {
         readyAt: null,
         pendingSet: false,
         watchdog: null,
+        repaired: false,
+        usage: null,
         ...extra,
       };
       runRef.current = run;
@@ -202,6 +227,7 @@ export function useSimSession(options: SessionOptions = {}) {
             }
           } else if (ev.type === "done") {
             run.timings.streamDone = performance.now();
+            run.usage = ev.usage;
             const lines = text.split("\n");
             update({ lineCount: lines.length, codeTail: lines.slice(-TAIL_LINES).join("\n"), usage: ev.usage });
           } else if (ev.type === "error") {
@@ -268,6 +294,7 @@ export function useSimSession(options: SessionOptions = {}) {
         console.log(
           `[sim] timings (ms from submit): submit=0 firstDelta=${since(t.firstDelta)} streamDone=${since(t.streamDone)} ready=${since(t.ready)}`,
         );
+        logRun(run, "ready");
         update({
           state: "ready",
           title,

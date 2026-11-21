@@ -32,3 +32,9 @@ A model/API error in the stream (no code yet) goes to `failed` directly; repair 
 
 ## S1.6 Mount watchdog
 Not in the spec. If the bridge never answers within 8 s of mounting (e.g. an infinite loop freezes the iframe), it counts as a failure. The bridge's own 3 s SIM check still fires first in normal cases.
+
+## S1.8 needs key: real try-topics run
+The stand-in run proves the plumbing (table in report.md). Run `npm run try-topics` with ANTHROPIC_API_KEY set in `.env.local` to measure Claude. The script overwrites the table between its markers.
+
+## S1.8 How the scripts run
+Node 20 has no TS stripping and tsx isn't in the dep list, so `scripts/*.ts` are Playwright tests run with `scripts/playwright.scripts.config.ts` (its own dev server on :3100). Timings come from a `[sim] run {...}` console line the session logs on every ready/failed.
