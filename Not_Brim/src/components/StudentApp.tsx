@@ -8,11 +8,13 @@ import { SimPanel } from "./SimPanel";
 
 /** The student link: write a prediction first, then the sim is revealed with the homework's starting values. */
 export function StudentApp({
+  simId,
   code,
   title,
   question,
   initial,
 }: {
+  simId: string;
   code: string;
   title: string;
   question: string;
@@ -20,13 +22,32 @@ export function StudentApp({
 }) {
   const session = useSimSession();
   const [prediction, setPrediction] = useState("");
+  const [name, setName] = useState("");
   const [started, setStarted] = useState(false);
+  // The saved prediction's id, once the POST lands. "failed" if it couldn't be saved.
+  const [predictionId, setPredictionId] = useState<string | "failed" | null>(null);
   const v = session.view;
 
   function run() {
-    if (!prediction.trim()) return;
+    const text = prediction.trim();
+    if (!text) return;
     setStarted(true);
     session.load(code, { initial });
+    // Saving never blocks the sim: the student still gets to check their prediction.
+    fetch(`/api/sims/${simId}/predictions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim(), prediction: text }),
+    })
+      .then(async (r) => {
+        const j = (await r.json()) as { prediction?: { id: string }; error?: string };
+        if (!r.ok || !j.prediction) throw new Error(j.error ?? `HTTP ${r.status}`);
+        setPredictionId(j.prediction.id);
+      })
+      .catch((err: unknown) => {
+        console.warn("[sim] couldn't save the prediction:", err instanceof Error ? err.message : err);
+        setPredictionId("failed");
+      });
   }
 
   return (
@@ -78,6 +99,19 @@ export function StudentApp({
                 run();
               }}
             >
+              <label htmlFor="student-name" className="font-bold">
+                Your name <span className="font-normal text-muted">(optional)</span>
+              </label>
+              <input
+                id="student-name"
+                data-testid="name-input"
+                className="field bg-card-soft py-1.5 shadow-none read-only:text-muted"
+                maxLength={60}
+                autoComplete="given-name"
+                value={name}
+                readOnly={started}
+                onChange={(e) => setName(e.target.value)}
+              />
               <label htmlFor="prediction" className="font-bold">
                 Predict before you run
               </label>
@@ -86,6 +120,7 @@ export function StudentApp({
                 data-testid="prediction-input"
                 className="field min-h-[5em] resize-y bg-card-soft shadow-none read-only:text-muted"
                 placeholder="I think… because…"
+                maxLength={1000}
                 value={prediction}
                 readOnly={started}
                 onChange={(e) => setPrediction(e.target.value)}
@@ -102,11 +137,83 @@ export function StudentApp({
               )}
             </form>
 
+            {started && v.state === "ready" ? <Reflection simId={simId} predictionId={predictionId} /> : null}
+
             {v.state === "ready" ? <ParamSliders params={v.params} values={v.values} onChange={session.setValue} /> : null}
           </aside>
         </div>
       </main>
     </div>
+  );
+}
+
+/** After Run: what actually happened, saved next to the prediction for the teacher. */
+function Reflection({ simId, predictionId }: { simId: string; predictionId: string | "failed" | null }) {
+  const [observed, setObserved] = useState("");
+  const [status, setStatus] = useState<"editing" | "saving" | "saved" | "error">("editing");
+  const canSave = !!predictionId && predictionId !== "failed";
+
+  async function submit() {
+    const text = observed.trim();
+    if (!text || !canSave) return;
+    setStatus("saving");
+    try {
+      const r = await fetch(`/api/sims/${simId}/predictions/${predictionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ observed: text }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      setStatus("saved");
+    } catch {
+      setStatus("error");
+    }
+  }
+
+  return (
+    <form
+      className="card flex flex-col gap-3 p-5"
+      data-testid="reflection-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void submit();
+      }}
+    >
+      <label htmlFor="observed" className="font-bold">
+        Were you right? What actually happened?
+      </label>
+      <textarea
+        id="observed"
+        data-testid="observed-input"
+        className="field min-h-[4em] resize-y bg-card-soft shadow-none read-only:text-muted"
+        placeholder="Move the sliders, then write what you saw…"
+        maxLength={1000}
+        value={observed}
+        readOnly={status === "saving" || status === "saved"}
+        onChange={(e) => setObserved(e.target.value)}
+      />
+      {status === "saved" ? (
+        <p className="font-bold text-ok" role="status" data-testid="reflection-saved">
+          Sent to your teacher.
+        </p>
+      ) : (
+        <>
+          <button
+            type="submit"
+            className="btn-secondary"
+            data-testid="observed-button"
+            disabled={!observed.trim() || !canSave || status === "saving"}
+          >
+            {status === "saving" ? "Sending…" : "Send to my teacher"}
+          </button>
+          {predictionId === "failed" || status === "error" ? (
+            <p className="font-semibold text-danger" role="alert">
+              Couldn’t reach your teacher. Your answer wasn’t saved.
+            </p>
+          ) : null}
+        </>
+      )}
+    </form>
   );
 }
 

@@ -3,6 +3,8 @@ import { POST as generate } from "./generate/route";
 import { POST as edit } from "./edit/route";
 import { POST as repair } from "./repair/route";
 import { GET as status } from "./status/route";
+import { GET as listPredictions, POST as addPrediction } from "./sims/[id]/predictions/route";
+import { PATCH as setObserved } from "./sims/[id]/predictions/[pid]/route";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -59,5 +61,27 @@ describe("/api/edit", () => {
     const res = await edit(post({ code: "<html></html>", request: "make it red" }));
     expect(res.headers.get("content-type")).toBe("application/x-ndjson");
     await res.body!.cancel();
+  });
+});
+
+describe("/api/sims/[id]/predictions", () => {
+  const ctx = (params: Record<string, string>) => ({ params: Promise.resolve(params) }) as never;
+  const body = (b: unknown) => new Request("http://test/x", { method: "POST", body: typeof b === "string" ? b : JSON.stringify(b) });
+
+  it("404s on bad or unknown ids", async () => {
+    expect((await addPrediction(body({ prediction: "p" }), ctx({ id: "../etc" }))).status).toBe(404);
+    expect((await listPredictions(body({}), ctx({ id: "nothex" }))).status).toBe(404);
+    expect((await setObserved(body({ observed: "o" }), ctx({ id: "000000000000", pid: "bad" }))).status).toBe(404);
+  });
+
+  it("validates the body before touching the store", async () => {
+    const id = ctx({ id: "000000000000" });
+    expect((await addPrediction(body("not json"), id)).status).toBe(400);
+    expect((await addPrediction(body({ prediction: "   " }), id)).status).toBe(400);
+    expect((await addPrediction(body({ prediction: "x".repeat(1001) }), id)).status).toBe(413);
+    expect((await addPrediction(body({ prediction: "p", name: "n".repeat(61) }), id)).status).toBe(413);
+    const both = ctx({ id: "000000000000", pid: "000000000000" });
+    expect((await setObserved(body({ observed: "" }), both)).status).toBe(400);
+    expect((await setObserved(body({ observed: "x".repeat(1001) }), both)).status).toBe(413);
   });
 });

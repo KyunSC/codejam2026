@@ -3,9 +3,9 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { SimRecord } from "./types";
+import type { Prediction, SimRecord } from "./types";
 
-export type NewSim = Omit<SimRecord, "id" | "createdAt">;
+export type NewSim = Omit<SimRecord, "id" | "createdAt" | "predictions">;
 export type SimSummary = Pick<SimRecord, "id" | "title" | "prompt" | "createdAt">;
 
 /** A short url-safe id from crypto.randomUUID (12 hex chars ≈ 48 bits). */
@@ -69,6 +69,29 @@ export function createStore(file: string) {
         sims[i] = { ...sims[i], ...patch, id: sims[i].id, createdAt: sims[i].createdAt };
         await writeAll(sims);
         return sims[i];
+      });
+    },
+    /** Add a student's prediction to a sim. Null when the sim doesn't exist. */
+    addPrediction(simId: string, input: { name: string; prediction: string }): Promise<Prediction | null> {
+      return locked(async () => {
+        const sims = await readAll();
+        const sim = sims.find((s) => s.id === simId);
+        if (!sim) return null;
+        const entry: Prediction = { id: newId(), name: input.name, prediction: input.prediction, createdAt: new Date().toISOString() };
+        sim.predictions = [...(sim.predictions ?? []), entry];
+        await writeAll(sims);
+        return entry;
+      });
+    },
+    /** Record what the student saw after Run. Null when the sim or the prediction doesn't exist. */
+    setObserved(simId: string, predictionId: string, observed: string): Promise<Prediction | null> {
+      return locked(async () => {
+        const sims = await readAll();
+        const entry = sims.find((s) => s.id === simId)?.predictions?.find((p) => p.id === predictionId);
+        if (!entry) return null;
+        entry.observed = observed;
+        await writeAll(sims);
+        return entry;
       });
     },
   };

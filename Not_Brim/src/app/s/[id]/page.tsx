@@ -15,5 +15,5 @@ export default async function StudentPage(props: PageProps<"/s/[id]">) {
   // Opened before "Share" made the homework: fall back to the class question and defaults.
   const question = sim.homework?.question ?? sim.question;
   const initial = sim.homework?.defaults;
-  return <StudentApp code={sim.code} title={sim.title} question={question} initial={initial} />;
+  return <StudentApp simId={id} code={sim.code} title={sim.title} question={question} initial={initial} />;
 }

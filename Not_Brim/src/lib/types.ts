@@ -43,6 +43,15 @@ export interface SimModel {
   homework(input: HomeworkInput): Promise<Homework>;
 }
 
+/** One student's answer on a shared link: the prediction before Run, then what they saw. */
+export interface Prediction {
+  id: string;
+  name: string;
+  prediction: string;
+  observed?: string;
+  createdAt: string;
+}
+
 export interface SimRecord {
   id: string;
   prompt: string;
@@ -51,6 +60,7 @@ export interface SimRecord {
   params: SimParam[];
   question: string;
   homework?: Homework;
+  predictions?: Prediction[];
   createdAt: string;
 }
 

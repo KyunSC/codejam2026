@@ -37,6 +37,18 @@ test("create → share → open link → predict → Run → ready with the home
   await expect(student.locator('input[data-param="massA"]')).not.toHaveValue("1");
   await expect(student.getByTestId("prediction-input")).toHaveAttribute("readonly", "");
 
+  // The teacher sees the prediction arrive, then the student's reflection.
+  await expect(page.getByTestId("share-qr")).toBeVisible();
+  const list = page.getByTestId("class-predictions");
+  await expect(list.getByTestId("prediction-item")).toHaveCount(1, { timeout: 10_000 });
+  await expect(list).toContainText("Anonymous");
+  await expect(list).toContainText("mass doesn't matter");
+  await student.getByTestId("observed-input").fill("They stayed in step the whole time.");
+  await student.getByTestId("observed-button").click();
+  await expect(student.getByTestId("reflection-saved")).toBeVisible();
+  await expect(list).toContainText("They stayed in step", { timeout: 10_000 });
+  await expect(page.getByTestId("prediction-count")).toContainText("1 checked");
+
   // Sharing again reuses the same homework.
   const again = (await (await page.request.post(url.replace(/\/s\/(\w+)$/, "/api/sims/$1/share"))).json()) as {
     homework: { question: string };

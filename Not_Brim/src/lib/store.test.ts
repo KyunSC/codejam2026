@@ -57,4 +57,34 @@ describe("store", () => {
     await Promise.all(Array.from({ length: 20 }, (_, i) => s.saveSim(sim(`S${i}`))));
     expect(await s.listSims()).toHaveLength(20);
   });
+
+  it("adds predictions to a sim and records what the student saw", async () => {
+    const s = createStore(path.join(dir, "sims.json"));
+    const a = await s.saveSim(sim("A"));
+    expect(await s.addPrediction("000000000000", { name: "x", prediction: "y" })).toBeNull();
+
+    const p1 = await s.addPrediction(a.id, { name: "Ana", prediction: "Same speed" });
+    const p2 = await s.addPrediction(a.id, { name: "Ben", prediction: "Heavier is faster" });
+    expect(p1?.id).toMatch(/^[0-9a-f]{12}$/);
+    expect(p1?.id).not.toBe(p2?.id);
+
+    expect(await s.setObserved(a.id, "000000000000", "nope")).toBeNull();
+    expect((await s.setObserved(a.id, p1!.id, "They matched"))?.observed).toBe("They matched");
+
+    const saved = await s.getSim(a.id);
+    expect(saved?.predictions?.map((p) => [p.name, p.observed ?? null])).toEqual([
+      ["Ana", "They matched"],
+      ["Ben", null],
+    ]);
+    // Updating the sim (e.g. adding homework) keeps the predictions.
+    await s.updateSim(a.id, { homework: { question: "q", defaults: {} } });
+    expect((await s.getSim(a.id))?.predictions).toHaveLength(2);
+  });
+
+  it("keeps every prediction under concurrent posts", async () => {
+    const s = createStore(path.join(dir, "sims.json"));
+    const a = await s.saveSim(sim("A"));
+    await Promise.all(Array.from({ length: 20 }, (_, i) => s.addPrediction(a.id, { name: `S${i}`, prediction: "p" })));
+    expect((await s.getSim(a.id))?.predictions).toHaveLength(20);
+  });
 });

@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useSimSession, type EditBase, type ReadyInfo } from "@/lib/useSimSession";
 import { useStandInStatus } from "@/lib/useStandInStatus";
 import { Logo, StandInBadge, TimingBadge } from "./Badges";
+import { ClassPredictions } from "./ClassPredictions";
 import { DemosMenu, type DemoFull } from "./DemosMenu";
 import { ParamSliders } from "./ParamSliders";
 import { ShareButton } from "./ShareButton";
@@ -11,6 +12,8 @@ import { SimPanel } from "./SimPanel";
 
 export function TeacherApp() {
   const [simId, setSimId] = useState<string | null>(null);
+  // The sim whose student link went out; its predictions show in the side panel.
+  const [sharedId, setSharedId] = useState<string | null>(null);
   const saveSeq = useRef(0);
   const session = useSimSession({ onReady: save });
   const standIn = useStandInStatus();
@@ -193,7 +196,7 @@ export function TeacherApp() {
                 Apply
               </button>
             </form>
-            <ShareButton simId={simId} disabled={v.state !== "ready"} />
+            <ShareButton simId={simId} disabled={v.state !== "ready"} onShared={setSharedId} />
           </div>
         </section>
 
@@ -216,6 +219,7 @@ export function TeacherApp() {
               </p>
             </div>
           ) : null}
+          {sharedId ? <ClassPredictions simId={sharedId} /> : null}
           {v.state === "ready" ? <ParamSliders params={v.params} values={v.values} onChange={session.setValue} /> : null}
         </aside>
       </main>
