@@ -9,7 +9,7 @@ Done when: row counts equal the Tables section; history approvals and payments a
 events; the seed skips sealed files.
 
 - [x] 1.1 Prisma schema for every model in BUILD_PLAN "Data model" plus the reference tables; first migration applied to the local database
-- [ ] 1.2 Policy rows: P01–P13 mapped by hand to structured `PolicyRule` (`when`, `effect`, `sourceText`, locked P07/P08/P11), pure module + test
+- [x] 1.2 Policy rows: P01–P13 mapped by hand to structured `PolicyRule` (`when`, `effect`, `sourceText`, locked P07/P08/P11), pure module + test
 - [ ] 1.3 Audit hash chain: canonical JSON, `sha256(prevHash + json)`, `verifyChain` reporting the first bad row; pure + test
 - [ ] 1.4 Seed script (`prisma/seed.ts`, run by `prisma db seed`): wipes and loads reference tables (users, departments, GL accounts, tax codes, vendors, contracts, POs, FX, bank statement, card transactions, policy rules)
 - [ ] 1.5 Seed: versioned vendor bank accounts and the 9 bank change requests (BC-009 unverified)
@@ -44,4 +44,4 @@ reads; the broken inputs listed in Testing end in named states.
 ## Notes and surprises
 
 - 1.1: Vendor bank details live only in `VendorBankAccount` (versioned; `validTo = null` is live), not on `Vendor`. `BankChangeRequest` keeps `newLast4` because the history CSV has only the last 4 digits. `Document.data` holds uploaded bytes so local runs need no Blob store. Added `Invoice.docType`, `Invoice.normalized` and `Invoice.uploadedById` beyond the plan's list, for stage outputs and the requester rule. `npx tsc` alone fails on `LayoutProps`; use `npm run typecheck` (runs `next typegen` first).
-
+- 1.2: **types.ts appended** with `StepRole`, `Condition`, `Effect`, `PolicyRule` (BUILD_PLAN's shapes). Two additions to `Condition`: `{ any: Condition[] }` because P05 is an OR, and `{ field: 'poPresent' }` because P13 needs "no PO present". P09/P10 compare `totalCad` (one payment per invoice, so payment CAD = invoice CAD). Mapping lives in `src/lib/policy/seed-rules.ts`; `sourceText` is `condition → required`.
