@@ -1,6 +1,7 @@
 // Brim AP automation data model.
-// Models are added in phase 1 (Loop A), following BUILD_PLAN.md "Data model".
-// Ids are the dataset's ids. Money is Decimal(14, 2); dates are @db.Date.
+// Brim serves many customer organizations; Harborline Logistics is one. Every other table
+// belongs to exactly one organization through organizationId.
+// Money is Decimal(14, 2); calendar dates are @db.Date.
 
 generator client {
   provider = "prisma-client"
@@ -9,4 +10,254 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+/// A Brim customer. Managed only through the Brim admin API.
+model Organization {
+  id          String       @id @default(cuid())
+  /// URL name, e.g. "harborline". Used in every /api/orgs/{slug}/ path. Never changes.
+  slug        String       @unique
+  name        String
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  users          User[]
+  accessRequests AccessRequest[]
+  invoices       Invoice[]
+  documents   Document[]
+  emails      InboxEmail[]
+  auditEvents AuditEvent[]
+}
+
+// ---------- Users ----------
+
+enum Role {
+  employee
+  ap_clerk
+  approver
+  finance_manager
+  controller_admin
+  auditor
+}
+
+enum UserStatus {
+  active
+  on_leave
+  terminated
+}
+
+/// A person at one organization.
+model User {
+  id               String       @id @default(cuid())
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id])
+  /// The organization's own id for the person, e.g. "U001" in the Harborline dataset.
+  externalId       String?
+  fullName         String
+  email            String
+  title            String?
+  /// Department id as the organization names it, e.g. "D01".
+  departmentId     String?
+  role             Role
+  approvalLimitCad Decimal      @default(0) @db.Decimal(14, 2)
+  workProvince     String?
+  status           UserStatus   @default(active)
+  /// scrypt hash (see src/lib/auth/password.ts). Null: the person cannot log in.
+  passwordHash     String?
+  statusSince      DateTime?    @db.Date
+  hireDate         DateTime?    @db.Date
+  managerId        String?
+  manager          User?        @relation("Manager", fields: [managerId], references: [id])
+  reports          User[]       @relation("Manager")
+  /// Who acts for this person while they are on leave.
+  delegateId       String?
+  delegate         User?        @relation("Delegate", fields: [delegateId], references: [id])
+  delegatingFor    User[]       @relation("Delegate")
+  createdInvoices  Invoice[]    @relation("InvoiceCreatedBy")
+  assignedInvoices Invoice[]    @relation("InvoiceAssignedTo")
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@unique([organizationId, email])
+  @@unique([organizationId, externalId])
+}
+
+enum AccessRequestStatus {
+  pending
+  approved
+  rejected
+}
+
+/// Someone asking for an account at an organization. A controller/admin there approves it,
+/// which creates the User, or rejects it.
+model AccessRequest {
+  id             String              @id @default(cuid())
+  organizationId String
+  organization   Organization        @relation(fields: [organizationId], references: [id])
+  fullName       String
+  email          String
+  /// The role the person asked for. The approver picks the role actually given.
+  requestedRole  Role?
+  message        String?
+  passwordHash   String
+  status         AccessRequestStatus @default(pending)
+  decidedById    String?
+  decidedAt      DateTime?
+  decisionNote   String?
+  /// The user created on approval.
+  userId         String?
+  createdAt      DateTime            @default(now())
+
+  @@index([organizationId, status])
+}
+
+/// Brim's own staff, who onboard and manage organizations. Not part of any organization.
+model BrimStaff {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  fullName     String
+  passwordHash String
+  createdAt    DateTime @default(now())
+}
+
+// ---------- Intake ----------
+
+/// How an invoice entered the system.
+enum IntakeSource {
+  inbox      // attachment on an email from the AP inbox
+  upload     // file uploaded directly by an AP clerk
+  submission // file submitted by an employee for their department
+  manual     // typed into the invoice form, no file
+}
+
+/// One stored file. The bytes live in the database so the app needs no file store.
+model Document {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  sha256         String
+  fileName       String
+  mimeType       String
+  sizeBytes      Int
+  content        Bytes
+  createdAt      DateTime     @default(now())
+  invoices       Invoice[]
+
+  @@index([organizationId, sha256])
+}
+
+/// One email from the AP inbox, as received.
+model InboxEmail {
+  id              String       @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  /// The email's own id in the source, e.g. "EM-001" in emails.json.
+  sourceId        String?
+  fromName        String
+  fromAddress     String
+  toAddress       String
+  subject         String
+  body            String
+  receivedAt      DateTime
+  /// Attachment file names as listed on the email, whether or not the file arrived.
+  attachmentNames String[]
+  createdAt       DateTime     @default(now())
+  invoices        Invoice[]
+
+  @@index([organizationId, sourceId])
+}
+
+/// An invoice. Intake creates it with only where it came from; extraction or the invoice form
+/// fills the fields printed on the document. A field nobody has filled is null.
+model Invoice {
+  id             String        @id @default(cuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  source         IntakeSource
+  /// See InvoiceStatus in src/lib/types.ts. Every new invoice starts as "received".
+  status         String        @default("received")
+  /// The stored file. Null for an invoice typed into the form.
+  documentId     String?
+  document       Document?     @relation(fields: [documentId], references: [id])
+  emailId        String?
+  email          InboxEmail?   @relation(fields: [emailId], references: [id])
+  /// Who brought it in: the uploader, submitter or form user. Null for the inbox.
+  createdById    String?
+  createdBy      User?         @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
+  /// The person whose action the invoice is waiting for, e.g. the next approver.
+  assignedToId   String?
+  assignedTo     User?         @relation("InvoiceAssignedTo", fields: [assignedToId], references: [id])
+  /// PO number the submitter typed, as typed.
+  poNumber       String?
+  /// Free-text note from whoever brought it in.
+  note           String?
+
+  // Fields printed on the invoice.
+  vendorName     String?
+  invoiceNumber  String?
+  invoiceDate    DateTime?     @db.Date
+  dueDate        DateTime?     @db.Date
+  currency       String?
+  subtotal       Decimal?      @db.Decimal(14, 2)
+  gstHstAmount   Decimal?      @db.Decimal(14, 2)
+  pstQstAmount   Decimal?      @db.Decimal(14, 2)
+  total          Decimal?      @db.Decimal(14, 2)
+  lines          InvoiceLine[]
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @default(now()) @updatedAt
+
+  @@index([organizationId, status])
+  @@index([organizationId, createdById])
+  @@index([organizationId, assignedToId])
+}
+
+/// One line printed on an invoice.
+model InvoiceLine {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  lineNo      Int
+  description String
+  quantity    Decimal? @db.Decimal(14, 4)
+  unitPrice   Decimal? @db.Decimal(14, 4)
+  amount      Decimal? @db.Decimal(14, 2)
+
+  @@unique([invoiceId, lineNo])
+}
+
+// ---------- Audit ----------
+
+/// Who took an action.
+enum ActorType {
+  user       // a person at the organization (actorId = User.id)
+  llm        // a model call (actorId = model id, e.g. "claude-sonnet-5-5")
+  system     // the app itself, e.g. a scheduled job
+  brim_admin // Brim staff through the admin API
+}
+
+/// One action, by anyone, on anything. Append-only: the app never updates or deletes a row.
+/// Written by src/lib/audit.ts inside the same transaction as the change it records.
+model AuditEvent {
+  seq            BigInt       @id @default(autoincrement())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  at             DateTime     @default(now())
+  actorType      ActorType
+  actorId        String?
+  /// Set when a delegate acts for someone on leave: the person being acted for.
+  onBehalfOfId   String?
+  /// Dotted name, e.g. "invoice.received", "user.updated".
+  action         String
+  entityType     String
+  entityId       String
+  /// Set whenever the action concerns an invoice, so one invoice's history is one query.
+  invoiceId      String?
+  before         Json?
+  after          Json?
+  reason         String?
+
+  @@index([organizationId, at])
+  @@index([organizationId, invoiceId])
+  @@index([organizationId, actorId])
+  @@index([organizationId, entityType, entityId])
 }

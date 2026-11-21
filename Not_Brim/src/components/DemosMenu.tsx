@@ -1,0 +1,83 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import type { SimParam } from "@/lib/types";
+
+export interface DemoSummary {
+  slug: string;
+  title: string;
+  prompt: string;
+  handMade?: boolean;
+}
+
+export interface DemoFull extends DemoSummary {
+  code: string;
+  params: SimParam[];
+  question: string;
+}
+
+/** "Saved demos": loads a stored sim straight into the panel, with no model call. */
+export function DemosMenu({
+  refreshKey,
+  disabled,
+  onPick,
+}: {
+  refreshKey: number;
+  disabled?: boolean;
+  onPick: (demo: DemoFull) => void;
+}) {
+  const [list, setList] = useState<DemoSummary[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    fetch("/api/demos", { cache: "no-store" })
+      .then((r) => r.json() as Promise<{ demos: DemoSummary[] }>)
+      .then((j) => live && setList(j.demos))
+      .catch(() => live && setList([]));
+    return () => {
+      live = false;
+    };
+  }, [refreshKey]);
+
+  async function pick(slug: string) {
+    if (!slug) return;
+    setError(null);
+    try {
+      const res = await fetch(`/api/demos/${encodeURIComponent(slug)}`, { cache: "no-store" });
+      if (!res.ok) throw new Error("That demo couldn't be loaded.");
+      onPick((await res.json()) as DemoFull);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "That demo couldn't be loaded.");
+    }
+  }
+
+  return (
+    <div className="ml-auto flex items-center gap-3">
+      <label htmlFor="demos" className="text-xl font-semibold">
+        Saved demos
+      </label>
+      <select
+        id="demos"
+        data-testid="demos-select"
+        className="field text-xl"
+        value=""
+        disabled={disabled || list.length === 0}
+        onChange={(e) => void pick(e.target.value)}
+      >
+        <option value="">{list.length ? "Choose a demo…" : "No demos yet"}</option>
+        {list.map((d) => (
+          <option key={d.slug} value={d.slug}>
+            {d.title}
+            {d.handMade ? " (placeholder)" : ""}
+          </option>
+        ))}
+      </select>
+      {error ? (
+        <span className="text-lg font-semibold text-red-800" role="alert">
+          {error}
+        </span>
+      ) : null}
+    </div>
+  );
+}

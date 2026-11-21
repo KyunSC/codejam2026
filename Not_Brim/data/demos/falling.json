@@ -1,0 +1,44 @@
+{
+  "_comment": "hand-made placeholder demo (copied from fixtures/sims). Replace with real output via `npm run make-demos` once a key is set.",
+  "slug": "falling",
+  "handMade": true,
+  "prompt": "Does a heavier ball fall faster than a light one?",
+  "title": "Two Balls Dropped Together",
+  "question": "Both balls are the same size, but ball B is ten times heavier. Dropped together, which lands first?",
+  "params": [
+    {
+      "id": "massA",
+      "label": "Ball A mass (kg)",
+      "min": 0.1,
+      "max": 10,
+      "step": 0.1,
+      "value": 0.5
+    },
+    {
+      "id": "massB",
+      "label": "Ball B mass (kg)",
+      "min": 0.1,
+      "max": 10,
+      "step": 0.1,
+      "value": 5
+    },
+    {
+      "id": "air",
+      "label": "Air resistance (0 = vacuum)",
+      "min": 0,
+      "max": 3,
+      "step": 0.1,
+      "value": 1
+    },
+    {
+      "id": "height",
+      "label": "Drop height (m)",
+      "min": 5,
+      "max": 100,
+      "step": 5,
+      "value": 40
+    }
+  ],
+  "code": "<!DOCTYPE html>\n<!-- hand-made fixture: falling -- Two balls of equal size and different mass dropped together, with an air-resistance knob. Not model output. -->\n<html><head><meta charset=\"utf-8\"><style>html,body{margin:0;height:100%;overflow:hidden;background:#f8fafc}canvas{display:block;width:100vw;height:100vh}</style></head>\n<body><canvas id=\"c\"></canvas><script>\nconst cv=document.getElementById('c'),ctx=cv.getContext('2d');let W=0,H=0;\nfunction resize(){const d=devicePixelRatio||1;W=innerWidth;H=innerHeight;cv.width=W*d;cv.height=H*d;ctx.setTransform(d,0,0,d,0,0);}\naddEventListener('resize',resize);resize();\nconst g=9.81,area=0.05,cd=0.47,rho=1.2;let p,balls,t;\nfunction ball(mass,color,name){return{mass,color,name,y:0,v:0,landed:null};}\nwindow.SIM={\n  title:'Two Balls Dropped Together',\n  params:[\n    {id:'massA',label:'Ball A mass (kg)',min:0.1,max:10,step:0.1,value:0.5},\n    {id:'massB',label:'Ball B mass (kg)',min:0.1,max:10,step:0.1,value:5},\n    {id:'air',label:'Air resistance (0 = vacuum)',min:0,max:3,step:0.1,value:1},\n    {id:'height',label:'Drop height (m)',min:5,max:100,step:5,value:40}],\n  question:'Both balls are the same size, but ball B is ten times heavier. Dropped together, which lands first?',\n  reset(v){p=v;t=0;balls=[ball(p.massA,'#2563eb','A'),ball(p.massB,'#dc2626','B')];}\n};\nfunction step(b,h){if(b.landed!==null)return;const k=0.5*rho*cd*area*p.air;\n  b.v+=(g-(k/b.mass)*b.v*Math.abs(b.v))*h;b.y+=b.v*h;\n  if(b.y>=p.height){b.y=p.height;b.landed=t;}}\nfunction draw(){ctx.clearRect(0,0,W,H);const top=H*0.1,bottom=H*0.78,s=(bottom-top)/p.height;\n  ctx.strokeStyle='#0f172a';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(W*0.15,bottom+22);ctx.lineTo(W*0.85,bottom+22);ctx.stroke();\n  balls.forEach((b,i)=>{const x=W*(i?0.65:0.35),y=top+b.y*s;\n    ctx.fillStyle=b.color;ctx.beginPath();ctx.arc(x,y,22,0,7);ctx.fill();\n    ctx.fillStyle='#0f172a';ctx.textAlign='center';ctx.font='bold 26px system-ui';ctx.fillText(b.name+': '+b.mass+' kg',x,H-80);\n    ctx.font='22px system-ui';\n    ctx.fillText(b.landed!==null?'Landed at '+b.landed.toFixed(2)+' s':'Speed '+b.v.toFixed(1)+' m/s',x,H-44);});\n  ctx.font='22px system-ui';ctx.textAlign='left';ctx.fillText('Time: '+t.toFixed(2)+' s',24,40);}\nlet last=performance.now();\nfunction frame(now){const dt=Math.min((now-last)/1000,1/30);last=now;const n=8,h=dt/n;\n  for(let i=0;i<n;i++){if(balls.some(b=>b.landed===null))t+=h;balls.forEach(b=>step(b,h));}draw();requestAnimationFrame(frame);}\nSIM.reset(Object.fromEntries(SIM.params.map(q=>[q.id,q.value])));requestAnimationFrame(frame);\n</script></body></html>\n",
+  "savedAt": "2026-11-21T00:00:00.000Z"
+}

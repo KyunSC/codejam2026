@@ -3,7 +3,7 @@
  * each has a case that would have gone wrong before the fix and one that behaves as before.
  */
 import { describe, expect, it } from "vitest";
-import { canRelease } from "../../auth/permissions";
+import { canRelease } from "../../auth/matrix";
 import type { Role, ResolvedInvoice } from "../../types";
 import { checkFieldUncertain } from "../checks/reading";
 import { checkContractMonthlyCap } from "../checks/contract";

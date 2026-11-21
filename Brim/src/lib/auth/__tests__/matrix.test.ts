@@ -18,7 +18,7 @@ import {
   roleCan,
   type StepRecord,
   VENDOR_VIEW,
-} from "../permissions";
+} from "../matrix";
 
 const actor = (role: Role, userId = "UX", departmentId = "D01"): Actor => ({ userId, role, departmentId });
 

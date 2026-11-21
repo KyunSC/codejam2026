@@ -1,15 +1,14 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { DM_Sans } from "next/font/google";
+import { AppHeader } from "@/components/shell/app-header";
+import { AppFooter } from "@/components/shell/app-footer";
+import { THEME_SCRIPT } from "@/components/shell/theme";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const dmSans = DM_Sans({
+  variable: "--font-dm-sans",
   subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
 });
 
 export const metadata: Metadata = {
@@ -19,11 +18,16 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full flex flex-col">{children}</body>
+    // No data-theme by default: CSS follows prefers-color-scheme until the toggle sets one.
+    <html lang="en" className={`${dmSans.variable} h-full`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
+      <body className="flex min-h-full flex-col">
+        <AppHeader />
+        <div className="flex flex-1 flex-col">{children}</div>
+        <AppFooter />
+      </body>
     </html>
   );
 }

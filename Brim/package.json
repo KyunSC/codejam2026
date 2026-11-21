@@ -10,13 +10,12 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "script": "node scripts/run.mjs",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "postinstall": "prisma generate"
   },
   "dependencies": {
-    "@neon/config": "^1.14.6",
-    "@neon/env": "^2.1.9",
     "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "^7.10.1",
     "decimal.js": "^10.6.0",
@@ -28,6 +27,8 @@
     "react-dom": "19.3.0"
   },
   "devDependencies": {
+    "@neon/config": "^1.14.6",
+    "@neon/env": "^2.1.9",
     "@tailwindcss/turbopack": "4.3.3",
     "@types/node": "^20",
     "@types/papaparse": "^5.5.2",

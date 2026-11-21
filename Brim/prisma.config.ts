@@ -2,6 +2,11 @@
 // npm install --save-dev prisma dotenv
 import "dotenv/config";
 import { defineConfig } from "prisma/config";
+import { assertLocalDbIfRequired } from "./src/lib/db-guard";
+
+// With BRIM_LOCAL_DB_ONLY=1 (the overnight Loop A), refuse any non-local database before
+// migrate, db push or seed can touch it.
+assertLocalDbIfRequired();
 
 export default defineConfig({
   schema: "prisma/schema.prisma",
