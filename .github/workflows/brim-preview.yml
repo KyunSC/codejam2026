@@ -2,6 +2,7 @@ name: Brim preview health
 on:
   repository_dispatch:
     types: [vercel.deployment.success, vercel.deployment.error, vercel.deployment.failed, vercel.deployment.canceled, vercel.deployment.ignored, vercel.deployment.skipped]
+  status:
 
 permissions: {}
 
@@ -9,49 +10,24 @@ jobs:
   health:
     if: >-
       github.event.sender.login == 'vercel[bot]' &&
-      github.event.client_payload.project.id == 'prj_bqseYxx2xPoNqV67i3AgF5w7VQ6L' &&
-      github.event.client_payload.environment == 'preview'
+      ((github.event_name == 'status' && github.event.context == 'Vercel – brimcodejam2026') ||
+       (github.event.client_payload.project.id == 'prj_bqseYxx2xPoNqV67i3AgF5w7VQ6L' &&
+        github.event.client_payload.environment == 'preview'))
+    concurrency:
+      group: brim-preview-${{ github.event.client_payload.git.sha || github.event.sha }}
+      queue: max
     runs-on: ubuntu-latest
     timeout-minutes: 4
     permissions:
+      contents: read
       id-token: write
       statuses: write
     steps:
-      # Dispatch runs on main. Report the result on the commit Vercel actually built.
+      - uses: actions/checkout@v6
+        with:
+          ref: refs/heads/main
+          persist-credentials: false
       - uses: actions/github-script@v8
         with:
           script: |
-            const { git, url } = context.payload.client_payload
-            const status = (state, description) => github.rest.repos.createCommitStatus({
-              ...context.repo, sha: git.sha, context: 'Brim preview / Neon',
-              state, description,
-              target_url: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
-            })
-            if (context.payload.action === 'vercel.deployment.skipped') {
-              await status('success', 'Brim unaffected; Vercel skipped the preview')
-              return
-            }
-            await status('pending', 'Checking the Brim deployment')
-            try {
-              if (context.payload.action !== 'vercel.deployment.success') {
-                throw new Error(`Vercel reported ${context.payload.action}`)
-              }
-              const preview = new URL(url)
-              if (preview.origin !== `https://${preview.hostname}` ||
-                  !/^brimcodejam2026-[a-z0-9-]+-sunnys-projects-538942c4\.vercel\.app$/.test(preview.hostname)) {
-                throw new Error('Unexpected preview URL')
-              }
-              const token = await core.getIDToken('brim-preview-health')
-              core.setSecret(token)
-              const response = await fetch(new URL('/api/health', preview), {
-                headers: { 'x-vercel-trusted-oidc-idp-token': token },
-                redirect: 'manual', signal: AbortSignal.timeout(45000)
-              })
-              if (response.status !== 200) throw new Error(`Health endpoint returned HTTP ${response.status}`)
-              const result = await response.json()
-              if (result.ok !== true || result.database !== 'up') throw new Error('Unexpected health response')
-              await status('success', 'The deployed app can read the invoice schema')
-            } catch (err) {
-              await status('failure', 'Preview deployment or database health check failed')
-              throw err
-            }
+            await require('./.github/scripts/brim-preview.cjs')({ github, context, core })

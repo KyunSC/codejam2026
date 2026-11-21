@@ -55,6 +55,6 @@ Run `BRIM_LOCAL_DB_ONLY=1 npm run db:seed` after applying the migrations locally
 
 GitHub Actions runs typecheck, lint, and Vitest against a fresh local Postgres database after applying migrations and seeding the open dataset.
 
-Vercel sends deployment events to the workflow on `main`. For each Brim preview it posts `Brim preview / Neon` on the deployed commit. The check calls `/api/health` and verifies that Prisma can read invoice columns. Protected previews accept a short-lived GitHub OIDC token with audience `brim-preview-health` from the preview workflow on `main`.
+Vercel sends deployment events to the workflow on `main`. For each Brim preview it posts `Brim preview / Neon` on the deployed commit. The workflow records the `/api/health` result for each deployment ID and uses Vercel’s commit statuses to select the latest deployment for the required check. A skipped preview can pass when the entire change since the merge base is limited to `Not_Brim/` or root Markdown files. Protected previews accept a short-lived GitHub OIDC token with audience `brim-preview-health` from the preview workflow on `main`.
 
 After the workflows land on `main` and run on a PR, select `Brim tests, types, and lint` and `Brim preview / Neon` as required status checks in GitHub's branch rules.

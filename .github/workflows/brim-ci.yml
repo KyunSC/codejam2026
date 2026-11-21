@@ -43,6 +43,7 @@ jobs:
           node-version: '26'
           cache: npm
           cache-dependency-path: Brim/package-lock.json
+      - run: node --test ../.github/scripts/brim-preview.test.cjs
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
