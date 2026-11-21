@@ -51,6 +51,16 @@ export const config = {
     exemptCategories: ["Insurance"] as readonly string[],
   },
 
+  contracts: {
+    /** CONTRACT_FUEL_OVER_CAP: the surcharge line, and the shipment lines it is a percentage of (history reproduces the printed % from these). */
+    fuelSurchargePattern: /fuel surcharge/i,
+    shipmentPattern: /ltl shipment/i,
+    /** CONTRACT_RATE_OVER_CAP: a line billed by the hour (besides any line with quantity above 1). */
+    hourlyPattern: /\b(hours?|hrs?|hourly)\b/i,
+    /** CONTRACT_FUEL_OVER_CAP: percentage points of slack for rounding of the printed surcharge. */
+    fuelPctTolerance: 0.01,
+  },
+
   resolution: {
     /** Vendor step 2: a bank-account match also needs names at least this similar (word overlap, 0–1). */
     bankNameMinSimilarity: 0.5,

@@ -18,7 +18,7 @@ Scripts in `scripts/` set `APP_TODAY=2026-11-02` themselves.
 - [x] 8. Checks: BANK_MISMATCH, BANK_CHANGE_UNVERIFIED, BANK_CHANGE_RECENT
 - [x] 9. Checks: TAX_WRONG_FOR_PROVINCE, TAX_AMOUNT, TAX_NOT_REGISTERED, CURRENCY_UNEXPECTED
 - [x] 10. Checks: PO_REQUIRED_MISSING, PO_NOT_FOUND, PO_VENDOR_MISMATCH, PO_CLOSED, PO_OVER_BALANCE
-- [ ] 11. Checks: CONTRACT_EXPIRED, CONTRACT_FEE_MISMATCH, CONTRACT_RATE_OVER_CAP, CONTRACT_FUEL_OVER_CAP, CONTRACT_MONTHLY_CAP, CONTRACT_PERIOD_REPEAT
+- [x] 11. Checks: CONTRACT_EXPIRED, CONTRACT_FEE_MISMATCH, CONTRACT_RATE_OVER_CAP, CONTRACT_FUEL_OVER_CAP, CONTRACT_MONTHLY_CAP, CONTRACT_PERIOD_REPEAT
 - [ ] 12. Checks: SPLIT_SUSPECTED, REQUESTER_TERMINATED, SELF_APPROVAL (history), CREDIT_NOTE_ORPHAN
 - [ ] 13. Duplicate detection: DUP_EXACT, DUP_NEAR, DUP_CONTENT, DUP_PAID_BY_CARD (lookalike vendors count as one)
 - [ ] 14. Checks runner (`runChecks`) + `scripts/history-replay.ts`: compare against "What is planted"; explain differences below
@@ -115,3 +115,15 @@ guessing). A tax line with an unknown label skips TAX_WRONG_FOR_PROVINCE (readin
 - PO_CLOSED: every closed PO in the CSV was closed by its own invoices (none closed without an invoice), so
   the replay (item 14) must treat a PO as open until its last history invoice is entered, or every PO invoice
   in history would show PO_CLOSED against the PO's final status.
+
+### Item 11: contract checks (2026-11-21)
+`src/lib/rules/checks/contract.ts`; patterns in `config.contracts`. Replay (each invoice vs the ones before it):
+- CONTRACT_FEE_MISMATCH: 13, as planted.
+- CONTRACT_MONTHLY_CAP: AP-00075 (C024 Feb, $15,727.70), AP-00155 (C027 Apr, $12,969.94), AP-00234 (C022 Jun,
+  $24,937.05): exactly the planted three, using subtotals by invoice-date month (totals would give other
+  numbers). The April C027 breach is caused by AP-00155, the reformatted-number duplicate of AP-00136.
+- CONTRACT_PERIOD_REPEAT: 1, AP-00026 (info), the second GR26-2821 from V037 that the approver rejected as a duplicate.
+- No CONTRACT_EXPIRED: V044's three invoices dated after C025 ended carry no contract id in history (billed on
+  POs). A new V044 invoice resolves to C025 and does fire, as BUILD_PLAN expects for torqueindustrial_1771.
+- No CONTRACT_RATE_OVER_CAP or CONTRACT_FUEL_OVER_CAP (none planted; history's surcharges reproduce from
+  the LTL lines and max out at 12.00%).
