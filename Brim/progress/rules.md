@@ -9,7 +9,7 @@ Scripts in `scripts/` set `APP_TODAY=2026-11-02` themselves.
 ## Items
 
 - [x] 1. `scripts/verify-counts.ts`: verify every count in BUILD_PLAN "Tables"; log mismatches below
-- [ ] 2. Refs (reference data indexes) + history adapter (InvoiceRow + lines → ResolvedInvoice) + name/number key helpers
+- [x] 2. Refs (reference data indexes) + history adapter (InvoiceRow + lines → ResolvedInvoice) + name/number key helpers
 - [ ] 3. Roles and permissions: matrix in `src/lib/auth/permissions.ts` + invariant checks (SELF_APPROVAL, NOT_YOUR_STEP, APPROVER_CANNOT_RELEASE, RELEASE_LIMIT, FOUR_EYES, READ_ONLY_ROLE)
 - [ ] 4. Resolution: vendor (tax number → bank+similar name → normalised name → unknown with candidates)
 - [ ] 5. Resolution: province, PO + suggestions, contract, department, requester (terminated → manager), line type, currency/FX
@@ -36,3 +36,10 @@ examples pass, and both coding accuracy numbers are printed.
 `npx tsx scripts/verify-counts.ts`: 91 of 91 counts match BUILD_PLAN Tables (plus the routing facts:
 U012 on leave → U003, U015 terminated, U003's 46 releases by U002 44 / U001 2, 51 unique tax numbers,
 largest invoice $28,377.22, at most one contract per vendor). No mismatch.
+
+### Item 2: refs and history adapter (2026-11-21)
+`src/lib/rules/{keys,refs,history,offices,format}.ts`. `Refs.invoices` holds only the invoices known
+before the one being checked (`refsAsOf` for the replay: received date, then id), so a duplicate pair
+flags once, on the second arrival. History has no remittance on record, so bank checks cannot fire on it;
+terms are rebuilt as `Net (due − invoice date)`. `ResolvedInvoice` has no id, so `refs.self` carries it
+(logged in questions.md).
