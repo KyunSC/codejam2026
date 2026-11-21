@@ -3,6 +3,7 @@
 import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import { MAX_NOTE_CHARS, type NoteItem } from "@/lib/board";
 import { NOTE_COLORS } from "@/lib/board-image";
+import { capitalized, useMascotName } from "@/lib/useMascot";
 
 /** A note. The student can type in their own notes; Claude's notes are read-only for the student but can be moved or deleted. */
 export function NoteView({
@@ -23,6 +24,7 @@ export function NoteView({
   onDelete: () => void;
 }) {
   const area = useRef<HTMLTextAreaElement>(null);
+  const mascot = useMascotName();
   useEffect(() => {
     if (autoFocus) area.current?.focus();
   }, [autoFocus]);
@@ -37,7 +39,7 @@ export function NoteView({
       data-author={item.author}
     >
       <div className="flex h-8 shrink-0 cursor-grab items-center gap-2 px-2 active:cursor-grabbing" onPointerDown={onDragStart} data-testid="item-handle">
-        <span className="flex-1 text-base font-bold uppercase tracking-wide text-[#55595e]">{mine ? "You" : "Claude"}</span>
+        <span className="flex-1 text-base font-bold uppercase tracking-wide text-[#55595e]">{mine ? "You" : capitalized(mascot)}</span>
         <button type="button" className="item-x" aria-label="Delete note" onPointerDown={(e) => e.stopPropagation()} onClick={onDelete}>
           ×
         </button>
