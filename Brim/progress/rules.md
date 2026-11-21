@@ -15,7 +15,7 @@ Scripts in `scripts/` set `APP_TODAY=2026-11-02` themselves.
 - [x] 5. Resolution: province, PO + suggestions, contract, department, requester (terminated → manager), line type, currency/FX
 - [x] 6. Checks: UNREADABLE, FIELD_UNCERTAIN, ARITHMETIC_LINE/SUBTOTAL/TOTAL, DATE_ODD, DATE_AMBIGUOUS, TERMS_MISMATCH, FX_RATE_FALLBACK, SHIP_TO_UNKNOWN
 - [x] 7. Checks: VENDOR_UNKNOWN, VENDOR_PENDING, VENDOR_ON_HOLD, VENDOR_NEW, VENDOR_LOOKALIKE, TAX_NUMBER_MISMATCH
-- [ ] 8. Checks: BANK_MISMATCH, BANK_CHANGE_UNVERIFIED, BANK_CHANGE_RECENT
+- [x] 8. Checks: BANK_MISMATCH, BANK_CHANGE_UNVERIFIED, BANK_CHANGE_RECENT
 - [ ] 9. Checks: TAX_WRONG_FOR_PROVINCE, TAX_AMOUNT, TAX_NOT_REGISTERED, CURRENCY_UNEXPECTED
 - [ ] 10. Checks: PO_REQUIRED_MISSING, PO_NOT_FOUND, PO_VENDOR_MISMATCH, PO_CLOSED, PO_OVER_BALANCE
 - [ ] 11. Checks: CONTRACT_EXPIRED, CONTRACT_FEE_MISMATCH, CONTRACT_RATE_OVER_CAP, CONTRACT_FUEL_OVER_CAP, CONTRACT_MONTHLY_CAP, CONTRACT_PERIOD_REPEAT
@@ -90,3 +90,11 @@ released or paid state among the known invoices.
 Replay note for item 14: history starts in January 2026 but vendors were onboarded 2019–2024, so a vendor's
 first invoice in the replay is not really from a new vendor. VENDOR_NEW is a route flag (not a hold), and
 the replay will count it separately rather than as a false positive.
+
+### Item 8: bank checks (2026-11-21)
+`src/lib/rules/checks/bank.ts`. BANK_CHANGE_UNVERIFIED over history fires on exactly AP-00426, as planted.
+It skips an existing invoice that is rejected (AP-00052) or whose payment was scheduled before the change
+(AP-00388: scheduled 2026-10-26, change 2026-10-27, settled 2026-10-29). Worth a look by a person:
+AP-00388 settled two days after the unverified change. `refs.self` now carries the invoice's status. BANK_MISMATCH cannot fire on history (no
+remittance recorded); it treats an account printed for a vendor with no bank on file as a mismatch.
+BANK_CHANGE_RECENT counts any change, verified or not, within 30 days before the invoice date.

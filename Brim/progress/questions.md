@@ -11,3 +11,9 @@ Open points for the team. Loop B takes BUILD_PLAN's version and moves on.
   BUILD_PLAN says. A value that is `not_in_text` does not hold; should it?
 - **What counts as "little history" for VENDOR_LOOKALIKE?** Loop B uses: this record has at most 3 known
   invoices and no more than its lookalike. That flags invoices from V051 (3) and V053 (2) in history, plus V052.
+- **Bank change: block or info?** PLAN.md says a recent bank change blocks release until verified; BUILD_PLAN
+  makes BANK_CHANGE_UNVERIFIED fraud/hold and BANK_CHANGE_RECENT fraud/info (a verified recent change only
+  informs). Loop B follows BUILD_PLAN.
+- **AP-00388** (V004) was paid on 2026-10-29, two days after V004's unverified bank change (BC-009,
+  2026-10-27). Its payment was scheduled on 10-26, so the check does not flag it. Was it paid to the old or
+  the new account? Reconciliation may want to show this.

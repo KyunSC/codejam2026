@@ -87,7 +87,7 @@ export interface Refs {
   invoices: readonly KnownInvoice[];
   invoicesByVendor: ReadonlyMap<string, readonly KnownInvoice[]>;
   /** The invoice being checked, when it already has an id. */
-  self: { invoiceId: string } | null;
+  self: { invoiceId: string; status?: string } | null;
   /** Which accounts are goods, services or mixed, learned from the invoices given to buildRefs. */
   lineTypes: LineTypeModel;
 }
@@ -149,6 +149,6 @@ export function* refsAsOf(refs: Refs, all: readonly KnownInvoice[]): Generator<[
     (a, b) => a.receivedDate.localeCompare(b.receivedDate) || a.invoiceId.localeCompare(b.invoiceId),
   );
   for (let i = 0; i < ordered.length; i++) {
-    yield [ordered[i], withInvoices(refs, ordered.slice(0, i), { invoiceId: ordered[i].invoiceId })];
+    yield [ordered[i], withInvoices(refs, ordered.slice(0, i), { invoiceId: ordered[i].invoiceId, status: ordered[i].status })];
   }
 }
