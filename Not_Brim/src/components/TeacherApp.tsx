@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useSimSession, type EditBase, type ReadyInfo } from "@/lib/useSimSession";
 import { useStandInStatus } from "@/lib/useStandInStatus";
 import { Logo, StandInBadge, TimingBadge } from "./Badges";
+import { PetPicker } from "./PetPicker";
 import { DemosMenu, type DemoFull } from "./DemosMenu";
 import { ParamSliders } from "./ParamSliders";
 import { ShareButton } from "./ShareButton";
@@ -117,6 +118,7 @@ export function TeacherApp() {
             Save as demo
           </button>
           <DemosMenu refreshKey={demosKey} disabled={busy} onPick={loadDemo} />
+          <PetPicker />
         </div>
       </header>
 
