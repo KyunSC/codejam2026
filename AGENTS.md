@@ -13,6 +13,8 @@ CodeJam 16 (McGill) hackathon repo. The app is `Brim/`: accounts payable automat
 | `Brim/brim_ap_dataset/` | The Harborline dataset (CSVs, inbox emails, incoming invoice PDFs/scans) |
 | `*.pdf` (root) | Hackathon brief and opening ceremony slides |
 
+**Never open the files listed in `Brim/brim_ap_dataset/sealed_invoices.txt`, or the emails that carry them.** They stand in for the judges' hidden batch. See `Brim/AGENTS.md`.
+
 ## Git
 
 - **Never commit or push without asking first.** Make the changes, show what changed, and wait for an explicit go-ahead. Approval for one commit or push does not carry over to the next.
