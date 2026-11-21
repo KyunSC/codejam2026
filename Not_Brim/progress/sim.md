@@ -20,7 +20,7 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 
 ## Step 2: errors + one repair
 - [x] S2.1 `/api/repair` and full state machine. Attempts: 1
-- [ ] S2.2 Playwright: throws-broken → repaired → ready; throws-twice → failed. Attempts: 0
+- [x] S2.2 Playwright: throws-broken → repaired → ready; throws-twice → failed. Attempts: 2
 - [ ] S2.3 Step 2 report (real repair rate needs key). Attempts: 0
 
 ## Step 3: plain-language edits
@@ -59,3 +59,4 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 - S1.7: stand-in pendulum: create → ready in ~5 s (1.5 s thinking + 3 s writing + mount).
 - S1.8: try-topics runs as a Playwright test (`scripts/playwright.scripts.config.ts`), because Node 20 can't run .ts and tsx isn't a listed dep. It reads one `[sim] run {json}` console line per run from useSimSession. Stand-in: all 3 reserved topics fall back to the pendulum fixture (as intended: no fixture covers them). First code ~1.5 s, interactive ~4.6 s.
 - S2.1: one repair per run. `fail()` repairs from `run.attempted` (the last document we tried to mount, even one that failed validation); `giveUp()` is terminal. While repairing, the broken iframe is unmounted (srcdoc null) so no stale errors arrive. A failRef breaks the mount↔fail↔stream callback cycle.
+- S2.2: first run failed. `viewRef` was updated inside the lazy setState updater, so a `ready` from the broken frame (queued just after its error) still saw "mounting" and overwrote "repairing". Fixed: `update()` now computes the next view synchronously from viewRef and then calls setView. Stand-in: throws-broken → ready ~9.8 s (two replays); throws-twice → failed ~9.9 s.

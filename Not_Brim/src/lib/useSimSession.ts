@@ -127,12 +127,13 @@ export function useSimSession(options: SessionOptions = {}) {
     optionsRef.current = options;
   });
 
+  // viewRef is the machine's source of truth and is updated synchronously, so a bridge
+  // message that arrives before React re-renders still sees the current state.
   const update = useCallback((patch: Partial<SessionView> | ((v: SessionView) => Partial<SessionView>)) => {
-    setView((prev) => {
-      const next = { ...prev, ...(typeof patch === "function" ? patch(prev) : patch) };
-      viewRef.current = next;
-      return next;
-    });
+    const prev = viewRef.current;
+    const next = { ...prev, ...(typeof patch === "function" ? patch(prev) : patch) };
+    viewRef.current = next;
+    setView(next);
   }, []);
 
   const isCurrent = (run: Run) => runRef.current?.id === run.id && !run.abort.signal.aborted;
