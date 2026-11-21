@@ -1,4 +1,5 @@
 import { MAX_ANSWER_CHARS, MAX_NAME_CHARS, badRequest } from "@/lib/api";
+import { storageErrorResponse } from "@/lib/db";
 import { store } from "@/lib/store";
 
 export const runtime = "nodejs";
@@ -30,7 +31,12 @@ export async function POST(req: Request, ctx: RouteContext<"/api/sims/[id]/predi
   const submissionId = body.submissionId;
   if (submissionId !== undefined && (typeof submissionId !== "string" || !ID.test(submissionId)))
     return badRequest("Invalid submission id.");
-  const entry = await store().addPrediction(id, { submissionId, name: rawName || "Anonymous", prediction, observed });
+  let entry;
+  try {
+    entry = await store().addPrediction(id, { submissionId, name: rawName || "Anonymous", prediction, observed });
+  } catch (err) {
+    return storageErrorResponse(err);
+  }
   if (entry === "full") return badRequest("This class already has the maximum number of predictions.", 429);
   if (!entry) return badRequest("Unknown simulation.", 404);
   return Response.json({ prediction: entry }, { status: 201 });
@@ -40,7 +46,12 @@ export async function POST(req: Request, ctx: RouteContext<"/api/sims/[id]/predi
 export async function GET(_req: Request, ctx: RouteContext<"/api/sims/[id]/predictions">) {
   const { id } = await ctx.params;
   if (!ID.test(id)) return badRequest("Unknown simulation.", 404);
-  const sim = await store().getSharedSim(id);
+  let sim;
+  try {
+    sim = await store().getSharedSim(id);
+  } catch (err) {
+    return storageErrorResponse(err);
+  }
   if (!sim) return badRequest("Unknown simulation.", 404);
   const predictions = (sim.predictions ?? []).map(({ name, prediction, observed, createdAt }) => ({
     name,

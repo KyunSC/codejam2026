@@ -1,6 +1,7 @@
 import { badRequest } from "@/lib/api";
 import { validateHomework } from "@/lib/homework";
 import { getModel } from "@/lib/model";
+import { storageErrorResponse } from "@/lib/db";
 import { store } from "@/lib/store";
 
 export const runtime = "nodejs";
@@ -10,7 +11,12 @@ export const dynamic = "force-dynamic";
 export async function POST(_req: Request, ctx: RouteContext<"/api/sims/[id]/share">) {
   const { id } = await ctx.params;
   if (!/^[0-9a-f]{32}$/.test(id)) return badRequest("Unknown simulation.", 404);
-  const sim = await store().getSharedSim(id);
+  let sim;
+  try {
+    sim = await store().getSharedSim(id);
+  } catch (err) {
+    return storageErrorResponse(err);
+  }
   if (!sim) return badRequest("Unknown simulation.", 404);
 
   let homework = sim.homework;

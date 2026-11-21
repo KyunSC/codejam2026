@@ -3,6 +3,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { assertFileStorageWritable, db, type Db } from "./db";
 import type { Prediction, SimRecord } from "./types";
 
 export type NewSim = Omit<SimRecord, "id" | "createdAt" | "predictions" | "shareToken">;
@@ -46,6 +47,7 @@ export function createStore(file: string) {
 
   return {
     saveSim(input: NewSim): Promise<SimRecord> {
+      assertFileStorageWritable();
       return locked(async () => {
         const sims = await readAll();
         const record: SimRecord = { ...input, id: newId(), shareToken: randomUUID().replace(/-/g, ""), createdAt: new Date().toISOString() };
@@ -69,6 +71,7 @@ export function createStore(file: string) {
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     },
     updateSim(id: string, patch: Partial<NewSim>): Promise<SimRecord | null> {
+      assertFileStorageWritable();
       return locked(async () => {
         const sims = await readAll();
         const i = sims.findIndex((s) => s.id === id);
@@ -83,6 +86,7 @@ export function createStore(file: string) {
       shareToken: string,
       input: { submissionId?: string; name: string; prediction: string; observed?: string },
     ): Promise<Prediction | null | "full"> {
+      assertFileStorageWritable();
       return locked(async () => {
         const sims = await readAll();
         const sim = sims.find((s) => s.shareToken === shareToken);
@@ -110,6 +114,7 @@ export function createStore(file: string) {
     },
     /** Record what the student saw after Run. Null when the sim or the prediction doesn't exist. */
     setObserved(shareToken: string, predictionId: string, observed: string): Promise<Prediction | null> {
+      assertFileStorageWritable();
       return locked(async () => {
         const sims = await readAll();
         const entry = sims.find((s) => s.shareToken === shareToken)?.predictions?.find((p) => p.id === predictionId);
@@ -124,11 +129,123 @@ export function createStore(file: string) {
 
 export type SimStore = ReturnType<typeof createStore>;
 
+/**
+ * Sims in Postgres (table livesim_sims, one JSON record per row, predictions included), for deployments
+ * without a lasting disk. Changes to a record happen in one statement or under a row lock, so concurrent
+ * students can't overwrite each other's predictions.
+ */
+export function createPgStore({ pool, ready }: Db): SimStore {
+  async function bySharedToken<T>(
+    shareToken: string,
+    change: (sim: SimRecord) => { result: T; save: boolean },
+  ): Promise<T | null> {
+    await ready;
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const { rows } = await client.query<{ id: string; record: SimRecord }>(
+        "SELECT id, record FROM livesim_sims WHERE record->>'shareToken' = $1 FOR UPDATE",
+        [shareToken],
+      );
+      if (!rows[0]) {
+        await client.query("ROLLBACK");
+        return null;
+      }
+      const sim = rows[0].record;
+      const { result, save } = change(sim);
+      if (save) await client.query("UPDATE livesim_sims SET record = $2::jsonb WHERE id = $1", [rows[0].id, JSON.stringify(sim)]);
+      await client.query("COMMIT");
+      return result;
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  return {
+    async saveSim(input) {
+      await ready;
+      const record: SimRecord = { ...input, id: newId(), shareToken: randomUUID().replace(/-/g, ""), createdAt: new Date().toISOString() };
+      await pool.query("INSERT INTO livesim_sims (id, record, created_at) VALUES ($1, $2::jsonb, $3)", [
+        record.id,
+        JSON.stringify(record),
+        record.createdAt,
+      ]);
+      return record;
+    },
+    async getSim(id) {
+      await ready;
+      const { rows } = await pool.query<{ record: SimRecord }>("SELECT record FROM livesim_sims WHERE id = $1", [id]);
+      return rows[0]?.record ?? null;
+    },
+    async getSharedSim(token) {
+      await ready;
+      const { rows } = await pool.query<{ record: SimRecord }>(
+        "SELECT record FROM livesim_sims WHERE record->>'shareToken' = $1",
+        [token],
+      );
+      return rows[0]?.record ?? null;
+    },
+    async listSims() {
+      await ready;
+      const { rows } = await pool.query<{ record: SimRecord }>(
+        "SELECT record FROM livesim_sims ORDER BY created_at DESC LIMIT 200",
+      );
+      return rows.map(({ record: { id, title, prompt, createdAt } }) => ({ id, title, prompt, createdAt }));
+    },
+    async updateSim(id, patch) {
+      await ready;
+      const { rows } = await pool.query<{ record: SimRecord }>(
+        "UPDATE livesim_sims SET record = record || ($2::jsonb - 'id' - 'createdAt') WHERE id = $1 RETURNING record",
+        [id, JSON.stringify(patch)],
+      );
+      return rows[0]?.record ?? null;
+    },
+    async addPrediction(shareToken, input) {
+      const out = await bySharedToken<Prediction | "full">(shareToken, (sim) => {
+        const existing = input.submissionId ? sim.predictions?.find((p) => p.id === input.submissionId) : undefined;
+        if (existing) {
+          const changed = Boolean(input.observed && input.observed !== existing.observed);
+          if (changed) existing.observed = input.observed;
+          return { result: existing, save: changed };
+        }
+        if ((sim.predictions?.length ?? 0) >= MAX_PREDICTIONS) return { result: "full", save: false };
+        const entry: Prediction = {
+          id: input.submissionId ?? newId(),
+          name: input.name,
+          prediction: input.prediction,
+          ...(input.observed ? { observed: input.observed } : {}),
+          createdAt: new Date().toISOString(),
+        };
+        sim.predictions = [...(sim.predictions ?? []), entry];
+        return { result: entry, save: true };
+      });
+      return out;
+    },
+    async setObserved(shareToken, predictionId, observed) {
+      const out = await bySharedToken<Prediction | null>(shareToken, (sim) => {
+        const entry = sim.predictions?.find((p) => p.id === predictionId);
+        if (!entry) return { result: null, save: false };
+        entry.observed = observed;
+        return { result: entry, save: true };
+      });
+      return out ?? null;
+    },
+  };
+}
+
 let defaultStore: SimStore | null = null;
 
-/** The app's store at data/sims.json. */
+/** The app's sims: Postgres when DATABASE_URL is set, data/sims.json otherwise. */
 export function store(): SimStore {
-  // SIMS_FILE lets tests point the routes at a temp file.
-  defaultStore ??= createStore(process.env.SIMS_FILE || path.join(process.cwd(), "data", "sims.json"));
+  if (!defaultStore) {
+    const database = db();
+    // SIMS_FILE lets tests point the routes at a temp file.
+    defaultStore = database
+      ? createPgStore(database)
+      : createStore(process.env.SIMS_FILE || path.join(process.cwd(), "data", "sims.json"));
+  }
   return defaultStore;
 }

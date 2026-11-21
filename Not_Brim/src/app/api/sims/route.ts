@@ -1,6 +1,7 @@
 import { MAX_CODE_CHARS, MAX_PROMPT_CHARS, badRequest } from "@/lib/api";
 import { validateParams } from "@/lib/bridge";
 import { validateHtml } from "@/lib/sim-html";
+import { storageErrorResponse } from "@/lib/db";
 import { store } from "@/lib/store";
 
 export const runtime = "nodejs";
@@ -27,10 +28,18 @@ export async function POST(req: Request) {
   const params = validateParams(body.params);
   if (!params.ok) return badRequest(`Invalid params: ${params.reason}`);
 
-  const record = await store().saveSim({ prompt: prompt.trim(), code, title, question, params: params.params });
-  return Response.json({ id: record.id, shareToken: record.shareToken }, { status: 201 });
+  try {
+    const record = await store().saveSim({ prompt: prompt.trim(), code, title, question, params: params.params });
+    return Response.json({ id: record.id, shareToken: record.shareToken }, { status: 201 });
+  } catch (err) {
+    return storageErrorResponse(err);
+  }
 }
 
 export async function GET() {
-  return Response.json({ sims: await store().listSims() }, { headers: { "Cache-Control": "no-store" } });
+  try {
+    return Response.json({ sims: await store().listSims() }, { headers: { "Cache-Control": "no-store" } });
+  } catch (err) {
+    return storageErrorResponse(err);
+  }
 }

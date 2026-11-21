@@ -59,3 +59,6 @@ Another session stashed loop/sim's uncommitted changes and checked the shared ch
 
 ## S5.1 Demo storage and "Save as demo"
 Not specified. Chose: one JSON per demo in data/demos/<slug>.json (slug from the title, or given explicitly by make-demos), validated (html, params, slug) both on read and on save. Files that fail validation are hidden from the menu.
+
+## Vercel storage: `pg` dependency added
+The deployed app (Vercel) returned HTTP 500 on every save: the JSON-file stores write under the project folder, which is read-only there, and /tmp isn't shared between instances. Chose: Postgres through `pg` (node-postgres) when `DATABASE_URL` is set, the JSON files otherwise. `pg` is the driver Brim's Prisma adapter already uses. Tables are created on first use (`livesim_boards`, `livesim_sims`, `livesim_demos`), prefixed so they can share a database with Brim.
