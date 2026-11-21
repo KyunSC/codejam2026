@@ -50,7 +50,11 @@ export function PetPicker() {
         aria-labelledby="pet-dialog-title"
         className="card m-auto w-[min(920px,calc(100vw-2rem))] max-h-[calc(100vh-2rem)] overflow-auto p-6 text-text backdrop:bg-[rgba(18,19,20,0.55)]"
         onClick={(e) => {
-          if (e.target === e.currentTarget) e.currentTarget.close();
+          if (e.target !== e.currentTarget) return;
+          const { left, right, top, bottom } = e.currentTarget.getBoundingClientRect();
+          if (e.clientX < left || e.clientX >= right || e.clientY < top || e.clientY >= bottom) {
+            e.currentTarget.close();
+          }
         }}
       >
         <div className="mb-4 flex items-start justify-between gap-4">

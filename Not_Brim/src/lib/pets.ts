@@ -220,28 +220,34 @@ export function readPetId(): PetId | null {
   }
 }
 
+let unsavedPet: PetId | null = null;
+
 export function writePetId(id: PetId): void {
   try {
     window.localStorage.setItem(PET_STORAGE_KEY, id);
+    unsavedPet = null;
   } catch {
-    // Storage blocked (private window): the choice still applies until reload.
+    unsavedPet = id;
   }
-  memory = id;
   window.dispatchEvent(new Event(PET_EVENT));
 }
-
-let memory: PetId | null = null;
 
 /** For useSyncExternalStore: changes in this tab and in other tabs. */
 export function subscribePet(onChange: () => void): () => void {
   window.addEventListener(PET_EVENT, onChange);
-  window.addEventListener("storage", onChange);
+  function onStorage(event: StorageEvent) {
+    if (event.key !== PET_STORAGE_KEY && event.key !== null) return;
+    if (event.storageArea !== window.localStorage) return;
+    unsavedPet = null;
+    onChange();
+  }
+  window.addEventListener("storage", onStorage);
   return () => {
     window.removeEventListener(PET_EVENT, onChange);
-    window.removeEventListener("storage", onChange);
+    window.removeEventListener("storage", onStorage);
   };
 }
 
 export function petSnapshot(): PetId | null {
-  return readPetId() ?? memory;
+  return unsavedPet ?? readPetId();
 }

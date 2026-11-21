@@ -1,9 +1,10 @@
 import { expect, test } from "./fixtures";
 
 test("pick one of six pets; the choice shows in the header and survives a reload", async ({ page }) => {
-  await page.goto("/");
-  // The button fits on the teacher header's single row at 1280px.
   await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/b\/[^/]+$/);
+  await expect(page.getByTestId("board")).toBeVisible();
   const logoTop = (await page.getByLabel("Live Sim").boundingBox())!.y;
   expect((await page.getByTestId("pet-button").boundingBox())!.y).toBeLessThan(logoTop + 20);
   const button = page.getByTestId("pet-button");
@@ -24,5 +25,35 @@ test("pick one of six pets; the choice shows in the header and survives a reload
   await page.getByTestId("pet-button").click();
   await expect(page.getByTestId("pet-option-hypo")).toHaveAttribute("aria-pressed", "true");
   await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+});
+
+test("the newest choice still applies when storage is readable but full", async ({ page }) => {
+  await page.goto("/");
+  const button = page.getByTestId("pet-button");
+  await button.click();
+  await page.getByTestId("pet-option-bob").click();
+  await expect(button).toHaveAccessibleName("Your pet: Bob. Change pet");
+  await page.evaluate(() => {
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key === "livesim.pet") throw new DOMException("Storage full", "QuotaExceededError");
+      return setItem.call(this, key, value);
+    };
+  });
+
+  await button.click();
+  await page.getByTestId("pet-option-hypo").click();
+  await expect(button).toHaveAccessibleName("Your pet: Hypo. Change pet");
+  expect(await page.evaluate(() => localStorage.getItem("livesim.pet"))).toBe("bob");
+});
+
+test("interior padding keeps the dialog open and a backdrop click closes it", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("pet-button").click();
+  const dialog = page.getByRole("dialog", { name: "Pick your lab pet" });
+  await dialog.click({ position: { x: 8, y: 8 } });
+  await expect(dialog).toBeVisible();
+  await page.mouse.click(2, 2);
   await expect(dialog).toBeHidden();
 });

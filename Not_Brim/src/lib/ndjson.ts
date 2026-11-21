@@ -1,5 +1,5 @@
 // NDJSON: one JSON object per line. Used by the streaming routes and the client.
-import type { StreamEvent } from "./types";
+import type { BoardEvent, StreamEvent } from "./types";
 
 export const NDJSON_TYPE = "application/x-ndjson";
 
@@ -8,7 +8,7 @@ export function encodeLine(value: unknown): string {
 }
 
 /** Turn model events into an NDJSON byte stream. A thrown error becomes a final `error` event. */
-export function eventsToStream(events: AsyncIterable<StreamEvent>): ReadableStream<Uint8Array> {
+export function eventsToStream(events: AsyncIterable<StreamEvent | BoardEvent>): ReadableStream<Uint8Array> {
   const enc = new TextEncoder();
   const it = events[Symbol.asyncIterator]();
   return new ReadableStream<Uint8Array>({
@@ -29,7 +29,7 @@ export function eventsToStream(events: AsyncIterable<StreamEvent>): ReadableStre
   });
 }
 
-export function ndjsonResponse(events: AsyncIterable<StreamEvent>): Response {
+export function ndjsonResponse(events: AsyncIterable<StreamEvent | BoardEvent>): Response {
   return new Response(eventsToStream(events), {
     headers: { "Content-Type": NDJSON_TYPE, "Cache-Control": "no-store" },
   });

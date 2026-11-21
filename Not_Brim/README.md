@@ -1,16 +1,16 @@
 # Live Sim
 
-A teacher types what a student is confused about ("Does a heavier pendulum swing faster?"). Claude writes a fresh interactive Canvas simulation, the class experiments with sliders the app builds from it, the teacher edits it in plain language, and students get a share link with a homework variation. Built from scratch for CodeJam 2026. The spec is in [BUILD_PLAN.md](BUILD_PLAN.md).
+A big whiteboard shared by a student and Claude. The student types notes, handwrites with a pen, and places interactive simulations. When the student presses **Ask Claude**, Claude reads the whole board (handwriting included, from a picture of it) and answers on the board: it writes notes, adds simulation boxes, and changes the ones it made. Each simulation box is a fresh Canvas simulation Claude writes for the confusion ("Does a heavier pendulum swing faster?"), with sliders the app builds from it. Built from scratch for CodeJam 2026. The original single-simulation spec is in [BUILD_PLAN.md](BUILD_PLAN.md).
 
 ## Run it
 
 ```bash
 npm install
 npx playwright install chromium   # only needed for the tests and scripts
-npm run dev                        # http://localhost:3000
+npm run dev                        # http://localhost:3000 opens a new board
 ```
 
-Without a key the app runs the **offline stand-in**: it replays hand-made simulations from `fixtures/sims/` at a realistic pace, and the page shows an "Offline stand-in" badge. Everything works except real generation.
+Without a key the app runs the **offline stand-in**: it replays hand-made simulations from `fixtures/sims/` at a realistic pace, answers "Ask Claude" with a fixed reply note (plus a simulation when your words name a topic it has, like pendulums or falling objects), and the page shows an "Offline stand-in" badge. It can't read handwriting.
 
 ## Add the key
 
@@ -19,16 +19,16 @@ cp .env.local.example .env.local
 # then set ANTHROPIC_API_KEY=... in .env.local (it's gitignored)
 ```
 
-Restart `npm run dev`. The badge disappears and generate, repair, edit and homework go to Claude (`claude-sonnet-5-5`, adaptive thinking, streaming). The key is only read on the server (`src/lib/config.ts`, `src/lib/model/real.ts`). The browser only learns whether the stand-in is active, through `GET /api/status`. `FAKE_MODEL=1` forces the stand-in even when a key is set.
+Restart `npm run dev`. The badge disappears and Ask Claude, generate, repair, edit and homework go to Claude (`claude-sonnet-5-5`, adaptive thinking, streaming). The key is only read on the server (`src/lib/config.ts`, `src/lib/model/real.ts`). The browser only learns whether the stand-in is active, through `GET /api/status`. `FAKE_MODEL=1` forces the stand-in even when a key is set.
 
 ## Use it
 
-- **Create simulation**: type the confusion and press Enter. You see the stages, the line count and the last lines of code as they stream, then "Interactive in X.Xs".
-- **Sliders**: on the right, with live values. The sim runs in a `sandbox="allow-scripts"` iframe with a strict CSP and no network access.
-- **If it breaks**: one automatic repair ("Fixing a glitch…"). If that fails too, a friendly message and "Try again".
-- **Ask for a change**: plain-language edits. Sliders you moved keep their values; the rest take the new defaults.
-- **Share with students**: makes a homework variation (a new question and new starting values) and copies a `/s/<id>` link. Students must write a prediction before Run reveals the sim.
-- **Saved demos**: loads a stored sim instantly, with no model call. **Save as demo** adds the current one.
+- **The board**: `/` makes a new board and opens it at `/b/<id>`. It saves itself (the "Saved" label). Scroll to pan, ctrl/cmd + scroll to zoom, or drag empty space with Select.
+- **Note**: pick Note, click the board, type. **Pen**: pick Pen and write; strokes made close together form one handwriting item. **Select**: drag an item by its top bar, resize from the corner, and delete with × or the Delete key.
+- **Add simulation**: describe a confusion in the toolbar. The box shows the stages and code as they stream, then runs the sim in a `sandbox="allow-scripts"` iframe (strict CSP, no network) with its sliders beside it.
+- **Ask Claude**: optionally type a message, then press the button. Claude gets every item (who made it, where, its text, each sim's title, question and slider values) and a picture of the board, and answers with actions the page applies: add or update a note, add a simulation, change one of its simulations, move or delete its items. Claude can't change what the student made; skipped actions are listed under the button. Claude's items have blue borders.
+- **In a simulation box**: one automatic repair if it breaks ("Fixing a glitch…"), then "Try again". **Change** asks for a plain-language edit (moved sliders keep their values). **Share with students** makes a homework variation and copies a `/s/<id>` link; students write a prediction before Run reveals the sim. **Save as demo** adds the sim to the demos.
+- **Saved demos**: places a stored sim on the board instantly, with no model call.
 
 ## Scripts
 
@@ -44,9 +44,11 @@ Both scripts start their own dev server on port 3100 (see `scripts/playwright.sc
 
 ## Layout
 
-- `src/lib/useSimSession.ts`: the client state machine (streaming → mounting → ready, with repairing and failed).
+- `src/lib/board.ts`: board items (note, ink, sim), their checks, the text Claude reads, and how Claude's actions apply. `src/lib/board-image.ts` draws the picture Claude reads.
+- `src/components/BoardApp.tsx` and `src/components/board/`: the board, notes, handwriting and simulation boxes.
+- `src/lib/useSimSession.ts`: the client state machine each simulation box runs (streaming → mounting → ready, with repairing and failed).
 - `src/lib/bridge.ts`: the iframe bridge, CSP and `validateParams`.
 - `src/lib/model/`: the real Claude model, the stand-in, and the selection between them.
-- `src/app/api/*`: NDJSON routes for generate, repair and edit, plus sims, share, demos and status.
-- `data/sims.json` (gitignored) stores saved sims; `data/demos/` (committed) holds the demos.
+- `src/app/api/*`: NDJSON routes for board-turn (Ask Claude), generate, repair and edit, plus boards, sims, share, demos and status.
+- `data/boards.json` and `data/sims.json` (gitignored) store boards and saved sims; `data/demos/` (committed) holds the demos.
 - `progress/`: the build log (`sim.md`), decisions (`questions.md`), the report (`report.md`) and screenshots.
