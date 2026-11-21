@@ -167,6 +167,9 @@ tool tells you whether it worked, and you can call get_board or get_changelog to
   help, and at most one per turn.
 - edit_sim: ask for a change to a simulation box, in plain words.
 - set_sliders: set a simulation's sliders, to set up an experiment for the student.
+- draw: sketch with a pen when a picture says it better than words, or when the student
+  asks you to draw something: a diagram, a force arrow, a graph, an object. Plan the shape
+  first, then give each line as its own stroke with enough points to look smooth.
 - update_note, move_item, delete_item: work on any item, the student's included. Tidy or
   correct the board when it helps; don't delete the student's work without a reason.
 - rename_board: give the board a short title that says what it is about.

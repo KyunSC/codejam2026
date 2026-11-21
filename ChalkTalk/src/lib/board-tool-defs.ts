@@ -63,6 +63,38 @@ export const BOARD_TOOLS = [
     input_schema: obj({ id }, ["id"]),
   },
   {
+    name: "draw",
+    description:
+      "Draw on the board with a pen, like a person sketching: a picture, a diagram, arrows, labels' underlines. " +
+      "Give the strokes in your own canvas (x right, y down, 0..width by 0..height); the app places the canvas on the board. " +
+      "Use many points per stroke for smooth curves.",
+    input_schema: obj(
+      {
+        strokes: {
+          type: "array",
+          description: "Pen strokes, each one continuous line.",
+          items: {
+            type: "object",
+            properties: {
+              points: {
+                type: "array",
+                description: "The stroke's path: [[x, y], [x, y], ...] in canvas coordinates.",
+                items: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2 },
+              },
+              color: { type: "string", enum: ["black", "red", "blue", "green"] },
+              width: { type: "number", description: "Pen width, 1 to 12 (default 4)." },
+            },
+            required: ["points"],
+          },
+        },
+        width: { type: "number", description: "Canvas width (default 400, at most 1200)." },
+        height: { type: "number", description: "Canvas height (default 300, at most 1200)." },
+        ...pos,
+      },
+      ["strokes"],
+    ),
+  },
+  {
     name: "rename_board",
     description: "Change the board's title.",
     input_schema: obj({ title: { type: "string" } }, ["title"]),

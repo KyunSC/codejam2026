@@ -23,6 +23,8 @@ interface ToolCall {
   id: string;
   type: "function";
   function: { name: string; arguments: string };
+  /** Provider data that must go back with the call: Gemini 3 puts its thought signature here. */
+  extra_content?: unknown;
 }
 type ChatMessage =
   | { role: "system"; content: string }
@@ -34,7 +36,7 @@ interface ChunkDelta {
   content?: string | null;
   reasoning?: string | null;
   reasoning_content?: string | null;
-  tool_calls?: { index: number; id?: string; function?: { name?: string; arguments?: string } }[];
+  tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string }; extra_content?: unknown }[];
 }
 interface Chunk {
   choices?: { delta?: ChunkDelta; finish_reason?: string | null }[];
@@ -168,8 +170,12 @@ export class OpenAICompatibleModel implements SimModel {
           }
           if (d.content) text += d.content;
           for (const tc of d.tool_calls ?? []) {
-            const call = (calls[tc.index] ??= { id: "", type: "function", function: { name: "", arguments: "" } });
+            // OpenAI numbers streamed calls with `index`; Gemini sends each call whole, with an id and no index.
+            let i = typeof tc.index === "number" ? tc.index : tc.id ? calls.findIndex((c) => c?.id === tc.id) : calls.length - 1;
+            if (i < 0) i = calls.length;
+            const call = (calls[i] ??= { id: "", type: "function", function: { name: "", arguments: "" } });
             if (tc.id) call.id = tc.id;
+            if (tc.extra_content !== undefined) call.extra_content = tc.extra_content;
             if (tc.function?.name) call.function.name += tc.function.name;
             if (tc.function?.arguments) call.function.arguments += tc.function.arguments;
           }
@@ -278,6 +284,8 @@ export class OpenAICompatibleModel implements SimModel {
       } catch {
         // Not JSON: keep the raw text.
       }
+      // The page only gets a friendly line; the provider's own words go to the server log.
+      console.warn(`[llm] ${this.provider.label} ${res.status}: ${message}`);
       throw new ProviderError(res.status, message);
     }
     return res;

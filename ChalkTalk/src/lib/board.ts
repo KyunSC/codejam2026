@@ -247,9 +247,15 @@ export type BoardAction =
   | { type: "edit_sim"; id: string; request: string }
   | { type: "set_sliders"; id: string; values: Record<string, number> }
   | { type: "move_item"; id: string; x: number; y: number }
-  | { type: "delete_item"; id: string };
+  | { type: "delete_item"; id: string }
+  | { type: "draw"; strokes: Stroke[]; w: number; h: number; x?: number; y?: number };
 
-export const ACTION_TYPES = ["add_note", "update_note", "add_sim", "edit_sim", "set_sliders", "move_item", "delete_item"] as const;
+export const ACTION_TYPES = ["add_note", "update_note", "add_sim", "edit_sim", "set_sliders", "move_item", "delete_item", "draw"] as const;
+
+/** The colours the assistant may draw in, by name; the same four as the student's pen. */
+export const DRAW_COLORS: Record<string, string> = { black: "#121314", red: "#eb4b4b", blue: "#4b69ff", green: "#3fb950" };
+/** The assistant's own drawing canvas, before it's placed on the board. */
+export const DRAW_CANVAS = { w: 400, h: 300, max: 1200 };
 
 const str = (v: unknown, max: number) => (typeof v === "string" && v.trim() && v.length <= max ? v : null);
 const optCoord = (v: unknown) => (v === undefined || v === null ? undefined : coord(v) ? (v as number) : null);
@@ -302,6 +308,33 @@ export function parseAction(type: string, input: unknown): Checked<BoardAction> 
       const id = str(d.id, 24);
       if (!id) return bad("needs id");
       return { ok: true, value: { type, id } };
+    }
+    case "draw": {
+      const w = finite(d.width) ? Math.min(DRAW_CANVAS.max, Math.max(40, d.width)) : DRAW_CANVAS.w;
+      const h = finite(d.height) ? Math.min(DRAW_CANVAS.max, Math.max(40, d.height)) : DRAW_CANVAS.h;
+      if (!Array.isArray(d.strokes) || !d.strokes.length) return bad("needs at least one stroke");
+      if (d.strokes.length > MAX_STROKES) return bad(`at most ${MAX_STROKES} strokes`);
+      const strokes: Stroke[] = [];
+      for (const [i, raw] of (d.strokes as unknown[]).entries()) {
+        const st = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+        if (!Array.isArray(st.points) || !st.points.length || st.points.length > MAX_POINTS / 2)
+          return bad(`stroke ${i + 1} needs 1 to ${MAX_POINTS / 2} points`);
+        const points: number[] = [];
+        for (const p of st.points as unknown[]) {
+          if (!Array.isArray(p) || p.length < 2 || !finite(p[0]) || !finite(p[1])) return bad(`stroke ${i + 1} has a point that isn't [x, y]`);
+          // Points outside the canvas are pulled onto its edge.
+          points.push(Math.min(w, Math.max(0, p[0] as number)), Math.min(h, Math.max(0, p[1] as number)));
+        }
+        const name = typeof st.color === "string" ? st.color.toLowerCase() : "black";
+        const color = DRAW_COLORS[name] ?? (Object.values(DRAW_COLORS).includes(name) ? name : null);
+        if (!color) return bad(`stroke ${i + 1}: colour must be one of ${Object.keys(DRAW_COLORS).join(", ")}`);
+        const width = finite(st.width) ? Math.min(12, Math.max(1, st.width)) : 4;
+        strokes.push({ points, color, width });
+      }
+      const x = optCoord(d.x);
+      const y = optCoord(d.y);
+      if (x === null || y === null) return bad("bad position");
+      return { ok: true, value: { type, strokes, w, h, x, y } };
     }
     default:
       return { ok: false, reason: `unknown action ${type}` };
@@ -368,6 +401,20 @@ export function applyAction(
       action.type === "add_note"
         ? { ...base, kind: "note", text: action.text }
         : { ...base, kind: "sim", prompt: action.prompt, code: null, title: "", question: "", params: [], values: {} };
+    return { items: [...items, item], itemId: item.id };
+  }
+  if (action.type === "draw") {
+    if (items.length >= MAX_ITEMS) return { items, rejected: "the board is full" };
+    const spot =
+      action.x !== undefined && action.y !== undefined
+        ? clearOf(items, { x: action.x, y: action.y, w: action.w, h: action.h })
+        : freeSpot(items, action.w, action.h, view);
+    // The canvas's (0, 0) lands on the spot; the item's box hugs what was drawn.
+    const strokes = action.strokes.map((st) => ({
+      ...st,
+      points: st.points.map((p, i) => Math.round((p + (i % 2 ? spot.y : spot.x)) * 10) / 10),
+    }));
+    const item: InkItem = { id: id(), author: "claude", kind: "ink", strokes, ...strokesBox(strokes) };
     return { items: [...items, item], itemId: item.id };
   }
   const target = items.find((it) => it.id === action.id);

@@ -211,3 +211,30 @@ describe("ops and changelog", () => {
     expect(eraseAt([ink("i")], 500, 500, 5)).toEqual([ink("i")]);
   });
 });
+
+describe("draw", () => {
+  it("checks the strokes: [x, y] points, a named colour, points kept on the canvas", () => {
+    const ok = parseAction("draw", { strokes: [{ points: [[0, 0], [50, 500]], color: "red" }], width: 200, height: 100 });
+    expect(ok).toEqual({
+      ok: true,
+      value: { type: "draw", strokes: [{ points: [0, 0, 50, 100], color: "#eb4b4b", width: 4 }], w: 200, h: 100, x: undefined, y: undefined },
+    });
+    expect(parseAction("draw", { strokes: [] }).ok).toBe(false);
+    expect(parseAction("draw", { strokes: [{ points: [[1]] }] }).ok).toBe(false);
+    expect(parseAction("draw", { strokes: [{ points: [[1, 2]], color: "pink" }] }).ok).toBe(false);
+  });
+
+  it("places the drawing as Claude's handwriting, at the asked spot or a free one", () => {
+    const drawn = parseAction("draw", { strokes: [{ points: [[10, 10], [110, 60]] }], x: 1000, y: 500 });
+    if (!drawn.ok) throw new Error(drawn.reason);
+    const a = applyAction([note("s1", "student")], drawn.value, null, ids);
+    const ink = a.items.at(-1) as InkItem;
+    expect(ink).toMatchObject({ kind: "ink", author: "claude" });
+    expect(ink.strokes[0].points).toEqual([1010, 510, 1110, 560]);
+    const free = parseAction("draw", { strokes: [{ points: [[0, 0], [10, 10]] }] });
+    if (!free.ok) throw new Error(free.reason);
+    const placed = applyAction([note("s1", "student")], free.value, { x: 0, y: 0, w: 2000, h: 1000 }, ids).items.at(-1) as InkItem;
+    // Not on top of the student's note at 0,0–320,200.
+    expect(placed.x >= 320 || placed.y >= 200).toBe(true);
+  });
+});
