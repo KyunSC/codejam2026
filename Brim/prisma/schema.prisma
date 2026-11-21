@@ -1,0 +1,12 @@
+// Brim AP automation data model.
+// Models are added in phase 1 (Loop A), following BUILD_PLAN.md "Data model".
+// Ids are the dataset's ids. Money is Decimal(14, 2); dates are @db.Date.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
