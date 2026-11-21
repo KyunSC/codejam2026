@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { useSimSession, type EditBase, type ReadyInfo } from "@/lib/useSimSession";
 import { useStandInStatus } from "@/lib/useStandInStatus";
-import { StandInBadge, TimingBadge } from "./Badges";
+import { Logo, StandInBadge, TimingBadge } from "./Badges";
 import { DemosMenu, type DemoFull } from "./DemosMenu";
 import { ParamSliders } from "./ParamSliders";
 import { ShareButton } from "./ShareButton";
@@ -95,117 +95,130 @@ export function TeacherApp() {
   }
 
   return (
-    <div className="flex h-screen min-h-[600px] gap-5 p-5" data-sim-id={simId ?? ""}>
-      <div className="flex min-w-0 basis-[70%] flex-col gap-4">
-      <form
-        className="flex items-stretch gap-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          create();
-        }}
-      >
-        <label htmlFor="prompt" className="sr-only">
-          What is the student confused about?
-        </label>
-        <textarea
-          id="prompt"
-          data-testid="prompt-input"
-          className="field min-h-[3.6em] flex-1 resize-none text-2xl"
-          rows={2}
-          placeholder="What is the student confused about? e.g. “Does a heavier pendulum swing faster?”"
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              create();
-            }
+    <div className="flex min-h-screen flex-col lg:h-screen lg:min-h-[600px]" data-sim-id={simId ?? ""}>
+      <header className="border-b border-[var(--rule)]">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-6 py-2.5">
+          <Logo />
+          <span className="flex-1" />
+          {demoNote ? (
+            <span className="font-bold text-ok" role="status" data-testid="demo-note">
+              {demoNote}
+            </span>
+          ) : null}
+          <StandInBadge standIn={standIn} />
+          <TimingBadge ms={v.state === "ready" ? v.interactiveMs : null} />
+          <button
+            type="button"
+            className="btn-secondary min-h-[2.2rem] py-1"
+            data-testid="save-demo-button"
+            disabled={v.state !== "ready" || last?.kind === "demo"}
+            onClick={() => void saveAsDemo()}
+          >
+            Save as demo
+          </button>
+          <DemosMenu refreshKey={demosKey} disabled={busy} onPick={loadDemo} />
+        </div>
+      </header>
+
+      <main className="grid min-h-0 flex-1 grid-cols-1 content-start gap-x-7 gap-y-4 px-4 pb-4 pt-3 lg:grid-cols-[minmax(0,1fr)_minmax(320px,30%)] lg:grid-rows-[auto_minmax(0,1fr)] lg:px-6">
+        <form
+          className="grid min-w-0 gap-y-2 lg:col-span-2 lg:grid-cols-subgrid"
+          onSubmit={(e) => {
+            e.preventDefault();
+            create();
           }}
-        />
-        <button type="submit" className="btn-primary text-2xl" data-testid="create-button" disabled={busy || !prompt.trim()}>
-          Create simulation
-        </button>
-      </form>
+        >
+          <label htmlFor="prompt" className="kicker short-sr lg:col-span-2">
+            What is the class confused about?
+          </label>
+          <textarea
+            id="prompt"
+            data-testid="prompt-input"
+            className="field min-h-[3.2em] resize-none text-[1.1rem]"
+            rows={2}
+            placeholder="e.g. “They think a heavier pendulum bob swings faster.”"
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                create();
+              }
+            }}
+          />
+          <button type="submit" className="btn-primary" data-testid="create-button" disabled={busy || !prompt.trim()}>
+            Create simulation <span aria-hidden>→</span>
+          </button>
+        </form>
 
-      <div className="flex min-h-[2.4em] flex-wrap items-center gap-3">
-        <StandInBadge standIn={standIn} />
-        <TimingBadge ms={v.state === "ready" ? v.interactiveMs : null} />
-        <DemosMenu refreshKey={demosKey} disabled={busy} onPick={loadDemo} />
-      </div>
-
-        <section className="flex min-h-0 flex-1 flex-col gap-4" aria-label="Simulation">
-          <div className="min-h-0 flex-1">
+        <section className="flex min-h-0 flex-col gap-4" aria-label="Simulation">
+          <div className="h-[50svh] min-h-[260px] lg:h-auto lg:min-h-0 lg:flex-1">
             <SimPanel
               session={session}
               onRetry={last ? retry : undefined}
-              idle="Type what a student is confused about, then press “Create simulation”."
+              className="shadow-[6px_6px_0_var(--blue)]"
+              idle={
+                <p className="max-w-xl text-[1.1rem] font-medium text-[var(--stage-muted)]">
+                  Type what the class is confused about, then press <strong className="text-[var(--stage-text)]">Create simulation</strong>.
+                </p>
+              }
             />
           </div>
-          <div className="flex flex-wrap items-stretch gap-3">
+          <div className="flex flex-wrap items-end gap-3">
             <form
-              className="flex min-w-[24rem] flex-1 items-stretch gap-3"
+              className="flex min-w-0 basis-full flex-wrap lg:min-w-[20rem] lg:flex-1 items-stretch gap-x-3 gap-y-1.5"
               onSubmit={(e) => {
                 e.preventDefault();
                 askForChange();
               }}
             >
-              <label htmlFor="change" className="sr-only">
+              <label htmlFor="change" className="kicker short-sr basis-full">
                 Ask for a change
               </label>
               <input
                 id="change"
                 data-testid="edit-input"
-                className="field flex-1 text-xl"
-                placeholder="Ask for a change, e.g. “make bob B twice as heavy”"
+                className="field min-w-0 flex-1"
+                placeholder="e.g. “make bob B twice as heavy”"
                 value={change}
                 disabled={v.state !== "ready"}
                 onChange={(e) => setChange(e.target.value)}
               />
               <button
                 type="submit"
-                className="btn-secondary text-xl"
+                className="btn-secondary"
                 data-testid="edit-button"
                 disabled={v.state !== "ready" || !change.trim()}
               >
-                Ask for a change
+                Apply
               </button>
             </form>
-            <button
-              type="button"
-              className="btn-secondary text-xl"
-              data-testid="save-demo-button"
-              disabled={v.state !== "ready" || last?.kind === "demo"}
-              onClick={() => void saveAsDemo()}
-            >
-              Save as demo
-            </button>
-            {demoNote ? (
-              <span className="self-center text-lg font-semibold text-emerald-800" role="status" data-testid="demo-note">
-                {demoNote}
-              </span>
-            ) : null}
             <ShareButton simId={simId} disabled={v.state !== "ready"} />
           </div>
         </section>
-      </div>
 
-        <aside className="short-stack flex min-h-0 basis-[30%] flex-col gap-5 overflow-y-auto pr-1" aria-label="Controls">
-          {v.state === "ready" ? (
-            <>
-              <h1 className="short-title text-3xl font-bold leading-tight" data-testid="sim-title">
+        <aside className="short-stack flex min-h-0 flex-col gap-5 overflow-y-auto pb-2 pr-2" aria-label="Controls">
+          <div>
+            <p className="kicker short-hide mb-1">Now showing</p>
+            {v.state === "ready" ? (
+              <h1 className="pix short-title text-[2rem] leading-[0.95]" data-testid="sim-title">
                 {v.title}
               </h1>
-              {v.question ? (
-                <p className="short-question rounded-xl border-l-8 border-[#2563eb] bg-blue-50 p-4 text-2xl font-semibold leading-snug" data-testid="sim-question">
-                  {v.question}
-                </p>
-              ) : null}
-              <ParamSliders params={v.params} values={v.values} onChange={session.setValue} />
-            </>
-          ) : (
-            <h1 className="text-3xl font-bold text-slate-500">Live Sim</h1>
-          )}
+            ) : (
+              <h1 className="pix short-title text-[2rem] leading-[0.95] text-muted">Nothing yet</h1>
+            )}
+          </div>
+          {v.state === "ready" && v.question ? (
+            <div className="card-gold short-tight p-5">
+              <p className="kicker short-hide mb-1 !text-ink">Ask the class</p>
+              <p className="short-text text-[1.2rem] font-bold leading-snug" data-testid="sim-question">
+                {v.question}
+              </p>
+            </div>
+          ) : null}
+          {v.state === "ready" ? <ParamSliders params={v.params} values={v.values} onChange={session.setValue} /> : null}
         </aside>
+      </main>
     </div>
   );
 }

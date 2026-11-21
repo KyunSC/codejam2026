@@ -10,6 +10,7 @@ const LABELS: Record<string, string> = {
   connecting: "Connecting…",
 };
 
+/** Shown on the dark stage while a sim is being written. */
 export function GenerationStatus({
   state,
   stage,
@@ -25,19 +26,24 @@ export function GenerationStatus({
 }) {
   const key = state === "repairing" || state === "mounting" ? state : (stage ?? "connecting");
   return (
-    <div className="flex w-full max-w-3xl flex-col gap-4" data-testid="generation-status" aria-live="polite">
+    <div className="flex w-full max-w-3xl flex-col gap-5" data-testid="generation-status" aria-live="polite">
       <div className="flex items-center gap-4">
-        <span className="spinner" aria-hidden />
-        <span className="text-2xl font-semibold" data-testid="status-label">
+        <span className="spinner" aria-hidden>
+          <i />
+          <i />
+          <i />
+          <i />
+        </span>
+        <span className="text-2xl font-bold" data-testid="status-label">
           {LABELS[key]}
         </span>
       </div>
-      <div className="flex gap-6 text-xl tabular-nums text-slate-700">
+      <div className="pix flex gap-8 text-xl tabular-nums text-[var(--stage-muted)]">
         <span data-testid="status-lines">{lineCount} lines</span>
         <span data-testid="status-seconds">{(elapsedMs / 1000).toFixed(1)} s</span>
       </div>
       {codeTail ? (
-        <pre className="max-h-[14em] overflow-hidden whitespace-pre-wrap break-all rounded-lg bg-slate-900 p-4 font-mono text-base leading-snug text-slate-100">
+        <pre className="max-h-[12em] overflow-hidden whitespace-pre-wrap break-all rounded-md border-2 border-[#5b6066] bg-black/40 p-4 font-mono text-base leading-snug text-[#e9edf1]">
           {codeTail}
         </pre>
       ) : null}

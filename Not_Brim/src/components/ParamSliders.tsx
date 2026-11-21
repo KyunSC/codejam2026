@@ -1,8 +1,10 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { formatValue, splitLabel } from "@/lib/params";
 import type { SimParam } from "@/lib/types";
 
+/** One card of sliders. The track fills blue up to the thumb. */
 export function ParamSliders({
   params,
   values,
@@ -16,18 +18,21 @@ export function ParamSliders({
 }) {
   if (!params.length) return null;
   return (
-    <div className="short-stack flex flex-col gap-6" data-testid="param-sliders">
+    <div className="card short-stack short-tight flex flex-col gap-5 p-5" data-testid="param-sliders">
       {params.map((p) => {
         const { name, unit } = splitLabel(p.label);
         const value = values[p.id] ?? p.value;
         const inputId = `param-${p.id}`;
+        const fill = p.max > p.min ? ((value - p.min) / (p.max - p.min)) * 100 : 0;
         return (
-          <div key={p.id} className="flex flex-col gap-2">
-            <label htmlFor={inputId} className="flex items-baseline justify-between gap-3 text-xl font-medium">
-              <span>{name}</span>
-              <span className="tabular-nums font-semibold text-[#1d4ed8]" data-testid={`value-${p.id}`}>
+          <div key={p.id} className="flex flex-col gap-1.5">
+            <label htmlFor={inputId} className="flex items-baseline justify-between gap-3 font-bold leading-tight">
+              <span>
+                {name}
+                {unit ? <span className="font-medium text-muted"> ({unit})</span> : null}
+              </span>
+              <span className="pix tabular-nums" data-testid={`value-${p.id}`}>
                 {formatValue(value, p.step)}
-                {unit ? <span className="ml-1 text-lg font-normal text-slate-600">{unit}</span> : null}
               </span>
             </label>
             <input
@@ -35,6 +40,7 @@ export function ParamSliders({
               data-param={p.id}
               type="range"
               className="sim-slider"
+              style={{ "--fill": `${fill}%` } as CSSProperties}
               min={p.min}
               max={p.max}
               step={p.step}
@@ -43,10 +49,6 @@ export function ParamSliders({
               aria-label={p.label}
               onChange={(e) => onChange(p.id, Number(e.target.value))}
             />
-            <div className="short-hide flex justify-between text-base text-slate-600 tabular-nums" aria-hidden>
-              <span>{formatValue(p.min, p.step)}</span>
-              <span>{formatValue(p.max, p.step)}</span>
-            </div>
           </div>
         );
       })}

@@ -53,19 +53,19 @@ export function DemosMenu({
   }
 
   return (
-    <div className="ml-auto flex items-center gap-3">
-      <label htmlFor="demos" className="text-xl font-semibold">
+    <div className="flex min-w-0 max-w-full items-center gap-3">
+      <label htmlFor="demos" className="sr-only">
         Saved demos
       </label>
       <select
         id="demos"
         data-testid="demos-select"
-        className="field text-xl"
+        className="btn-secondary min-h-[2.2rem] min-w-0 max-w-full cursor-pointer py-1 pl-3 pr-2 font-bold"
         value=""
         disabled={disabled || list.length === 0}
         onChange={(e) => void pick(e.target.value)}
       >
-        <option value="">{list.length ? "Choose a demo…" : "No demos yet"}</option>
+        <option value="">{list.length ? "Saved demos" : "No demos yet"}</option>
         {list.map((d) => (
           <option key={d.slug} value={d.slug}>
             {d.title}
@@ -74,7 +74,7 @@ export function DemosMenu({
         ))}
       </select>
       {error ? (
-        <span className="text-lg font-semibold text-red-800" role="alert">
+        <span className="font-semibold text-danger" role="alert">
           {error}
         </span>
       ) : null}
