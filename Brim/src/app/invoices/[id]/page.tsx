@@ -128,9 +128,10 @@ async function InvoiceView({ params }: { params: Promise<{ id: string }> }) {
   }));
   // ---- Approval chain ----
   const people = await db().user.findMany({ where: { organizationId: org.id }, select: { id: true, externalId: true, fullName: true, status: true, delegateId: true } });
-  const byPid = new Map(people.map((p) => [personId(p), p]));
+  // Steps store row ids; the rules (release eligibility) speak dataset ids. Look up either.
+  const byPid = new Map(people.flatMap((p) => [[p.id, p], [personId(p), p]] as const));
   const nameOf = (pid: string | null) => (pid ? (byPid.get(pid)?.fullName ?? pid) : "nobody");
-  const me = personId(user);
+  const me = user.id;
   const firstPending = inv.approvalSteps.find((s) => s.decision === "pending");
   let chain: ChainStep[] = [];
   let blocked: string[] = [];
@@ -151,7 +152,8 @@ async function InvoiceView({ params }: { params: Promise<{ id: string }> }) {
     });
     if (inv.totalCad && ["pending_approval", "approved", "scheduled", "released"].includes(inv.status)) {
       const refs = await loadLiveRefs(db(), org.id);
-      releaserIds = releaseEligibility(Number(inv.totalCad), inv.approvalSteps, refs.policyRules, refs).releaserIds;
+      const asPeople = inv.approvalSteps.map((s) => ({ assignedToId: refs.people.toPerson(s.assignedToId), onBehalfOfId: refs.people.toPerson(s.onBehalfOfId) }));
+      releaserIds = releaseEligibility(Number(inv.totalCad), asPeople, refs.policyRules, refs).releaserIds;
     }
   } else if (inv.status === "coded" && mayPreview) {
     const p = await db().$transaction((tx) => routePreview(tx, org.id, inv.id), { timeout: 60_000 });

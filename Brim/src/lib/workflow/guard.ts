@@ -13,7 +13,6 @@ import {
 } from "@/lib/auth/matrix";
 import type { Caller } from "@/lib/context";
 import { AppError } from "@/lib/http";
-import { personId } from "./refs";
 
 export interface WorkflowActor {
   /** The calling user's row. */
@@ -27,7 +26,8 @@ export interface WorkflowActor {
 export function workflowActor(user: User): WorkflowActor {
   return {
     user,
-    matrix: { userId: personId(user), role: user.role, departmentId: user.departmentId ?? "" },
+    // Database space: the matrix and invariants compare against stored row ids (steps, requester, payments).
+    matrix: { userId: user.id, role: user.role, departmentId: user.departmentId ?? "" },
     audit: { type: "user", userId: user.id, role: user.role },
   };
 }

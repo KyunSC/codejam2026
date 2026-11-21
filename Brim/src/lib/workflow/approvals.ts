@@ -19,12 +19,11 @@ import { logAction } from "@/lib/audit";
 import { canDecideStep, type StepRecord } from "@/lib/auth/matrix";
 import { AppError } from "@/lib/http";
 import { bumpInvoiceVersion, transitionInvoice } from "@/lib/invoices/transition";
-import type { Refs } from "@/lib/rules/refs";
 import { releaseEligibility, type Route, route, routingInputFor, type RoutingInput } from "@/lib/rules/routing/route";
 import type { Flag, FlagCode } from "@/lib/types";
 import { enforce, type WorkflowActor } from "./guard";
 import { resolveStored } from "./process";
-import { loadLiveRefs, personId } from "./refs";
+import { type LiveRefs, loadLiveRefs } from "./refs";
 
 type Tx = Prisma.TransactionClient;
 
@@ -52,7 +51,8 @@ async function loadInvoice(tx: Tx, organizationId: string, invoiceId: string) {
 type InvoiceRow = Awaited<ReturnType<typeof loadInvoice>>;
 
 /** The routing input for a stored invoice: from its resolution when it was extracted, else its columns. */
-export function routingInputForRow(row: InvoiceRow, refs: Refs): RoutingInput {
+export function routingInputForRow(row: InvoiceRow, refs: LiveRefs): RoutingInput {
+  const requester = refs.people.toPerson(row.requesterId);
   const live = row.flags.filter((f) => f.status === "open" || f.status === "overridden");
   const overridden = row.flags
     .filter((f) => f.status === "overridden" && (f.klass === "policy" || f.klass === "fraud"))
@@ -64,7 +64,7 @@ export function routingInputForRow(row: InvoiceRow, refs: Refs): RoutingInput {
     const inv = {
       ...resolved,
       departmentId: row.departmentId ?? resolved.departmentId,
-      requesterId: row.requesterId ?? resolved.requesterId,
+      requesterId: requester ?? resolved.requesterId,
       vendorId: row.vendorId ?? resolved.vendorId,
       totalCad: row.totalCad ? new Decimal(row.totalCad.toString()) : resolved.totalCad,
     };
@@ -74,7 +74,7 @@ export function routingInputForRow(row: InvoiceRow, refs: Refs): RoutingInput {
   return {
     totalCad: row.totalCad ? Number(row.totalCad) : null,
     departmentId: row.departmentId,
-    requesterId: row.requesterId,
+    requesterId: requester,
     vendor: vendor ?? null,
     flags: flags.map((f) => f.code),
     overridden,
@@ -87,7 +87,7 @@ export interface Preview {
   input: RoutingInput;
 }
 
-export function previewFor(row: InvoiceRow, refs: Refs): Preview {
+export function previewFor(row: InvoiceRow, refs: LiveRefs): Preview {
   const input = routingInputForRow(row, refs);
   const r = route(input, refs.policyRules, refs);
   const release = releaseEligibility(input.totalCad ?? 0, r.steps, refs.policyRules, refs);
@@ -100,12 +100,6 @@ export async function routePreview(tx: Tx, organizationId: string, invoiceId: st
   return previewFor(row, refs);
 }
 
-/** User row id for a person id (externalId or row id). */
-async function rowIdOf(tx: Tx, organizationId: string, pid: string | null): Promise<string | null> {
-  if (!pid) return null;
-  const u = await tx.user.findFirst({ where: { organizationId, OR: [{ externalId: pid }, { id: pid }] }, select: { id: true } });
-  return u?.id ?? null;
-}
 
 export async function submit(tx: Tx, actor: WorkflowActor, organizationId: string, invoiceId: string, ifMatch: number | null) {
   const row = await loadInvoice(tx, organizationId, invoiceId);
@@ -146,8 +140,9 @@ export async function submit(tx: Tx, actor: WorkflowActor, organizationId: strin
         invoiceId,
         stepNo: s.stepNo,
         role: s.role,
-        assignedToId: s.assignedToId!,
-        onBehalfOfId: s.onBehalfOfId,
+        // Stored as User row ids, like the imported history.
+        assignedToId: refs.people.toRow(s.assignedToId)!,
+        onBehalfOfId: refs.people.toRow(s.onBehalfOfId),
         limitCad: String(s.limitCad ?? 0),
         why: { ruleIds: s.ruleIds, replacements: s.replacements } as Prisma.InputJsonValue,
       },
@@ -161,7 +156,7 @@ export async function submit(tx: Tx, actor: WorkflowActor, organizationId: strin
     actor: actor.audit,
     action: "invoice.submit",
     expectedVersion: row.version,
-    data: { assignedToId: await rowIdOf(tx, organizationId, first.assignedToId) },
+    data: { assignedToId: refs.people.toRow(first.assignedToId) },
     auditAfter: {
       steps: r.steps.map((s) => ({ stepNo: s.stepNo, role: s.role, assignedToId: s.assignedToId, onBehalfOfId: s.onBehalfOfId, ruleIds: s.ruleIds })),
       releasers: release.releaserIds,
@@ -196,11 +191,8 @@ export async function decide(tx: Tx, actor: WorkflowActor, input: DecideInput) {
     ? { assignedToId: step.assignedToId, onBehalfOfId: step.onBehalfOfId, decision: "pending", decidedById: null }
     : null;
   if (step && step.assignedToId !== me) {
-    const assignee = await tx.user.findFirst({
-      where: { organizationId, OR: [{ externalId: step.assignedToId }, { id: step.assignedToId }] },
-      include: { delegate: true },
-    });
-    if (assignee?.status === "on_leave" && assignee.delegate && personId(assignee.delegate) === me) {
+    const assignee = await tx.user.findFirst({ where: { organizationId, id: step.assignedToId } });
+    if (assignee?.status === "on_leave" && assignee.delegateId === me) {
       onBehalfOfId = step.assignedToId;
       record = { ...record!, assignedToId: me };
     }
@@ -217,8 +209,7 @@ export async function decide(tx: Tx, actor: WorkflowActor, input: DecideInput) {
     where: { organizationId_id: { organizationId, id: step!.id } },
     data: { decision: input.decision === "approve" ? "approved" : "rejected", decidedById: me, decidedAt: new Date(), comment, onBehalfOfId },
   });
-  const behalfRow = await rowIdOf(tx, organizationId, onBehalfOfId);
-  const auditActor = { ...actor.audit, ...(behalfRow ? { onBehalfOfId: behalfRow } : {}) };
+  const auditActor = { ...actor.audit, ...(onBehalfOfId ? { onBehalfOfId } : {}) };
   const stepInfo = { stepNo: step!.stepNo, role: step!.role, decidedById: me, onBehalfOfId };
 
   if (input.decision === "reject") {
@@ -238,7 +229,7 @@ export async function decide(tx: Tx, actor: WorkflowActor, input: DecideInput) {
 
   const next = row.approvalSteps.find((s) => s.decision === "pending" && s.id !== step!.id) ?? null;
   if (next) {
-    await bumpInvoiceVersion(tx, organizationId, invoiceId, row.version, { assignedToId: await rowIdOf(tx, organizationId, next.assignedToId) });
+    await bumpInvoiceVersion(tx, organizationId, invoiceId, row.version, { assignedToId: next.assignedToId });
     await logAction(tx, {
       organizationId,
       actor: auditActor,

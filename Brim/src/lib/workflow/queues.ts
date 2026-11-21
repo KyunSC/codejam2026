@@ -3,19 +3,18 @@
  */
 import type { User } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
-import { personId } from "./refs";
 
 /**
  * Approval steps waiting on this person: the current (lowest pending) step of an invoice in
  * pending_approval, assigned to them, or to someone on leave who named them as delegate.
  */
 export async function waitingForMe(user: User) {
-  const me = personId(user);
+  const me = user.id;
   const absent = await db().user.findMany({
     where: { organizationId: user.organizationId, status: "on_leave", delegateId: user.id },
     select: { id: true, externalId: true, fullName: true },
   });
-  const forIds = absent.map(personId);
+  const forIds = absent.map((a) => a.id);
   const steps = await db().approvalStep.findMany({
     where: {
       organizationId: user.organizationId,
@@ -37,10 +36,10 @@ export async function waitingForMe(user: User) {
   const current = steps.filter((s) => s.invoice.approvalSteps.find((x) => x.decision === "pending")?.stepNo === s.stepNo);
   const behalf = [...new Set(current.map((s) => s.onBehalfOfId).filter((x): x is string => !!x))];
   const people = await db().user.findMany({
-    where: { organizationId: user.organizationId, OR: [{ externalId: { in: behalf } }, { id: { in: behalf } }] },
+    where: { organizationId: user.organizationId, id: { in: behalf } },
     select: { id: true, externalId: true, fullName: true },
   });
-  const names = Object.fromEntries([...absent, ...people].map((a) => [personId(a), a.fullName]));
+  const names = Object.fromEntries([...absent, ...people].map((a) => [a.id, a.fullName]));
   return current.map((s) => ({
     stepId: s.id,
     stepNo: s.stepNo,

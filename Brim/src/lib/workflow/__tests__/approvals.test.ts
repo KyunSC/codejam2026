@@ -27,7 +27,7 @@ async function ctx(tx: Tx) {
         status: "coded",
         vendorId: o.vendorId,
         departmentId: o.departmentId,
-        requesterId: o.requesterId ?? null,
+        requesterId: o.requesterId ? (await tx.user.findFirstOrThrow({ where: { organizationId: org, externalId: o.requesterId } })).id : null,
         currency: "CAD",
         total: o.totalCad,
         totalCad: o.totalCad,
@@ -37,8 +37,18 @@ async function ctx(tx: Tx) {
   };
   const decideAs = async (who: string, invoiceId: string, decision: "approve" | "reject" = "approve", comment: string | null = null) =>
     decide(tx, await as(who), { organizationId: org, invoiceId, decision, comment, ifMatch: null });
-  const steps = (invoiceId: string) => tx.approvalStep.findMany({ where: { invoiceId }, orderBy: { stepNo: "asc" } });
-  return { org, as, invoice, decideAs, steps };
+  const users = await tx.user.findMany({ where: { organizationId: org }, select: { id: true, externalId: true } });
+  const ext = (rowId: string | null) => (rowId ? (users.find((u) => u.id === rowId)?.externalId ?? rowId) : null);
+  const row = (externalId: string) => users.find((u) => u.externalId === externalId)!.id;
+  /** Stored steps (row ids) read back with dataset ids. */
+  const steps = async (invoiceId: string) =>
+    (await tx.approvalStep.findMany({ where: { invoiceId }, orderBy: { stepNo: "asc" } })).map((s) => ({
+      ...s,
+      assignedToId: ext(s.assignedToId)!,
+      onBehalfOfId: ext(s.onBehalfOfId),
+      decidedById: ext(s.decidedById),
+    }));
+  return { org, as, invoice, decideAs, steps, row };
 }
 
 const chain = (s: Array<{ assignedToId: string; onBehalfOfId: string | null }>) =>
@@ -113,7 +123,7 @@ describe.runIf(hasLocalDb)("approvals: BUILD_PLAN worked examples", () => {
       expect((s[0].why as { replacements: string[] }).replacements[0]).toMatch(/U010 .* requested this invoice \(P07\) → manager U001/);
       expect(r.release.releaserIds).toEqual(["U003", "U002"]);
       // Even if the step were handed to the requester, they could not decide it.
-      await tx.approvalStep.update({ where: { organizationId_id: { organizationId: c.org, id: s[0].id } }, data: { assignedToId: "U010" } });
+      await tx.approvalStep.update({ where: { organizationId_id: { organizationId: c.org, id: s[0].id } }, data: { assignedToId: c.row("U010") } });
       await expect(c.decideAs("U010", inv.id)).rejects.toMatchObject({ code: "SELF_APPROVAL" });
     });
   });

@@ -24,7 +24,7 @@ import { codingModelFor, suggestAccount } from "@/lib/rules/coding";
 import type { Refs } from "@/lib/rules/refs";
 import { resolveInvoice } from "@/lib/rules/resolve";
 import type { Flag, NormalizedInvoice, ResolvedInvoice } from "@/lib/types";
-import { loadLiveRefs } from "./refs";
+import { type LiveRefs, loadLiveRefs } from "./refs";
 
 type Tx = Prisma.TransactionClient;
 
@@ -232,7 +232,7 @@ export async function processInvoice(tx: Tx, input: ProcessInput): Promise<Proce
       poId: resolved.poId,
       contractId: resolved.contractId,
       departmentId: resolved.departmentId,
-      requesterId: resolved.requesterId ?? row.requesterId,
+      requesterId: (refs as Partial<LiveRefs>).people?.toRow(resolved.requesterId) ?? row.requesterId,
       creditOfInvoiceId: resolved.creditOfInvoiceId,
       currency: resolved.currencyResolved ?? row.currency,
       fxRateToCad: str(resolved.fxRateToCad),
