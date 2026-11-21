@@ -23,7 +23,7 @@ events; the seed skips sealed files.
 Done when: 41 unsealed files become drafts; every text-layer value agrees or is marked; the scan
 reads; the broken inputs listed in Testing end in named states.
 
-- [ ] 3.1 Normalise amounts: `$`, spaces, decimal comma rule, sign, `Decimal`; table test incl. `1 014,18 $`
+- [x] 3.1 Normalise amounts: `$`, spaces, decimal comma rule, sign, `Decimal`; table test incl. `1 014,18 $`
 - [ ] 3.2 Normalise dates: ISO, `DD/MM/YYYY`, `MM/DD/YYYY`, English and French month names; `DATE_AMBIGUOUS`; table test
 - [ ] 3.3 Normalise tax labels (code + printed rate), terms (`Net N`, `Due on receipt`, `2/10 Net 30`), currency from the total label, invoice number keys; table tests
 - [ ] 3.4 FX lookup for the invoice date with `FX_RATE_FALLBACK` past the last row; pure + test
@@ -52,3 +52,4 @@ reads; the broken inputs listed in Testing end in named states.
 - 1.7: 889 history audit events (462 approve, 12 reject, 397 `payment.release`, 18 `payment.schedule`), sorted by time and chained. payments.csv has no preparation time, so an unreleased payment's event is dated its invoice's last approval and its reason says so; released payments are dated the paid date. The seed reads the chain back in `seq` order and fails if it does not verify.
 - 1.8: 44 inbox emails and 41 documents seeded; 15 sealed emails skipped. Sealed/open is decided by attachment name only (`src/lib/pipeline/sealed.ts`); an email mixing sealed and unsealed attachments would stop the seed (none does). Seeded documents keep their bytes in the dataset folder (`url = dataset:incoming_invoices/<name>`, `data` empty). Emails are stored unlabelled and no drafts are created: intake (3.12/3.15) does that, so the demo can show it.
 - 1.9: `src/lib/seed/__tests__/seeded-db.test.ts` checks the seeded local database: Tables counts and breakdowns (roles, vendor status, invoice status and currency, payment method and status, approval decisions and roles), 889 history audit events with the whole chain verifying, 44 emails and 41 documents with nothing sealed. It is read-only (never reseeds, so it cannot wipe demo data) and skips when DATABASE_URL is unset. Phase 1 "done when" passes.
+- 3.1: `parseAmount` in `src/lib/pipeline/normalize/amount.ts`. Beyond the plan's rule: currency codes and no-break/thin spaces are stripped; when the comma is the decimal mark, dots are thousands separators (`1.234,56`); a minus may be leading, trailing or parentheses. A thousands separator must sit between groups of three digits, so `12,5` or `1,0145` raise AMOUNT_UNPARSEABLE instead of being read as 125 or 10145 (logged in questions.md).
