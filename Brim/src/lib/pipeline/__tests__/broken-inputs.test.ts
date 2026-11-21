@@ -15,10 +15,10 @@ import { db } from "../../db";
 import type { Extractor } from "../extract";
 import { intakeFile, sha256Of, type AttachmentOutcome } from "../intake";
 import { commit, prepare, type RunOutcome } from "../run";
+import { inRollback } from "./db-helpers";
 import { buildPdf } from "./pdf-builder";
 
 const hasDb = !!process.env.DATABASE_URL?.trim();
-class Rollback extends Error {}
 
 const PAGE_1 = "Test Supplies Inc.\nINVOICE\nInvoice 9002\nDate 2026-10-28\nWidgets 2 50.00 100.00";
 const PAGE_2 = "Page 2 of 2\nSubtotal 100.00\nHST 13% 13.00\nTotal CAD 113.00";
@@ -102,72 +102,61 @@ describe.runIf(hasDb)("broken inputs end in named states (rolled back)", () => {
       },
     };
 
-    try {
-      await prisma.$transaction(
-        async (tx: Prisma.TransactionClient) => {
-          const intake: Record<string, AttachmentOutcome> = {};
-          for (const [name, bytes] of Object.entries(inputs)) {
-            intake[name] = await intakeFile(tx, { fileName: name, bytes });
-          }
-          // The same file a second time, under another name.
-          const again = await intakeFile(tx, { fileName: "two-page (1).pdf", bytes: inputs["two-page.pdf"] });
+    await inRollback(prisma, async (tx: Prisma.TransactionClient) => {
+      const intake: Record<string, AttachmentOutcome> = {};
+      for (const [name, bytes] of Object.entries(inputs)) {
+        intake[name] = await intakeFile(tx, { fileName: name, bytes });
+      }
+      // The same file a second time, under another name.
+      const again = await intakeFile(tx, { fileName: "two-page (1).pdf", bytes: inputs["two-page.pdf"] });
 
-          expect(Object.values(intake).map((a) => a.status)).toEqual(Object.keys(inputs).map(() => "draft"));
-          expect(again).toMatchObject({
-            status: "already_received",
-            invoiceId: "invoiceId" in intake["two-page.pdf"] ? intake["two-page.pdf"].invoiceId : "",
-          });
+      expect(Object.values(intake).map((a) => a.status)).toEqual(Object.keys(inputs).map(() => "draft"));
+      expect(again).toMatchObject({
+        status: "already_received",
+        invoiceId: "invoiceId" in intake["two-page.pdf"] ? intake["two-page.pdf"].invoiceId : "",
+      });
 
-          const ends: Record<string, Pick<RunOutcome, "end" | "detail">> = {};
-          for (const [name, a] of Object.entries(intake)) {
-            const id = "invoiceId" in a ? a.invoiceId : "";
-            const { end, detail } = await commit(tx, await prepare(tx, id, stub));
-            ends[name] = { end, detail };
-          }
+      const ends: Record<string, Pick<RunOutcome, "end" | "detail">> = {};
+      for (const [name, a] of Object.entries(intake)) {
+        const id = "invoiceId" in a ? a.invoiceId : "";
+        const { end, detail } = await commit(tx, await prepare(tx, id, stub));
+        ends[name] = { end, detail };
+      }
 
-          expect(ends).toEqual({
-            "empty.pdf": { end: "unreadable", detail: expect.stringMatching(/empty/) },
-            "truncated.pdf": { end: "unreadable", detail: expect.stringMatching(/does not open/) },
-            "protected.pdf": { end: "unreadable", detail: expect.stringMatching(/password-protected/) },
-            "blank.png": { end: "unreadable", detail: expect.stringMatching(/blank/) },
-            "photo.jpg": { end: "not_invoice", detail: expect.stringMatching(/not an invoice/) },
-            "two-page.pdf": { end: "extracted", detail: expect.any(String) },
-          });
+      expect(ends).toEqual({
+        "empty.pdf": { end: "unreadable", detail: expect.stringMatching(/empty/) },
+        "truncated.pdf": { end: "unreadable", detail: expect.stringMatching(/does not open/) },
+        "protected.pdf": { end: "unreadable", detail: expect.stringMatching(/password-protected/) },
+        "blank.png": { end: "unreadable", detail: expect.stringMatching(/blank/) },
+        "photo.jpg": { end: "not_invoice", detail: expect.stringMatching(/not an invoice/) },
+        "two-page.pdf": { end: "extracted", detail: expect.any(String) },
+      });
 
-          const drafts = await tx.invoice.findMany({
-            where: { source: "upload" },
-            include: { flags: true, document: true },
-          });
-          expect(drafts).toHaveLength(6);
-          const byFile = Object.fromEntries(drafts.map((d) => [d.document!.fileName, d]));
-          for (const name of ["empty.pdf", "truncated.pdf", "protected.pdf", "blank.png"]) {
-            expect(byFile[name].status).toBe("needs_review");
-            expect(byFile[name].flags.map((f) => [f.code, f.effect, f.status])).toEqual([
-              ["UNREADABLE", "hold", "open"],
-            ]);
-          }
-          expect(byFile["protected.pdf"].flags[0].evidence).toContainEqual({
-            label: "Problem",
-            value: "encrypted",
-            source: "intake",
-          });
-          expect(byFile["photo.jpg"]).toMatchObject({ status: "needs_review", docType: "other", flags: [] });
-          expect(byFile["two-page.pdf"]).toMatchObject({
-            status: "extracted",
-            vendorInvoiceNumber: "9002",
-            flags: [],
-            document: { pageCount: 2 },
-          });
-          expect(byFile["two-page.pdf"].total!.toString()).toBe("113");
-          // Values on page 2 are checked against page 2's text.
-          expect(byFile["two-page.pdf"].evidence).toMatchObject({ total: "confirmed", "taxes.0.label": "confirmed" });
-
-          throw new Rollback();
-        },
-        { timeout: 60_000 },
-      );
-    } catch (e) {
-      if (!(e instanceof Rollback)) throw e;
-    }
+      const drafts = await tx.invoice.findMany({
+        where: { source: "upload" },
+        include: { flags: true, document: true },
+      });
+      expect(drafts).toHaveLength(6);
+      const byFile = Object.fromEntries(drafts.map((d) => [d.document!.fileName, d]));
+      for (const name of ["empty.pdf", "truncated.pdf", "protected.pdf", "blank.png"]) {
+        expect(byFile[name].status).toBe("needs_review");
+        expect(byFile[name].flags.map((f) => [f.code, f.effect, f.status])).toEqual([["UNREADABLE", "hold", "open"]]);
+      }
+      expect(byFile["protected.pdf"].flags[0].evidence).toContainEqual({
+        label: "Problem",
+        value: "encrypted",
+        source: "intake",
+      });
+      expect(byFile["photo.jpg"]).toMatchObject({ status: "needs_review", docType: "other", flags: [] });
+      expect(byFile["two-page.pdf"]).toMatchObject({
+        status: "extracted",
+        vendorInvoiceNumber: "9002",
+        flags: [],
+        document: { pageCount: 2 },
+      });
+      expect(byFile["two-page.pdf"].total!.toString()).toBe("113");
+      // Values on page 2 are checked against page 2's text.
+      expect(byFile["two-page.pdf"].evidence).toMatchObject({ total: "confirmed", "taxes.0.label": "confirmed" });
+    });
   });
 });

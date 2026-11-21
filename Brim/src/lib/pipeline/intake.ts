@@ -20,7 +20,7 @@
  * Sealed files are not this module's concern: whoever reads the files (the ingest script)
  * keeps them out.
  */
-import type { Prisma, PrismaClient } from "@/generated/prisma/client";
+import type { Prisma } from "@/generated/prisma/client";
 import type { EmailRow } from "../dataset";
 import { dateOnly, timestamp } from "../seed/convert";
 import { today } from "../today";
@@ -30,8 +30,9 @@ import { sniffMime } from "./inspect";
 import { createHash } from "node:crypto";
 import { needsLabel, type EmailLabeller, type LabelResult } from "./label";
 import { invoiceNumberKeys } from "./normalize/invoice-number";
+import { transactionsOn, type Db, type InTransaction } from "./tx";
 
-type Tx = Prisma.TransactionClient | PrismaClient;
+type Tx = Db;
 
 /** An email as `emails.json` gives it. */
 export type IntakeEmail = EmailRow;
@@ -249,15 +250,21 @@ export async function intakeFile(
  * per email. `readFile` returns null for a file that is not in the batch.
  */
 export async function ingestEmails(
-  prisma: PrismaClient,
+  db: Db,
   emails: readonly IntakeEmail[],
-  opts: { readFile: (name: string) => Uint8Array | null; labeller: EmailLabeller; source?: "inbox" | "upload" },
+  opts: {
+    readFile: (name: string) => Uint8Array | null;
+    labeller: EmailLabeller;
+    source?: "inbox" | "upload";
+    inTransaction?: InTransaction;
+  },
 ): Promise<EmailOutcome[]> {
+  const inTransaction = opts.inTransaction ?? transactionsOn(db);
   const out: EmailOutcome[] = [];
   for (const email of emails) {
-    const label = await labelFor(prisma, email, opts.labeller);
+    const label = await labelFor(db, email, opts.labeller);
     const files = new Map(email.attachments.map((n) => [n, opts.readFile(n)] as const));
-    out.push(await prisma.$transaction((tx) => intakeEmail(tx, email, { files, label, source: opts.source })));
+    out.push(await inTransaction((tx) => intakeEmail(tx, email, { files, label, source: opts.source })));
   }
   return out;
 }

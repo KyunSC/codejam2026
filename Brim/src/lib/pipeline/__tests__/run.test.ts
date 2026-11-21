@@ -14,11 +14,10 @@ import { loadRecordedAnswers } from "../extract/recorded";
 import { intakeEmail, intakeFile } from "../intake";
 import { commit, documentBytes, prepare, type RunOutcome } from "../run";
 import { sealedFileNames } from "../sealed";
+import { inRollback as rollback } from "./db-helpers";
 import { buildPdf } from "./pdf-builder";
 
 const hasDb = !!process.env.DATABASE_URL?.trim();
-class Rollback extends Error {}
-
 describe("documentBytes", () => {
   it("refuses a sealed dataset file and a path outside the folder", () => {
     const sealed = [...sealedFileNames()][0];
@@ -37,19 +36,7 @@ describe.runIf(hasDb)("run (rolled back)", () => {
     if (hasDb) await prisma.$disconnect();
   });
 
-  async function inRollback(fn: (tx: Prisma.TransactionClient) => Promise<void>): Promise<void> {
-    try {
-      await prisma.$transaction(
-        async (tx) => {
-          await fn(tx);
-          throw new Rollback();
-        },
-        { timeout: 60_000 },
-      );
-    } catch (e) {
-      if (!(e instanceof Rollback)) throw e;
-    }
-  }
+  const inRollback = (fn: (tx: Prisma.TransactionClient) => Promise<void>) => rollback(prisma, fn);
 
   const sealed = sealedFileNames();
   const read = (name: string) => {

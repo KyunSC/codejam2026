@@ -12,11 +12,10 @@ import { allocateInvoiceIds, intakeEmail, intakeFile, labelFor, receivedDateOf, 
 import type { EmailLabeller } from "../label";
 import { RecordedEmailLabeller } from "../label/recorded";
 import { sealedFileNames } from "../sealed";
+import { inRollback as rollback } from "./db-helpers";
 import { buildPdf } from "./pdf-builder";
 
 const hasDb = !!process.env.DATABASE_URL?.trim();
-
-class Rollback extends Error {}
 
 describe("receivedDateOf", () => {
   it("keeps the date as written", () => {
@@ -30,20 +29,7 @@ describe.runIf(hasDb)("intake (rolled back)", () => {
     if (hasDb) await prisma.$disconnect();
   });
 
-  /** Runs `fn` in a transaction and always rolls it back. */
-  async function inRollback(fn: (tx: Prisma.TransactionClient) => Promise<void>): Promise<void> {
-    try {
-      await prisma.$transaction(
-        async (tx) => {
-          await fn(tx);
-          throw new Rollback();
-        },
-        { timeout: 30_000 },
-      );
-    } catch (e) {
-      if (!(e instanceof Rollback)) throw e;
-    }
-  }
+  const inRollback = (fn: (tx: Prisma.TransactionClient) => Promise<void>) => rollback(prisma, fn);
 
   const sealed = sealedFileNames();
   const emails = new Map(loadEmails().map((e) => [e.emailId, e]));

@@ -21,15 +21,16 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import Decimal from "decimal.js";
-import type { Prisma, PrismaClient } from "@/generated/prisma/client";
+import type { Prisma } from "@/generated/prisma/client";
 import { datasetDir } from "../dataset";
 import type { Extracted, NormalizedInvoice, TaxCode } from "../types";
 import { createExtractor, type ExtractResult, type Extractor } from "./extract";
 import { inspectDocument, type Inspection } from "./inspect";
 import { normalizeDetailed, type NormalizeResult } from "./normalize";
 import { sealedFileNames } from "./sealed";
+import { transactionsOn, type Db, type InTransaction } from "./tx";
 
-type Tx = Prisma.TransactionClient | PrismaClient;
+type Tx = Db;
 
 export type EndState = "extracted" | "needs_review" | "unreadable" | "not_invoice" | "not_extracted";
 
@@ -278,10 +279,12 @@ export interface RunOptions {
   extractor?: Extractor;
   /** Only these drafts; default every draft in `received`, oldest first. */
   invoiceIds?: string[];
+  inTransaction?: InTransaction;
 }
 
 /** Runs every `received` draft through the stages, one transaction per draft. */
-export async function runPipeline(prisma: PrismaClient, opts: RunOptions = {}): Promise<RunOutcome[]> {
+export async function runPipeline(prisma: Db, opts: RunOptions = {}): Promise<RunOutcome[]> {
+  const inTransaction = opts.inTransaction ?? transactionsOn(prisma);
   const extractor = opts.extractor ?? createExtractor();
   const ids =
     opts.invoiceIds ??
@@ -296,7 +299,7 @@ export async function runPipeline(prisma: PrismaClient, opts: RunOptions = {}): 
   for (const id of ids) {
     try {
       const p = await prepare(prisma, id, extractor);
-      out.push(await prisma.$transaction((tx) => commit(tx, p)));
+      out.push(await inTransaction((tx) => commit(tx, p)));
     } catch (e) {
       // A database problem on one draft must not stop the batch; the draft stays received.
       out.push({ invoiceId: id, fileName: null, end: "not_extracted", detail: (e as Error).message });
