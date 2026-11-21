@@ -13,7 +13,7 @@ Scripts in `scripts/` set `APP_TODAY=2026-11-02` themselves.
 - [x] 3. Roles and permissions: matrix in `src/lib/auth/permissions.ts` + invariant checks (SELF_APPROVAL, NOT_YOUR_STEP, APPROVER_CANNOT_RELEASE, RELEASE_LIMIT, FOUR_EYES, READ_ONLY_ROLE)
 - [x] 4. Resolution: vendor (tax number → bank+similar name → normalised name → unknown with candidates)
 - [x] 5. Resolution: province, PO + suggestions, contract, department, requester (terminated → manager), line type, currency/FX
-- [ ] 6. Checks: UNREADABLE, FIELD_UNCERTAIN, ARITHMETIC_LINE/SUBTOTAL/TOTAL, DATE_ODD, DATE_AMBIGUOUS, TERMS_MISMATCH, FX_RATE_FALLBACK, SHIP_TO_UNKNOWN
+- [x] 6. Checks: UNREADABLE, FIELD_UNCERTAIN, ARITHMETIC_LINE/SUBTOTAL/TOTAL, DATE_ODD, DATE_AMBIGUOUS, TERMS_MISMATCH, FX_RATE_FALLBACK, SHIP_TO_UNKNOWN
 - [ ] 7. Checks: VENDOR_UNKNOWN, VENDOR_PENDING, VENDOR_ON_HOLD, VENDOR_NEW, VENDOR_LOOKALIKE, TAX_NUMBER_MISMATCH
 - [ ] 8. Checks: BANK_MISMATCH, BANK_CHANGE_UNVERIFIED, BANK_CHANGE_RECENT
 - [ ] 9. Checks: TAX_WRONG_FOR_PROVINCE, TAX_AMOUNT, TAX_NOT_REGISTERED, CURRENCY_UNEXPECTED
@@ -72,3 +72,11 @@ record resolves to itself by tax number; V054 (no tax number) by its unique name
   hard-coded); the nearest description reproduces all 51 history lines on them, including the six "Tire service (units)" lines as services.
 - FX reproduces `fx_rate_to_cad` on all 34 USD invoices; after the last row it uses the last row (fallback).
 - Line accounts come from a `codeLine` hook; vendor default until smart coding (item 15).
+
+### Item 6: reading, arithmetic and date checks (2026-11-21)
+`src/lib/rules/checks/reading.ts` (+ shared test fixtures). None of UNREADABLE, FIELD_UNCERTAIN, ARITHMETIC_*,
+SHIP_TO_UNKNOWN, FX_RATE_FALLBACK or TERMS_MISMATCH fires on any of the 426 history invoices (history
+arithmetic is clean; terms equal the vendor's on all 426). DATE_ODD emits one flag per odd condition; only an
+invoice date in the future holds. Required fields: vendor name, invoice number, invoice date, total.
+Class/effect for the three codes BUILD_PLAN's table does not list: DATE_AMBIGUOUS data/hold,
+FX_RATE_FALLBACK data/info, SHIP_TO_UNKNOWN data/hold (logged in questions.md).
