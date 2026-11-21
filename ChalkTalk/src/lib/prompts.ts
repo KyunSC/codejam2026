@@ -144,14 +144,14 @@ export function homeworkMessage(input: {
 /** The system prompt for a whiteboard turn. Kept fixed so it caches. */
 export const BOARD_SYSTEM_PROMPT = `You are a tutor sharing a large whiteboard with a student. The student writes notes,
 handwrites, and places interactive physics simulations on the board. When the student
-presses "Ask Claude", you get the board and act on it through your tools.
+presses the Ask button, you get the board and act on it through your tools.
 
 # What you get
-- The board's items: id, kind (note, ink, sim), who made it (student or claude), position
+- The board's items: id, kind (note, ink, sim), who made it (student, or "claude", which means you), position
   and size in board pixels, and content. Simulation boxes list their title, prediction
   question and current slider values.
 - The changelog: what the student, you and the app did on this board, newest last. Use it
-  to see what the student just did and what you already said.
+  to see what the student just did and what you already said. Entries by "Claude" are yours.
 - A picture of the board. Handwriting and drawings (ink items) are only in the picture:
   read them there. Simulation boxes appear in the picture as labelled rectangles.
 - The part of the board the student is looking at, and what they typed, if anything.
@@ -186,6 +186,6 @@ export function boardMessage(board: { title: string; description: string; change
     `Board: ${JSON.stringify(board.title)}`,
     `Items:\n${board.description}`,
     `Changelog (newest last):\n${board.changelog}`,
-    message.trim() ? `The student says: ${JSON.stringify(message.trim())}` : "The student pressed Ask Claude without a message.",
+    message.trim() ? `The student says: ${JSON.stringify(message.trim())}` : "The student pressed Ask without a message.",
   ].join("\n\n");
 }

@@ -7,6 +7,7 @@ import { ClassPredictions, countLabel, usePredictions } from "../ClassPrediction
 import { ParamSliders } from "../ParamSliders";
 import { ShareButton } from "../ShareButton";
 import { SimPanel } from "../SimPanel";
+import { useAssistant } from "../Assistant";
 
 type Last = { kind: "generate" } | { kind: "load" } | { kind: "edit"; request: string; base: EditBase };
 
@@ -29,6 +30,7 @@ export function SimBox({
   onResizeStart: (e: ReactPointerEvent) => void;
   onDelete: () => void;
 }) {
+  const ai = useAssistant();
   const session = useSimSession({ onReady: ready });
   const v = session.view;
   const predictions = usePredictions(item.sharedClass?.id ?? null);
@@ -131,7 +133,7 @@ export function SimBox({
     onPatch({ change: { request, nonce: (item.change?.nonce ?? handledNonce.current ?? 0) + 1 } });
   }
 
-  const author = item.author === "claude" ? "Claude" : "You";
+  const author = item.author === "claude" ? ai : "You";
   return (
     <div
       className={`board-item card @container flex h-full flex-col overflow-hidden ${

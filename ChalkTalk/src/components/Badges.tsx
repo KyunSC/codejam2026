@@ -1,10 +1,24 @@
 "use client";
 
-export function StandInBadge({ standIn }: { standIn: boolean | null }) {
-  if (!standIn) return null;
+import type { ModelStatus } from "@/lib/types";
+
+/** Which model answers: the offline stand-in (and why), or the provider and model from .env.local. */
+export function ModelBadge({ status }: { status: ModelStatus }) {
+  if (status.standIn) {
+    return (
+      <span
+        className="chip bg-gold"
+        data-testid="stand-in-badge"
+        title={`${status.reason ?? "No API key."} Replaying hand-made simulations.`}
+      >
+        Offline stand-in
+      </span>
+    );
+  }
   return (
-    <span className="chip bg-gold" data-testid="stand-in-badge" title="No API key: replaying hand-made simulations">
-      Offline stand-in
+    <span className="chip bg-[#c6d0da]" data-testid="model-badge" title={`${status.provider} · ${status.model ?? ""}`}>
+      {status.assistant === "AI" ? status.provider : status.assistant}
+      {status.model ? <span className="ml-1 font-normal opacity-70">{status.model}</span> : null}
     </span>
   );
 }
