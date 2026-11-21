@@ -166,3 +166,25 @@ describe("boardTurn", () => {
     expect(JSON.stringify(standInActions([], "", has))).toContain("The board is empty");
   });
 });
+
+describe("drawing offline", () => {
+  it("answers 'draw …' with a sketch through the draw tool, in [x, y] pairs", async () => {
+    const model = new StandInModel({ timing: { boardMs: 0 } });
+    const calls: Array<[string, unknown]> = [];
+    const turn = model.boardTurn({
+      board: { id: "b", title: "t", version: 0, log: [], createdAt: "", updatedAt: "", items: [] },
+      view: null,
+      message: "draw a horse",
+      image: null,
+      runTool: async (name, input) => {
+        calls.push([name, input]);
+        return { text: "Done", isError: false };
+      },
+    });
+    for await (const e of turn) void e;
+    expect(calls.map(([n]) => n)).toEqual(["draw", "add_note"]);
+    const input = calls[0][1] as { strokes: Array<{ points: number[][]; color: string }> };
+    expect(input.strokes[0].points[0]).toEqual([40, 190]);
+    expect(input.strokes[1].color).toBe("red");
+  });
+});

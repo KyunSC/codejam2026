@@ -2,7 +2,7 @@
 // realistic pacing so the whole pipeline can run without an API key.
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import type { BoardAction, BoardItem } from "../board";
+import { DRAW_COLORS, type BoardAction, type BoardItem } from "../board";
 import type { BoardEvent, BoardTurnInput, Homework, HomeworkInput, SimModel, StreamEvent } from "../types";
 
 export interface StandInTiming {
@@ -96,7 +96,8 @@ export class StandInModel implements SimModel {
     await sleep(this.timing.boardMs);
     yield { type: "status", stage: "writing" };
     for (const action of standInActions(input.board.items, input.message, (n) => this.has(n))) {
-      const { type, ...args } = action;
+      const { type, ...rest } = action;
+      const args = action.type === "draw" ? drawInput(action) : rest;
       const r = await input.runTool(type, args);
       yield { type: "tool", name: type, ok: !r.isError, text: r.text };
       await sleep(this.timing.boardMs / 3);
@@ -150,6 +151,23 @@ export function standInActions(items: BoardItem[], message: string, has: (fixtur
   const beside = anchor ? { x: Math.round(anchor.x + anchor.w + 24), y: Math.round(anchor.y) } : {};
   const mySims = items.filter((it) => it.kind === "sim" && it.code);
 
+  // "draw …": a simple sketch (a house), so drawing works offline too.
+  if (/\bdraw\b/i.test(msg)) {
+    actions.push({
+      type: "draw",
+      w: 240,
+      h: 200,
+      strokes: [
+        { points: [40, 190, 40, 90, 200, 90, 200, 190, 40, 190], color: "#121314", width: 4 },
+        { points: [30, 95, 120, 20, 210, 95], color: "#eb4b4b", width: 4 },
+        { points: [100, 190, 100, 140, 140, 140, 140, 190], color: "#4b69ff", width: 4 },
+      ],
+      ...beside,
+    });
+    actions.push({ type: "add_note", text: "I can only draw a house offline. With an API key I draw what you ask for." });
+    return actions;
+  }
+
   const change = /^change\s*:\s*([\s\S]+)$/i.exec(msg);
   if (change && mySims.length) {
     actions.push({ type: "edit_sim", id: mySims.at(-1)!.id, request: change[1].trim() });
@@ -202,4 +220,20 @@ export function bumpFirstDefault(code: string): string {
   const next = oneStep(value, min, max, step);
   const replaced = m[0].replace(/value:\s*(-?[\d.]+)$/, `value:${next}`);
   return code.slice(0, start) + rest.slice(0, m.index) + replaced + rest.slice(m.index + m[0].length);
+}
+
+/** A draw action as the draw tool's input: points as [x, y] pairs, colours by name. */
+function drawInput(a: Extract<BoardAction, { type: "draw" }>) {
+  const names = Object.fromEntries(Object.entries(DRAW_COLORS).map(([n, hex]) => [hex, n]));
+  return {
+    strokes: a.strokes.map((s) => ({
+      points: Array.from({ length: s.points.length / 2 }, (_, i) => [s.points[2 * i], s.points[2 * i + 1]]),
+      color: names[s.color] ?? "black",
+      width: s.width,
+    })),
+    width: a.w,
+    height: a.h,
+    x: a.x,
+    y: a.y,
+  };
 }
