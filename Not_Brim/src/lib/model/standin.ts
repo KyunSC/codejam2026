@@ -88,20 +88,22 @@ export class StandInModel implements SimModel {
 
   /**
    * A deterministic whiteboard turn. Test hooks: \`[[fixture:NAME]]\` in the message adds that sim;
-   * a message starting with "change:" edits the newest simulation box Claude made.
+   * a message starting with "change:" edits the newest running simulation box.
    */
   async *boardTurn(input: BoardTurnInput): AsyncGenerator<BoardEvent> {
     const start = Date.now();
     yield { type: "status", stage: "thinking" };
     await sleep(this.timing.boardMs);
     yield { type: "status", stage: "writing" };
-    for (const action of standInActions(input.items, input.message, (n) => this.has(n))) {
-      yield { type: "action", action };
+    for (const action of standInActions(input.board.items, input.message, (n) => this.has(n))) {
+      const { type, ...args } = action;
+      const r = await input.runTool(type, args);
+      yield { type: "tool", name: type, ok: !r.isError, text: r.text };
       await sleep(this.timing.boardMs / 3);
     }
     yield {
       type: "done",
-      usage: { input_tokens: 1800 + Math.round(JSON.stringify(input.items).length / 4), output_tokens: 120 },
+      usage: { input_tokens: 1800 + Math.round(JSON.stringify(input.board.items).length / 4), output_tokens: 120 },
       ms: Date.now() - start,
     };
   }
@@ -146,7 +148,7 @@ export function standInActions(items: BoardItem[], message: string, has: (fixtur
   const latestNote = notes.at(-1);
   const anchor = student.at(-1);
   const beside = anchor ? { x: Math.round(anchor.x + anchor.w + 24), y: Math.round(anchor.y) } : {};
-  const mySims = items.filter((it) => it.kind === "sim" && it.author === "claude" && it.code);
+  const mySims = items.filter((it) => it.kind === "sim" && it.code);
 
   const change = /^change\s*:\s*([\s\S]+)$/i.exec(msg);
   if (change && mySims.length) {

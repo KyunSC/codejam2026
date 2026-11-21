@@ -1,11 +1,18 @@
 import { expect, test } from "./fixtures";
 
-test("home page opens a new whiteboard", async ({ page }) => {
+test("the home page lists my whiteboards and the demo whiteboards, and starts a new one", async ({ page }) => {
   await page.goto("/");
+  await expect(page).toHaveTitle(/My whiteboards · Live Sim/);
+  await expect(page.getByTestId("no-boards")).toBeVisible();
+  await expect(page.getByTestId("demo-boards").locator("li")).toHaveCount(2);
+  await page.getByTestId("new-board").click();
   await expect(page).toHaveURL(/\/b\/[0-9a-f]{12}$/);
-  await expect(page).toHaveTitle(/Whiteboard · Live Sim/);
   await expect(page.getByTestId("board")).toBeVisible();
-  await expect(page.getByTestId("ask-button")).toBeEnabled();
+  await page.getByTestId("board-title").fill("Forces homework");
+  await expect(page.getByTestId("save-state")).toHaveAttribute("data-state", "saved", { timeout: 5_000 });
+
+  await page.getByTestId("boards-link").click();
+  await expect(page.getByTestId("board-card")).toHaveText(["Forces homework"]);
 });
 
 test.describe(() => {

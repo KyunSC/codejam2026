@@ -38,6 +38,9 @@ CREATE TABLE IF NOT EXISTS livesim_boards (
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL
 );
+ALTER TABLE livesim_boards ADD COLUMN IF NOT EXISTS title text;
+ALTER TABLE livesim_boards ADD COLUMN IF NOT EXISTS version integer NOT NULL DEFAULT 0;
+ALTER TABLE livesim_boards ADD COLUMN IF NOT EXISTS log jsonb NOT NULL DEFAULT '[]'::jsonb;
 CREATE TABLE IF NOT EXISTS livesim_sims (
   id text PRIMARY KEY,
   record jsonb NOT NULL,

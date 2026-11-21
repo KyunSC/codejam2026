@@ -2,11 +2,12 @@ import { expect, test } from "./fixtures";
 
 test("pick one of six pets; the choice shows in the header and survives a reload", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
-  await page.goto("/");
+  await page.goto("/new");
   await expect(page).toHaveURL(/\/b\/[^/]+$/);
   await expect(page.getByTestId("board")).toBeVisible();
-  const logoTop = (await page.getByLabel("Live Sim").boundingBox())!.y;
-  expect((await page.getByTestId("pet-button").boundingBox())!.y).toBeLessThan(logoTop + 20);
+  // The pet button sits in the toolbox bar, level with its first button.
+  const barTop = (await page.getByTestId("boards-link").boundingBox())!.y;
+  expect((await page.getByTestId("pet-button").boundingBox())!.y).toBeLessThan(barTop + 20);
   const button = page.getByTestId("pet-button");
   await expect(page.getByTestId("pet-name")).toHaveText("Pick a pet");
 
@@ -29,7 +30,7 @@ test("pick one of six pets; the choice shows in the header and survives a reload
 });
 
 test("the newest choice still applies when storage is readable but full", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/new");
   const button = page.getByTestId("pet-button");
   await button.click();
   await page.getByTestId("pet-option-bob").click();
@@ -49,7 +50,7 @@ test("the newest choice still applies when storage is readable but full", async 
 });
 
 test("interior padding keeps the dialog open and a backdrop click closes it", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/new");
   await page.getByTestId("pet-button").click();
   const dialog = page.getByRole("dialog", { name: "Pick your lab pet" });
   await dialog.click({ position: { x: 8, y: 8 } });

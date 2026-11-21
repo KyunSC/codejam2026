@@ -22,16 +22,19 @@ describe("board store", () => {
     const b = await s.createBoard();
     expect(b.id).toMatch(BOARD_ID);
     expect(b.items).toEqual([]);
-    const saved = await s.saveItems(b.id, [note]);
-    expect(saved?.items).toEqual([note]);
+    expect(b).toMatchObject({ title: "Untitled whiteboard", version: 0, log: [] });
+    const saved = await s.change(b.id, () => ({ items: [note], title: "Pendulums" }));
+    expect(saved).toMatchObject({ items: [note], title: "Pendulums", version: 1 });
     expect((await s.getBoard(b.id))?.items).toEqual([note]);
-    expect(await s.saveItems("000000000000", [])).toBeNull();
+    expect(await s.change("000000000000", () => ({ items: [] }))).toBeNull();
+    expect((await s.change(b.id, () => null))?.version).toBe(1);
+    expect(await s.listBoards([b.id, "000000000000"])).toEqual([{ id: b.id, title: "Pendulums", itemCount: 1, updatedAt: saved!.updatedAt }]);
   });
 
   it("serialises concurrent saves and leaves no temp files", async () => {
     const s = createBoardStore(path.join(dir, "boards.json"));
     const boards = await Promise.all(Array.from({ length: 10 }, () => s.createBoard()));
-    await Promise.all(boards.map((b, i) => s.saveItems(b.id, [{ ...note, text: String(i) }])));
+    await Promise.all(boards.map((b, i) => s.change(b.id, () => ({ items: [{ ...note, text: String(i) }] }))));
     for (const [i, b] of boards.entries()) expect(((await s.getBoard(b.id))?.items[0] as NoteItem).text).toBe(String(i));
     expect(await readdir(dir)).toEqual(["boards.json"]);
   });

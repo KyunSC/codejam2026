@@ -34,7 +34,6 @@ export function SimBox({
   const predictions = usePredictions(item.sharedClass?.id ?? null);
   const predictionsPanel = useRef<HTMLDivElement>(null);
   const [change, setChange] = useState("");
-  const [demoNote, setDemoNote] = useState<string | null>(null);
   const last = useRef<Last | null>(null);
   const handledNonce = useRef<number | null>(null);
   /** Counts sim saves, so only the latest version's id lands on the box. */
@@ -95,32 +94,27 @@ export function SimBox({
     void session.edit(pending.request, base);
   }, [pending, v.state, session]);
 
-  // Keep the box's slider values on the board, so Claude reads them and a reload restores them.
+  // Slider values go both ways. Moved here: saved on the board, so Claude reads them and a reload restores them.
+  // Set elsewhere (Claude's set_sliders, another window): applied to the running sim.
+  // `synced` is the board's values as this box last saw them, which tells the two apart.
   const values = v.values;
+  const synced = useRef(sameKeys(item.values));
   useEffect(() => {
     if (v.state !== "ready") return;
-    const same =
-      Object.keys(values).length === Object.keys(item.values).length &&
-      Object.entries(values).every(([k, n]) => item.values[k] === n);
-    if (!same) patch.current({ values });
-  }, [v.state, values, item.values]);
-
-  async function saveAsDemo() {
-    if (v.state !== "ready" || !v.code) return;
-    setDemoNote("Saving…");
-    try {
-      const res = await fetch("/api/demos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: item.prompt, code: v.code, title: v.title, question: v.question, params: v.params }),
-      });
-      const j = (await res.json()) as { slug?: string; error?: string };
-      if (!res.ok) throw new Error(j.error ?? `HTTP ${res.status}`);
-      setDemoNote("Saved as a demo");
-    } catch (err) {
-      setDemoNote(`Couldn't save the demo: ${err instanceof Error ? err.message : "unknown error"}`);
+    const onBoard = sameKeys(item.values);
+    const running = sameKeys(values);
+    if (onBoard === running) {
+      synced.current = onBoard;
+      return;
     }
-  }
+    if (onBoard !== synced.current) {
+      synced.current = onBoard;
+      for (const [id, n] of Object.entries(item.values)) if (values[id] !== n && v.params.some((p) => p.id === id)) session.setValue(id, n);
+    } else {
+      synced.current = running;
+      patch.current({ values });
+    }
+  }, [v.state, values, item.values, v.params, session]);
 
   function retry() {
     const l = last.current;
@@ -210,24 +204,15 @@ export function SimBox({
             Change
           </button>
         </form>
-        <button
-          type="button"
-          className="btn-secondary"
-          data-testid="save-demo-button"
-          disabled={v.state !== "ready" || demoNote === "Saved as a demo"}
-          onClick={() => void saveAsDemo()}
-        >
-          Save as demo
-        </button>
-        {demoNote ? (
-          <span className="font-bold text-ok" role="status" data-testid="demo-note">
-            {demoNote}
-          </span>
-        ) : null}
         <ShareButton simId={item.shareToken ?? null} disabled={v.state !== "ready"}
           onShared={(id) => onPatch({ sharedClass: { id, title: item.title } })} />
       </div>
       <div className="resize-handle" onPointerDown={onResizeStart} aria-hidden />
     </div>
   );
+}
+
+/** Slider values as a string that doesn't depend on key order, for comparing. */
+function sameKeys(values: Record<string, number>): string {
+  return JSON.stringify(Object.keys(values).sort().map((k) => [k, values[k]]));
 }

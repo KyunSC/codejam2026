@@ -147,23 +147,29 @@ handwrites, and places interactive physics simulations on the board. When the st
 presses "Ask Claude", you get the board and act on it through your tools.
 
 # What you get
-- A list of every item: its id, kind (note, ink, sim), who made it (student or claude),
-  its position and size in board pixels, and its content. Simulation boxes list their
-  title, prediction question and current slider values.
+- The board's items: id, kind (note, ink, sim), who made it (student or claude), position
+  and size in board pixels, and content. Simulation boxes list their title, prediction
+  question and current slider values.
+- The changelog: what the student, you and the app did on this board, newest last. Use it
+  to see what the student just did and what you already said.
 - A picture of the board. Handwriting and drawings (ink items) are only in the picture:
   read them there. Simulation boxes appear in the picture as labelled rectangles.
 - The part of the board the student is looking at, and what they typed, if anything.
 
 # What you do
-Answer on the board, only through the tools; text outside tool calls is not shown.
+Answer on the board, only through the tools; text outside tool calls is not shown. Each
+tool tells you whether it worked, and you can call get_board or get_changelog to look again.
 - add_note: write a short note (a few sentences at most). Reply to what the student
   wrote, ask a guiding question, or point out a mistake. Plain text, no markdown.
 - add_sim: place a new simulation box. The prompt describes the student's confusion or
   the experiment, like a teacher would ("Does a heavier pendulum swing faster?"); a
   separate model writes the simulation from it. Add one only when experimenting would
   help, and at most one per turn.
-- edit_sim: ask for a change to one of your simulation boxes, in plain words.
-- update_note, move_item, delete_item: only on items you made. Student items are theirs.
+- edit_sim: ask for a change to a simulation box, in plain words.
+- set_sliders: set a simulation's sliders, to set up an experiment for the student.
+- update_note, move_item, delete_item: work on any item, the student's included. Tidy or
+  correct the board when it helps; don't delete the student's work without a reason.
+- rename_board: give the board a short title that says what it is about.
 
 # Placement
 Leave x and y out and the app finds a free spot in the student's view. If you give a
@@ -175,84 +181,11 @@ about 780×580.
 Guide rather than lecture: nudge the student toward testing their own idea, and keep
 each note brief. Don't repeat what is already on the board.`;
 
-export function boardMessage(description: string, message: string): string {
+export function boardMessage(board: { title: string; description: string; changelog: string }, message: string): string {
   return [
-    `The board:\n${description}`,
+    `Board: ${JSON.stringify(board.title)}`,
+    `Items:\n${board.description}`,
+    `Changelog (newest last):\n${board.changelog}`,
     message.trim() ? `The student says: ${JSON.stringify(message.trim())}` : "The student pressed Ask Claude without a message.",
   ].join("\n\n");
 }
-
-/** Tool definitions for a whiteboard turn (JSON Schema). */
-export const BOARD_TOOLS = [
-  {
-    name: "add_note",
-    description: "Write a new note on the board.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        text: { type: "string", description: "The note text, plain words, a few sentences at most." },
-        x: { type: "number", description: "Left edge in board pixels. Leave out to let the app place it." },
-        y: { type: "number", description: "Top edge in board pixels. Leave out to let the app place it." },
-      },
-      required: ["text"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "add_sim",
-    description: "Place a new interactive simulation box. Another model writes the simulation from the prompt.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        prompt: { type: "string", description: "The confusion or experiment to simulate, in a teacher's words." },
-        x: { type: "number", description: "Left edge in board pixels. Leave out to let the app place it." },
-        y: { type: "number", description: "Top edge in board pixels. Leave out to let the app place it." },
-      },
-      required: ["prompt"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "edit_sim",
-    description: "Ask for a change to one of your own simulation boxes.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        id: { type: "string", description: "The simulation box id." },
-        request: { type: "string", description: "The change, in plain words." },
-      },
-      required: ["id", "request"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "update_note",
-    description: "Replace the text of one of your own notes.",
-    input_schema: {
-      type: "object" as const,
-      properties: { id: { type: "string" }, text: { type: "string" } },
-      required: ["id", "text"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "move_item",
-    description: "Move one of your own items so its top-left corner is at (x, y).",
-    input_schema: {
-      type: "object" as const,
-      properties: { id: { type: "string" }, x: { type: "number" }, y: { type: "number" } },
-      required: ["id", "x", "y"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "delete_item",
-    description: "Remove one of your own items from the board.",
-    input_schema: {
-      type: "object" as const,
-      properties: { id: { type: "string" } },
-      required: ["id"],
-      additionalProperties: false,
-    },
-  },
-];

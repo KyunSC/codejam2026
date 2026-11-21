@@ -32,7 +32,8 @@ async function smallText(page: Page): Promise<string[]> {
 }
 
 async function readyPendulum(page: Page) {
-  await page.goto("/");
+  await page.goto("/new");
+  await page.getByTestId("tool-sim").click();
   await page.getByTestId("prompt-input").fill("Does a heavier pendulum bob swing faster?");
   await page.getByTestId("create-button").click();
   await expect(page.getByTestId("sim-panel")).toHaveAttribute("data-state", "ready", { timeout: 20_000 });
@@ -48,7 +49,7 @@ for (const size of SIZES) {
   test(`board and student screens at ${size.name}`, async ({ page, context }) => {
     await page.setViewportSize(size);
 
-    await page.goto("/");
+    await page.goto("/new");
     await expect(page.getByTestId("stand-in-badge")).toBeVisible();
     expect(await smallText(page)).toEqual([]);
     await page.screenshot({ path: path.join(SCREENS, `board-empty-${size.name}.png`) });
@@ -64,7 +65,7 @@ for (const size of SIZES) {
     await page.screenshot({ path: path.join(SCREENS, `board-ready-${size.name}.png`) });
 
     // Everything important is on screen without panning.
-    for (const id of ["prompt-input", "create-button", "sim-panel", "edit-input", "share-button", "param-sliders", "ask-button"]) {
+    for (const id of ["tool-sim", "board-title", "sim-panel", "edit-input", "share-button", "param-sliders", "ask-button"]) {
       const box = await page.getByTestId(id).boundingBox();
       expect(box, id).not.toBeNull();
       expect(box!.y + box!.height, `${id} fits in ${size.name}`).toBeLessThanOrEqual(size.height + 1);
@@ -93,17 +94,18 @@ for (const size of SIZES) {
 test("teacher can use the prompt and simulation on a phone", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 720 });
   await readyPendulum(page);
-  for (const id of ["prompt-input", "sim-frame"]) {
-    const box = await page.getByTestId(id).boundingBox();
-    expect(box?.width).toBeGreaterThanOrEqual(300);
-  }
+  expect((await page.getByTestId("sim-frame").boundingBox())?.width).toBeGreaterThanOrEqual(300);
+  await page.getByTestId("tool-sim").click();
+  expect((await page.getByTestId("prompt-input").boundingBox())?.width).toBeGreaterThanOrEqual(300);
+  await page.keyboard.press("Escape");
   const fits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
   expect(fits).toBe(true);
 });
 
 test("failed state screenshot", async ({ page }) => {
   await page.setViewportSize(SIZES[1]);
-  await page.goto("/");
+  await page.goto("/new");
+  await page.getByTestId("tool-sim").click();
   await page.getByTestId("prompt-input").fill("Why does a boat float? [[fixture:throws-twice]]");
   await page.getByTestId("create-button").click();
   await expect(page.getByTestId("sim-panel")).toHaveAttribute("data-state", "failed", { timeout: 20_000 });
@@ -130,8 +132,7 @@ test("keyboard focus is visible on every control", async ({ page }) => {
     expect(info.outline, `focus ring on ${info.key}`).toBe(true);
     seen.add(info.key);
   }
-  // "Add simulation" is disabled once its text box is cleared, so it isn't in the Tab order after a sim is added.
-  for (const key of ["tool-pen", "prompt-input", "demos-select", "massA", "edit-input", "share-button", "ask-input", "ask-button"]) {
+  for (const key of ["boards-link", "board-title", "tool-pen", "tool-erase", "tool-sim", "massA", "edit-input", "share-button", "ask-input", "ask-button"]) {
     expect([...seen], `reached ${key} by Tab`).toContain(key);
   }
 });

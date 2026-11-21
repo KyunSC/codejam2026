@@ -1,7 +1,8 @@
 import { expect, test } from "./fixtures";
 
 test("pendulum → edit 'make bob B twice as heavy' → ready with a new bob B default", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/new");
+  await page.getByTestId("tool-sim").click();
   await page.getByTestId("prompt-input").fill("Does a heavier pendulum bob swing faster?");
   await page.getByTestId("create-button").click();
   const panel = page.getByTestId("sim-panel");

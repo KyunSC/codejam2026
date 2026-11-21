@@ -109,11 +109,23 @@ describe("boardTurn", () => {
   const has = (n: string) => board.has(n);
   const studentNote = (text: string): BoardItem => ({ id: "n1", author: "student", kind: "note", text, x: 10, y: 20, w: 320, h: 200 });
 
-  it("streams status, then actions, then done", async () => {
+  it("streams status, then runs its actions as board tools, then done", async () => {
     const events: BoardEvent[] = [];
-    for await (const e of board.boardTurn({ items: [studentNote("Does a heavier pendulum swing faster?")], view: null, message: "", image: null }))
-      events.push(e);
-    expect(events.map((e) => e.type)).toEqual(["status", "status", "action", "action", "done"]);
+    const calls: Array<[string, unknown]> = [];
+    const turn = board.boardTurn({
+      board: { id: "b", title: "t", version: 0, log: [], createdAt: "", updatedAt: "", items: [studentNote("Does a heavier pendulum swing faster?")] },
+      view: null,
+      message: "",
+      image: null,
+      runTool: async (name, input) => {
+        calls.push([name, input]);
+        return { text: "Done", isError: false };
+      },
+    });
+    for await (const e of turn) events.push(e);
+    expect(events.map((e) => e.type)).toEqual(["status", "status", "tool", "tool", "done"]);
+    expect(calls.map(([n]) => n)).toEqual(["add_note", "add_sim"]);
+    expect(calls[1][1]).toEqual({ prompt: "Does a heavier pendulum swing faster?" });
   });
 
   it("replies beside the student's note and adds a sim when the note names a topic", () => {

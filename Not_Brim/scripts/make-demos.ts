@@ -14,7 +14,8 @@ test("make demos", async ({ page, request }) => {
   test.skip(standIn, "Needs ANTHROPIC_API_KEY (stand-in mode would just copy fixtures). Placeholders left as they are.");
 
   for (const demo of DEMOS) {
-    await page.goto("/");
+    await page.goto("/new");
+    await page.getByTestId("tool-sim").click();
     await page.getByTestId("prompt-input").fill(demo.prompt);
     // The sim is saved on ready; capture exactly what was saved.
     const saved = page.waitForRequest((r) => r.url().endsWith("/api/sims") && r.method() === "POST", { timeout: 10 * 60_000 });
