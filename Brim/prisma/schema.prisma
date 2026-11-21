@@ -80,15 +80,21 @@ model Vendor {
 }
 
 /// Bank details are versioned: the live account is the row with validTo = null.
+/// Accounts replaced before the dataset's as-of date are known only by their last 4 digits
+/// (bank_change_history.csv), so institution, transit and account are null on those rows.
 model VendorBankAccount {
   id          String    @id @default(cuid())
   vendorId    String
   vendor      Vendor    @relation(fields: [vendorId], references: [id])
-  institution String
-  transit     String
-  account     String
+  institution String?
+  transit     String?
+  account     String?
+  last4       String
   validFrom   DateTime  @db.Date
   validTo     DateTime? @db.Date
+  /// The change request that made this account live, if any.
+  changeRequestId String?
+  source      String    @default("app") // app | history
 
   @@index([vendorId])
 }
