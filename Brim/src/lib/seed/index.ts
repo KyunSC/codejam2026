@@ -6,6 +6,7 @@
  */
 import type { PrismaClient } from "@/generated/prisma/client";
 import { loadDataset } from "../dataset";
+import { seedHistoryAudit } from "./audit-history";
 import { seedBank } from "./bank";
 import { seedHistory } from "./history";
 import { seedReference } from "./reference";
@@ -50,7 +51,8 @@ export async function seed(prisma: PrismaClient): Promise<Record<string, number>
       const bank = await seedBank(tx, ds);
       for (const w of bank.warnings) console.warn(`seed warning: ${w}`);
       const history = await seedHistory(tx, ds);
-      return { ...counts, ...bank.counts, ...history };
+      const audit = await seedHistoryAudit(tx, ds);
+      return { ...counts, ...bank.counts, ...history, ...audit };
     },
     { timeout: 120_000, maxWait: 10_000 },
   );
