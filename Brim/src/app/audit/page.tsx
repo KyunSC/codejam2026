@@ -3,8 +3,10 @@ import { Suspense } from "react";
 import { EmptyState, TableCard } from "@/components/ui";
 import { FilterBar, FilterSelect, FilterText } from "@/components/filters";
 import { accessRequestPeople } from "@/lib/access/service";
-import { type Actor, listActions } from "@/lib/audit";
+import { type Actor, listActions, listGroupRows } from "@/lib/audit";
+import { groupIntoActions } from "@/lib/audit-groups";
 import { actionText, actorText } from "@/lib/audit-text";
+import { type AuditRowView, AuditEntries } from "./audit-rows";
 import { canViewAudit } from "@/lib/auth/permissions";
 import { requireUser } from "@/lib/auth/current";
 import { formatDateTime, param } from "@/lib/format";
@@ -92,10 +94,42 @@ async function AuditView({ searchParams }: { searchParams: SP }) {
     listUsers(org.id),
   ]);
   const names = Object.fromEntries(users.map((u) => [u.id, u.fullName]));
+  const beforeSeq = /^\d+$/.test(f.beforeSeq) ? BigInt(f.beforeSeq) : undefined;
+  const groupRows = await listGroupRows(
+    org.id,
+    rows.map((r) => r.actionGroupId).filter((g): g is string => !!g),
+  );
+  const entries = groupIntoActions(rows, groupRows, beforeSeq);
+  const shown = entries.flatMap((e) => [e.head, ...e.parts]);
   const requesters = await accessRequestPeople(
     org.id,
-    rows.filter((r) => r.entityType === "access_request").map((r) => r.entityId),
+    shown.filter((r) => r.entityType === "access_request").map((r) => r.entityId),
   );
+
+  const view = (r: (typeof rows)[number]): AuditRowView => {
+    const requester = r.entityType === "access_request" ? requesters[r.entityId] : undefined;
+    // A sign-up is logged as automatic (the person has no account yet); show who signed up.
+    const selfRequest = r.action === "access_request.created" && r.actorType === "system" && requester;
+    return {
+      seq: r.seq.toString(),
+      when: formatDateTime(r.at),
+      who: selfRequest ? requester.fullName : actorText(r, r.actorId ? names[r.actorId] : null),
+      whoDetail: selfRequest ? `${requester.email} · signing up` : null,
+      onBehalfOf: r.onBehalfOfId ? (names[r.onBehalfOfId] ?? r.onBehalfOfId) : null,
+      what: actionText(r.action),
+      reason: r.reason,
+      note: r.action.startsWith("access_request.") ? decisionNote(r.after) : null,
+      record: requester
+        ? { text: `account request from ${requester.fullName}`, href: `/settings?status=any&q=${encodeURIComponent(requester.email)}` }
+        : r.entityType === "invoice"
+          ? { text: "invoice", href: `/invoices/${r.entityId}` }
+          : r.entityType === "user" && names[r.entityId]
+            ? { text: `user ${names[r.entityId]}`, href: null }
+            : { text: r.entityType.replace("_", " "), href: null },
+      entityId: r.entityId,
+      changed: changedFields(r.before, r.after),
+    };
+  };
   const older = new URLSearchParams(Object.entries({ ...f, beforeSeq: rows.at(-1)?.seq.toString() ?? "" }).filter(([, v]) => v));
 
   return (
@@ -129,6 +163,9 @@ async function AuditView({ searchParams }: { searchParams: SP }) {
           <TableCard label="Audit log" minWidth={980}>
             <thead>
               <tr>
+                <th className="w-8 pr-0">
+                  <span className="sr-only">Expand</span>
+                </th>
                 <th>When</th>
                 <th>Who</th>
                 <th>What</th>
@@ -137,54 +174,7 @@ async function AuditView({ searchParams }: { searchParams: SP }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => {
-                const changed = changedFields(r.before, r.after);
-                const requester = r.entityType === "access_request" ? requesters[r.entityId] : undefined;
-                // A sign-up is logged as automatic (the person has no account yet); show who signed up.
-                const selfRequest = r.action === "access_request.created" && r.actorType === "system" && requester;
-                const note = r.action.startsWith("access_request.") ? decisionNote(r.after) : null;
-                return (
-                  <tr key={r.seq.toString()}>
-                    <td className="num text-sm whitespace-nowrap">{formatDateTime(r.at)}</td>
-                    <td className="text-sm">
-                      {selfRequest ? (
-                        <>
-                          {requester.fullName}
-                          <div className="muted text-xs">{requester.email} · signing up</div>
-                        </>
-                      ) : (
-                        actorText(r, r.actorId ? names[r.actorId] : null)
-                      )}
-                      {r.onBehalfOfId && <div className="muted text-xs">for {names[r.onBehalfOfId] ?? r.onBehalfOfId}</div>}
-                    </td>
-                    <td className="text-sm">
-                      {actionText(r.action)}
-                      {r.reason && <div className="muted text-xs">“{r.reason}”</div>}
-                      {note && <div className="muted text-xs">Note: “{note}”</div>}
-                    </td>
-                    <td className="text-sm">
-                      {requester ? (
-                        <Link
-                          href={`/settings?status=any&q=${encodeURIComponent(requester.email)}`}
-                          className="underline underline-offset-4"
-                        >
-                          account request from {requester.fullName}
-                        </Link>
-                      ) : r.entityType === "invoice" ? (
-                        <Link href={`/invoices/${r.entityId}`} className="underline underline-offset-4">
-                          invoice
-                        </Link>
-                      ) : r.entityType === "user" && names[r.entityId] ? (
-                        <>user {names[r.entityId]}</>
-                      ) : (
-                        r.entityType.replace("_", " ")
-                      )}
-                      <div className="muted text-xs">{r.entityId}</div>
-                    </td>
-                    <td className="text-sm">{changed.length ? changed.join(", ") : <span className="muted">—</span>}</td>
-                  </tr>
-                );
-              })}
+              <AuditEntries entries={entries.map((e) => ({ head: view(e.head), parts: e.parts.map(view) }))} />
             </tbody>
           </TableCard>
         )}

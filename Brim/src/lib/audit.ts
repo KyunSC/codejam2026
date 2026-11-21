@@ -10,6 +10,7 @@
  * `logAction` takes the transaction client, not the shared client, so the log row commits or
  * rolls back with the change it describes. There is no function to edit or delete a row.
  */
+import { randomUUID } from "node:crypto";
 import type { Prisma } from "@/generated/prisma/client";
 import { db } from "./db";
 
@@ -52,10 +53,30 @@ function toJson(value: unknown): Prisma.InputJsonValue | undefined {
   );
 }
 
+/**
+ * One group id per transaction: every row a single action writes (it runs in one `$transaction`)
+ * shares it, so the log can show them as one entry. Keyed weakly on the transaction client, which is
+ * one object for the life of the transaction. A plain client (no transaction) gets no group.
+ */
+const groupOfTx = new WeakMap<object, string>();
+
+export function actionGroupFor(tx: object): string | null {
+  // A full client has $connect; a transaction client doesn't ($transaction alone can't tell them
+  // apart: Prisma 7 gives the transaction client one too).
+  if (typeof (tx as { $connect?: unknown }).$connect === "function") return null;
+  let id = groupOfTx.get(tx);
+  if (!id) {
+    id = randomUUID();
+    groupOfTx.set(tx, id);
+  }
+  return id;
+}
+
 export async function logAction(tx: Prisma.TransactionClient, input: ActionInput) {
   const { actor } = input;
   return tx.auditEvent.create({
     data: {
+      actionGroupId: actionGroupFor(tx),
       organizationId: input.organizationId,
       actorType: actor.type,
       actorId:
@@ -94,6 +115,15 @@ export interface AuditFilter {
   limit?: number;
   /** Return rows with seq below this, for the next page. */
   beforeSeq?: bigint;
+}
+
+/** Every row of the given action groups, whatever filters the page used. */
+export async function listGroupRows(organizationId: string, groupIds: readonly string[]) {
+  if (groupIds.length === 0) return [];
+  return db().auditEvent.findMany({
+    where: { organizationId, actionGroupId: { in: [...new Set(groupIds)] } },
+    orderBy: { seq: "desc" },
+  });
 }
 
 /** One organization's log, newest first, narrowed by any of the filters. */
