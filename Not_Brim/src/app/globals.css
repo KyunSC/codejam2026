@@ -303,8 +303,8 @@ body {
 .is-dragging { user-select: none; }
 .is-dragging iframe,
 .is-dragging .board-item { pointer-events: none; }
-/* The pen draws over handwriting instead of grabbing it. */
-.pen-mode .ink-item { pointer-events: none; }
+/* The pen draws over handwriting instead of grabbing it: neither the ink nor the box it sits in may catch the pointer. */
+.pen-mode .ink-slot, .pen-mode .ink-item { pointer-events: none; }
 .ink-item { cursor: grab; }
 .board-item { position: relative; }
 .item-x {
