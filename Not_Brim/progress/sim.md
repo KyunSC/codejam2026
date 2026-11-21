@@ -5,7 +5,7 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
 
 ## Phase 0: scaffold
 - [x] P0.1 Scaffold, deps, scripts, `.env.local.example`, gitignore, `npx playwright install chromium`, read Next docs and log differences. Attempts: 0
-- [ ] P0.2 `lib/types.ts` and `lib/config.ts`, Vitest smoke test, Playwright config, one trivial e2e loading `/`. Attempts: 0
+- [x] P0.2 `lib/types.ts` and `lib/config.ts`, Vitest smoke test, Playwright config, one trivial e2e loading `/`. Attempts: 0
 
 ## Step 1: generate → iframe → sliders
 - [ ] S1.1 `lib/prompts.ts` (system prompt verbatim + builders), Vitest. Attempts: 0
@@ -47,3 +47,4 @@ Status markers: `[x]` done, `needs key`, `blocked`. Attempts counts check runs t
   - Edge runtime is deprecated; nodejs is the default.
   - Streaming from route handlers: plain Web `ReadableStream` in a `Response`.
   - The scaffold writes an AGENTS.md telling agents to read the bundled docs.
+- P0.2: Vitest can't import `server-only` (it throws outside the react-server condition), so `vitest.config.ts` aliases it to `test/server-only-stub.ts`. Next still enforces it in the app.
