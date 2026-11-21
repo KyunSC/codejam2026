@@ -47,6 +47,13 @@ Local env for every command (never Neon): `BRIM_LOCAL_DB_ONLY=1 DATABASE_URL=pos
     - `/approvals` "Waiting for me" (nav link for approvers, finance manager, controllers): current steps assigned to me or to someone on leave who named me; "My delegate" form (PUT me/delegation).
     - Surprise: approvers could only read invoices they created or were assigned. `mineWhere` now follows the matrix: own department plus any step assigned to or held for them.
 - [ ] 6. Payments: prepare, release, simulate bank run, invoice follows payment, dashboard; day-one state.
+  - [x] 6a. Service + API (`src/lib/workflow/payments.ts`, `payment-queries.ts`): `POST payments` (prepare; 422 NOT_APPROVED / OPEN_HOLD / VENDOR_NOT_PAYABLE / BANK_CHANGE_UNVERIFIED / NO_BANK_DETAILS, 409 ALREADY_SCHEDULED), `POST payments/[id]/release` (403 APPROVER_CANNOT_RELEASE / RELEASE_LIMIT, blockers re-checked, bank snapshot stored), `POST payments/simulate-bank`, `GET payments?bucket=`.
+    - Bank run: EFT → `BRIM-EFT-` + 8 digits and an `EFT PMT <NAME cut to 24> <last 6>` statement line; card → `BRIM-VC-`, AP virtual-card charge `VC-<invoice>`, memo `AP payment <invoice>`; cheque → `BRIM-CHQ-`, sent, cleared with a `CHEQUE NNNN CLEARED` line on the next run; an EFT to an account that is not 8–9 digits fails, invoice back to approved. Invoice follows: scheduled → released → paid.
+    - An open fraud flag (any effect) or hold flag blocks prepare and release (OPEN_HOLD).
+    - Day one: `scripts/day-one.ts` stores the history replay's flags on the 20 invoices still unpaid on 2026-11-02. Exactly two: AP-00407 DUP_EXACT (+ PO_OVER_BALANCE route) and AP-00426 BANK_CHANGE_UNVERIFIED. Run on the local DB (3 flags).
+    - Dashboard buckets: ready to prepare, overdue, due this week, scheduled later, awaiting release, sent, failed; totals by currency; each row names who may release (or why nobody can) and what blocks it, held rows first.
+    - Surprise: the seed stores user row ids in every workflow table, while items 3–5 had written dataset ids into ApprovalStep. Fixed first (commit a73c96f), since release compares against history's approvals.
+  - [ ] 6b. Payments dashboard page and actions (prepare, release, simulate bank run).
 - [ ] 7. Vendors: list/detail, onboarding, approve/hold/release-hold (FOUR_EYES), bank changes verify/reject (CALLBACK_REQUIRED); V004 held until BC-009 verified.
 - [ ] 8. Audit: pack per payment, global log filters, CSV export (auditor read-only server-side), verify chain.
 - [ ] 9. Navigation and landing pages per role; every route checks the matrix server-side.

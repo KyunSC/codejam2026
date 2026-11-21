@@ -93,6 +93,10 @@ export const config = {
     /** An EFT account number must have one of these lengths, or the simulated payment fails. */
     // Widened so `.includes(account.length)` type-checks; `as const` would make it `readonly [8, 9]`.
     eftAccountDigits: [8, 9] as readonly number[],
+    /** Simulated references: this base plus the payment number, as the 8 digits after the prefix. */
+    referenceBase: 90_000_000,
+    /** Dashboard "due this week": due within this many days of today. */
+    dueSoonDays: 7,
   },
 } as const;
 
