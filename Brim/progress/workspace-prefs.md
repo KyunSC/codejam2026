@@ -68,7 +68,9 @@ Checks for every commit (from `Brim/`): `npm run typecheck`, `npm run lint -- --
 - [x] 8e. Vendors table.
   - Vendors list uses `DataTable table="vendors"`. The columns come from `vendorColumns(vendors)`, built from the loaded list, because the Warnings column flags a "lookalike name" by comparing with the other vendors; the `base()` name normaliser moved into it from the component. No trailing column; no `empty` (keeps `Table`'s default "Nothing here.", as before).
   - Verified identical outside edit mode (scratchpad render-and-compare): 3 rows with a lookalike pair ("Acme Freight Inc" / "Acme Freight Ltd"), an unverified bank change, missing category/GST/payment method; and 0 rows.
-- [ ] 8f. Audit table.
+- [x] 8f. Audit table.
+  - `pages/Audit.tsx`: module-level `AUDIT_COLUMNS` (id "#", when, who, action, on, links, note) through `DataTable table="audit"`; no trailing column. `Table`/`Td` imports dropped. Pager unchanged (rows per page is item 10).
+  - Verified identical outside edit mode: 2 rows (one with actor, role and all three links; one "system" event with on-behalf and no links/note) and 0 rows ("No events."). Typecheck, lint, build pass.
 - [ ] 9. Default filters: URL, then prefs, then old default; "all" writes the parameter; ☆ while editing.
 - [ ] 10. Rows per page: Invoices tables and Audit; RowsPerPage in edit mode.
 - [ ] 11. Sections: Invoices cards; Payments totals hideable.
