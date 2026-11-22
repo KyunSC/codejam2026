@@ -307,10 +307,16 @@ export async function departmentSpend(user: User | null, organizationId: string)
   assertMember(user, organizationId);
   if (!can(user, "invoice.view_all") && !can(user, "invoice.view_department")) return [];
   return query<{ department: string; month: string; total: number }>(
-    `SELECT d.name department, to_char(i.invoice_date,'YYYY-MM') AS month, sum(i.total_cad)::float AS total FROM invoices i JOIN departments d USING (department_id)
-      WHERE i.organization_id=$1 AND i.status IN ('approved','scheduled','paid') AND ($2::text IS NULL OR i.department_id=$2)
-        AND i.invoice_date >= date_trunc('month', $3::date) - interval '2 months'
-      GROUP BY 1,2 ORDER BY 1,2`,
+    // Every month in the window is returned (as 0 when empty), so a month with no approved spend yet still gets a column.
+    `WITH s AS (
+       SELECT d.name department, to_char(i.invoice_date,'YYYY-MM') AS month, sum(i.total_cad)::float AS total FROM invoices i JOIN departments d USING (department_id)
+        WHERE i.organization_id=$1 AND i.status IN ('approved','scheduled','paid') AND ($2::text IS NULL OR i.department_id=$2)
+          AND i.invoice_date >= date_trunc('month', $3::date) - interval '2 months'
+        GROUP BY 1,2),
+     m AS (SELECT to_char(g,'YYYY-MM') AS month FROM generate_series(date_trunc('month', $3::date) - interval '2 months', date_trunc('month', $3::date), interval '1 month') g)
+     SELECT d.department, m.month, coalesce(s.total, 0)::float AS total
+       FROM (SELECT DISTINCT department FROM s) d CROSS JOIN m LEFT JOIN s USING (department, month)
+      ORDER BY 1,2`,
     [organizationId, can(user, "invoice.view_all") ? null : user.department_id, today()],
   );
 }
