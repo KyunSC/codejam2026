@@ -204,7 +204,7 @@ export function Vendor() {
                       <Td><Status value={c.status} /></Td>
                       <Td>
                         {can(user, "bank_change.approve") && c.status === "pending" && (
-                          <ApiForm submit={decideChange(c.change_id)} className="space-y-1" confirm={(fd) => fd.get("decision") === "rejected"
+                          <ApiForm submit={decideChange(c.change_id)} className="flex flex-col gap-1" confirm={(fd) => fd.get("decision") === "rejected"
                             ? `Reject the change of ${v.legal_name}'s bank account to ${c.new_account}?`
                             : `Approve the change of ${v.legal_name}'s bank account to ${c.new_account}? Payments will go to the new account.`}>
                             <label className="flex items-center gap-1 text-xs"><input type="checkbox" name="verified" /> called the vendor</label>

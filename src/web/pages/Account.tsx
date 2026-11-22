@@ -30,7 +30,7 @@ export function Account() {
     <div className="max-w-3xl space-y-5">
       <PageTitle sub={user.email}>{user.full_name}</PageTitle>
       <Card title="Change password">
-        <ApiForm submit={change} className="space-y-3">
+        <ApiForm submit={change} className="flex flex-col gap-3">
           <Field label="Current password"><input name="current_password" type="password" required autoComplete="current-password" className={input} /></Field>
           <Field label="New password"><input name="new_password" type="password" required minLength={8} autoComplete="new-password" className={input} /></Field>
           <Field label="New password again"><input name="confirm_password" type="password" required minLength={8} autoComplete="new-password" className={input} /></Field>

@@ -436,7 +436,7 @@ function HandlingCard({
         {!canHandle ? (
           !latest && <p className="m-0 text-sm muted">An AP clerk deals with emails that hold no invoice.</p>
         ) : (
-          <ApiForm submit={submit} reset className="space-y-3">
+          <ApiForm submit={submit} reset className="flex flex-col gap-3">
             <p className="m-0 text-sm muted">
               {open
                 ? "This email holds no invoice to pay. Say what you did about it, so it leaves Needs attention."
