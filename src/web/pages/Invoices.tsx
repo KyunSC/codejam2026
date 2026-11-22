@@ -106,7 +106,8 @@ export function Invoices() {
         title={
           <span className="flex flex-wrap items-center gap-3">
             {ap ? "1. Raw" : "Your submissions"}
-            {ap && <span className="flex gap-1 normal-case">
+            {/* the kind chips and the search: over everything for AP, over their own submissions for everyone else */}
+            {(ap || can(user, "raw.submit")) && <span className="flex gap-1 normal-case">
               {([[null, "All"], ["email", "Emails"], ["pdf", "Uploads"], ["form", "Forms"]] as const).map(([k, label]) => (
                 <Link key={label} to={withParams(sp, { rawKind: k, rawPage: null })} className="chip" aria-current={rawKind === k}>{label}</Link>
               ))}
@@ -141,7 +142,7 @@ export function Invoices() {
           </>
         }
       >
-        {ap && (
+        {(ap || can(user, "raw.submit")) && (
           <form onSubmit={searchRaw} className="mb-4 flex flex-wrap items-end gap-2" role="search" key={`${rawQ}:${rawFrom}:${rawTo}`}>
             <label className="field min-w-[220px] flex-1">
               <span>Search</span>
