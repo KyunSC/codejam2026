@@ -115,7 +115,12 @@ CREATE TABLE vendor_bank_changes (
   verified_by_callback boolean NOT NULL DEFAULT false,
   status               text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
   approved_by          text REFERENCES users,
-  approved_at          timestamptz
+  approved_at          timestamptz,
+  -- cooling-off: once a change takes effect, payments to the vendor are held until this business date
+  hold_until           date,
+  hold_waived_by       text REFERENCES users,
+  hold_waived_at       timestamptz,
+  hold_waive_reason    text
 );
 
 CREATE TABLE contracts (

@@ -7,6 +7,7 @@ import { matches, RELEASE_RANK, REQUIREMENTS, type Policy } from "@/lib/policies
 import { activePolicies } from "./policy.service";
 import { assertCan, assertMember, can } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
+import { today } from "@/lib/dates";
 import type { User } from "@/lib/types";
 
 type Invoice = { invoice_id: string; organization_id: string; status: string; type: string; vendor_id: string; due_date: string | null; currency: string; total: number; fx_rate_to_cad: number; total_cad: number };
@@ -67,12 +68,18 @@ export async function releasePayment(actor: User | null, organizationId: string,
     const problem = releaseProblem(actor, await activePolicies(c, pay.organization_id, "payment"), Math.abs(pay.amount_cad), approved);
     if (problem) throw new ForbiddenError(problem);
 
-    const change = await one<{ verified_by_callback: boolean; status: string; change_id: string }>(
-      "SELECT verified_by_callback, status, change_id FROM vendor_bank_changes WHERE vendor_id=$1 ORDER BY requested_at DESC LIMIT 1",
-      [pay.vendor_id],
+    const change = await one<{ verified_by_callback: boolean; status: string; change_id: string; hold_until: string | null; held: boolean }>(
+      `SELECT verified_by_callback, status, change_id, to_char(hold_until, 'YYYY-MM-DD') hold_until,
+              (status='approved' AND hold_until > $2::date AND hold_waived_by IS NULL) held
+         FROM vendor_bank_changes WHERE vendor_id=$1 ORDER BY requested_at DESC LIMIT 1`,
+      [pay.vendor_id, today()],
       c,
     );
     if (change && (!change.verified_by_callback || change.status === "pending")) throw new ConflictError(`The vendor's bank change ${change.change_id} is not verified.`);
+    // the cooling-off after a bank change: the money stays here until the vendor or a colleague has had time to catch a fraudulent change
+    if (change?.held) {
+      throw new ConflictError(`The vendor's bank details changed recently (${change.change_id}): payments are held until ${change.hold_until}. Someone other than who requested or approved the change can lift the hold on the vendor's page.`);
+    }
 
     const v = (await one<{ legal_name: string; bank_institution: string | null; bank_transit: string | null; bank_account: string | null }>(
       "SELECT legal_name, bank_institution, bank_transit, bank_account FROM vendors WHERE vendor_id=$1",
