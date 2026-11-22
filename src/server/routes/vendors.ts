@@ -1,7 +1,7 @@
 import { Router } from "express";
 import {
   confirmBankChangeByCallback, createVendor, decideBankChange, deleteVendor, getVendor, listBankChanges, listVendorChoices, listVendors, requestBankChange,
-  setVendorStatus, updateVendor, type VendorInput,
+  setVendorStatus, updateVendor, waiveBankChangeHold, type VendorInput,
 } from "@/services/vendor.service";
 import { pagingOf, param, route } from "../http";
 
@@ -38,3 +38,5 @@ vendors.post("/bank-changes/:id/approve", route(async ({ user, params, body }) =
 ), { gate: "bank_change.approve" }));
 vendors.post("/bank-changes/:id/reject", route(async ({ user, params }) => decideBankChange(user, params.orgId, params.id, "rejected", false), { gate: "bank_change.approve" }));
 vendors.post("/bank-changes/:id/confirm-callback", route(async ({ user, params }) => confirmBankChangeByCallback(user, params.orgId, params.id), { gate: "bank_change.approve" }));
+// Lifts the cooling-off after a bank change for an urgent payment; { reason } is required.
+vendors.post("/bank-changes/:id/waive-hold", route(async ({ user, params, body }) => waiveBankChangeHold(user, params.orgId, params.id, String(body.reason ?? "")), { gate: "bank_change.approve" }));

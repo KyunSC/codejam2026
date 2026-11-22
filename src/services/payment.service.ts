@@ -7,6 +7,7 @@ import { matches, RELEASE_RANK, REQUIREMENTS, type Policy } from "@/lib/policies
 import { activePolicies } from "./policy.service";
 import { assertCan, assertMember, can } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
+import { today } from "@/lib/dates";
 import type { User } from "@/lib/types";
 
 type Invoice = { invoice_id: string; organization_id: string; status: string; type: string; vendor_id: string; due_date: string | null; currency: string; total: number; fx_rate_to_cad: number; total_cad: number };
@@ -95,6 +96,11 @@ export async function releasePayment(actor: User | null, organizationId: string,
       c,
     );
     if (change && (!change.verified_by_callback || change.status === "pending")) throw new ConflictError(`The vendor's bank change ${change.change_id} is not verified.`);
+    // the cooling-off after a bank change: the money stays here until the vendor or a colleague has had time to catch a fraudulent change
+    const held = (await heldVendors([pay.vendor_id], c)).get(pay.vendor_id);
+    if (held) {
+      throw new ConflictError(`The vendor's bank details changed recently (${held.change_id}): payments are held until ${held.hold_until}. Someone other than who requested or approved the change can lift the hold on the vendor's page.`);
+    }
 
     const v = (await one<{ legal_name: string; bank_institution: string | null; bank_transit: string | null; bank_account: string | null }>(
       "SELECT legal_name, bank_institution, bank_transit, bank_account FROM vendors WHERE vendor_id=$1",
@@ -162,6 +168,19 @@ export function cancelProblem(actor: User, pay: { status: string; prepared_by: s
   return null;
 }
 
+// Vendors whose payments are held after a bank change, with the change and the date the hold ends. Any held change counts,
+// not only the latest requested: changes can be approved out of order, and the account in use is the last one approved.
+async function heldVendors(vendorIds: string[], db?: Db) {
+  const rows = await query<{ vendor_id: string; change_id: string; hold_until: string }>(
+    `SELECT DISTINCT ON (vendor_id) vendor_id, change_id, to_char(hold_until, 'YYYY-MM-DD') hold_until FROM vendor_bank_changes
+      WHERE vendor_id = ANY($1) AND status='approved' AND hold_until > $2::date AND hold_waived_by IS NULL
+      ORDER BY vendor_id, hold_until DESC`,
+    [vendorIds, today()],
+    db,
+  );
+  return new Map(rows.map((r) => [r.vendor_id, r]));
+}
+
 // Why the user cannot release each scheduled payment, or null when they can: the same rules as releasePayment.
 export async function releaseBlocks(actor: User, orgId: string, rows: { payment_id: string; invoice_id: string; vendor_id: string; amount_cad: number; status: string }[]) {
   const out = new Map<string, string | null>();
@@ -176,6 +195,7 @@ export async function releaseBlocks(actor: User, orgId: string, rows: { payment_
     `SELECT DISTINCT ON (vendor_id) vendor_id, verified_by_callback, status FROM vendor_bank_changes WHERE vendor_id = ANY($1) ORDER BY vendor_id, requested_at DESC`,
     [scheduled.map((r) => r.vendor_id)],
   )).filter((c) => !(c as unknown as { verified_by_callback: boolean }).verified_by_callback || (c as unknown as { status: string }).status === "pending").map((c) => c.vendor_id));
+  const held = await heldVendors(scheduled.map((r) => r.vendor_id));
   const fraud = new Set((await query<{ invoice_id: string }>(
     "SELECT DISTINCT i.invoice_id FROM invoices i JOIN invoice_flags f ON f.parsed_invoice_id=i.parsed_invoice_id WHERE i.invoice_id = ANY($1) AND f.category='fraud' AND f.status='open'",
     [scheduled.map((r) => r.invoice_id)],
@@ -184,6 +204,7 @@ export async function releaseBlocks(actor: User, orgId: string, rows: { payment_
     out.set(r.payment_id,
       releaseProblem(actor, policies, Math.abs(r.amount_cad), approvedByMe.has(r.invoice_id))
         ?? (unverified.has(r.vendor_id) ? "The vendor's bank change is not verified." : null)
+        ?? (held.has(r.vendor_id) ? `The vendor's bank details changed recently: payments are held until ${held.get(r.vendor_id)!.hold_until}.` : null)
         ?? (fraud.has(r.invoice_id) ? "A fraud flag on the invoice is open." : null));
   }
   return out;

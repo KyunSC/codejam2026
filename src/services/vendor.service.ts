@@ -13,6 +13,16 @@ const FIELDS = [
   "payment_terms_days", "early_pay_discount", "preferred_payment_method", "accepts_card_payment", "ap_contact_email", "phone", "requires_po",
 ] as const;
 const BANK = ["bank_institution", "bank_transit", "bank_account"] as const;
+
+// Cooling-off after a bank change takes effect: payments to the vendor are held this many days (on the business date), so the
+// real vendor or someone else in the organization can catch a fraudulent change before money leaves. 0 turns it off.
+export const BANK_CHANGE_HOLD_DAYS = (() => {
+  const raw = process.env.BANK_CHANGE_HOLD_DAYS;
+  if (raw === undefined || raw.trim() === "") return 3;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) throw new Error(`BANK_CHANGE_HOLD_DAYS must be a whole number of days, 0 or more; got "${raw}".`);
+  return n;
+})();
 export type VendorInput = Partial<Record<(typeof FIELDS)[number] | (typeof BANK)[number], unknown>>;
 
 export type Vendor = {
@@ -136,19 +146,23 @@ export async function setVendorStatus(actor: User | null, organizationId: string
 export async function listBankChanges(actor: User | null, organizationId: string, f: { vendorId?: string | null; open?: boolean } = {}) {
   if (f.vendorId) await getVendor(actor, organizationId, f.vendorId);
   else authorize(actor, organizationId, "vendor.view");
-  return query<{ change_id: string; vendor_id: string; vendor_name: string; requested_at: string; requester: string | null; request_channel: string; new_institution: string | null; new_transit: string | null; new_account: string; verified_by_callback: boolean; status: string; approver: string | null }>(
-    `SELECT c.*, v.legal_name vendor_name, u1.full_name requester, u2.full_name approver FROM vendor_bank_changes c JOIN vendors v USING (vendor_id)
-       LEFT JOIN users u1 ON u1.user_id=c.requested_by LEFT JOIN users u2 ON u2.user_id=c.approved_by
+  return query<{ change_id: string; vendor_id: string; vendor_name: string; requested_at: string; requester: string | null; request_channel: string; new_institution: string | null; new_transit: string | null; new_account: string; verified_by_callback: boolean; status: string; requested_by: string | null; approved_by: string | null; approver: string | null;
+    hold_until: string | null; hold_active: boolean; hold_waiver: string | null; hold_waive_reason: string | null }>(
+    `SELECT c.*, v.legal_name vendor_name, u1.full_name requester, u2.full_name approver, u3.full_name hold_waiver,
+            to_char(c.hold_until, 'YYYY-MM-DD') hold_until, (c.hold_until > $4::date AND c.hold_waived_by IS NULL) hold_active
+       FROM vendor_bank_changes c JOIN vendors v USING (vendor_id)
+       LEFT JOIN users u1 ON u1.user_id=c.requested_by LEFT JOIN users u2 ON u2.user_id=c.approved_by LEFT JOIN users u3 ON u3.user_id=c.hold_waived_by
       WHERE v.organization_id=$1 AND ($2::text IS NULL OR c.vendor_id=$2) AND (NOT $3 OR c.status='pending' OR NOT c.verified_by_callback)
       ORDER BY c.requested_at DESC`,
-    [organizationId, f.vendorId ?? null, !!f.open],
+    [organizationId, f.vendorId ?? null, !!f.open, today()],
   );
 }
 
 async function changeInOrg(c: Parameters<Parameters<typeof tx>[0]>[0], organizationId: string, changeId: string) {
-  const ch = await one<{ change_id: string; vendor_id: string; status: string; verified_by_callback: boolean; requested_by: string | null; new_institution: string; new_transit: string; new_account: string }>(
-    `SELECT c.* FROM vendor_bank_changes c JOIN vendors v USING (vendor_id) WHERE c.change_id=$1 AND v.organization_id=$2 FOR UPDATE OF c`,
-    [changeId, organizationId],
+  const ch = await one<{ change_id: string; vendor_id: string; status: string; verified_by_callback: boolean; requested_by: string | null; approved_by: string | null;
+    new_institution: string; new_transit: string; new_account: string; hold_active: boolean }>(
+    `SELECT c.*, (c.hold_until > $3::date AND c.hold_waived_by IS NULL) hold_active FROM vendor_bank_changes c JOIN vendors v USING (vendor_id) WHERE c.change_id=$1 AND v.organization_id=$2 FOR UPDATE OF c`,
+    [changeId, organizationId, today()],
     c,
   );
   if (!ch) throw new NotFoundError("No such bank change");
@@ -192,13 +206,19 @@ export async function decideBankChange(actor: User | null, organizationId: strin
         : "This vendor has no phone number on file: add it from a trusted source, call to confirm the change, then tick \"called the vendor\".");
     }
     const v = (await one("SELECT bank_institution, bank_transit, bank_account FROM vendors WHERE vendor_id=$1", [ch.vendor_id], c))!;
-    await query("UPDATE vendor_bank_changes SET status=$2, verified_by_callback=$3, approved_by=$4, approved_at=now() WHERE change_id=$1", [changeId, decision, verifiedByCallback, actor.user_id], c);
+    // an approved change takes effect now, so the cooling-off starts now
+    await query(
+      `UPDATE vendor_bank_changes SET status=$2, verified_by_callback=$3, approved_by=$4, approved_at=now(),
+         hold_until=CASE WHEN $2='approved' THEN $5::date + $6::int END WHERE change_id=$1`,
+      [changeId, decision, verifiedByCallback, actor.user_id, today(), BANK_CHANGE_HOLD_DAYS],
+      c,
+    );
     if (decision === "approved") {
       await query("UPDATE vendors SET bank_institution=$2, bank_transit=$3, bank_account=$4 WHERE vendor_id=$1", [ch.vendor_id, ch.new_institution, ch.new_transit, ch.new_account], c);
     }
     await writeAudit(c, {
       organizationId, actor, action: `bank_change.${decision === "approved" ? "approve" : "reject"}`, entityType: "vendor_bank_change", entityId: changeId, vendorId: ch.vendor_id,
-      before: v, after: decision === "approved" ? { institution: ch.new_institution, transit: ch.new_transit, account: ch.new_account } : undefined,
+      before: v, after: decision === "approved" ? { institution: ch.new_institution, transit: ch.new_transit, account: ch.new_account, hold_days: BANK_CHANGE_HOLD_DAYS } : undefined,
     });
   });
 }
@@ -209,8 +229,29 @@ export async function confirmBankChangeByCallback(actor: User | null, organizati
   await tx(async (c) => {
     const ch = await changeInOrg(c, organizationId, changeId);
     if (ch.status !== "approved" || ch.verified_by_callback) throw new ConflictError("Nothing to confirm");
-    await query("UPDATE vendor_bank_changes SET verified_by_callback=true, approved_by=$2, approved_at=now() WHERE change_id=$1", [changeId, actor.user_id], c);
-    await writeAudit(c, { organizationId, actor, action: "bank_change.confirm_callback", entityType: "vendor_bank_change", entityId: changeId, vendorId: ch.vendor_id });
+    // payments were blocked until the callback; from here the cooling-off holds them a few days more
+    await query(
+      "UPDATE vendor_bank_changes SET verified_by_callback=true, approved_by=$2, approved_at=now(), hold_until=$3::date + $4::int WHERE change_id=$1",
+      [changeId, actor.user_id, today(), BANK_CHANGE_HOLD_DAYS],
+      c,
+    );
+    await writeAudit(c, { organizationId, actor, action: "bank_change.confirm_callback", entityType: "vendor_bank_change", entityId: changeId, vendorId: ch.vendor_id, after: { hold_days: BANK_CHANGE_HOLD_DAYS } });
+  });
+}
+
+// Lifts the cooling-off for an urgent payment. A third person does it: neither who requested the change nor who approved it,
+// so no one person can both change a vendor's bank account and pay into it at once.
+export async function waiveBankChangeHold(actor: User | null, organizationId: string, changeId: string, reason: string) {
+  authorize(actor, organizationId, "bank_change.approve");
+  if (!reason.trim()) throw new ValidationError("Say why the hold is lifted.");
+  await tx(async (c) => {
+    const ch = await changeInOrg(c, organizationId, changeId);
+    if (!ch.hold_active) throw new ConflictError("Payments to this vendor are not on hold.");
+    if (ch.requested_by === actor.user_id || ch.approved_by === actor.user_id) {
+      throw new ForbiddenError("You requested or approved this change; someone else lifts the hold.");
+    }
+    await query("UPDATE vendor_bank_changes SET hold_waived_by=$2, hold_waived_at=now(), hold_waive_reason=$3 WHERE change_id=$1", [changeId, actor.user_id, reason.trim()], c);
+    await writeAudit(c, { organizationId, actor, action: "bank_change.waive_hold", entityType: "vendor_bank_change", entityId: changeId, vendorId: ch.vendor_id, note: reason.trim() });
   });
 }
 

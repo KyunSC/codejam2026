@@ -33,6 +33,7 @@ const NAMES: Record<string, string> = {
   "bank_change.approve": "Bank change approved",
   "bank_change.reject": "Bank change rejected",
   "bank_change.confirm_callback": "Bank change confirmed by callback",
+  "bank_change.waive_hold": "Bank change hold lifted",
   "organization.create": "Organization created",
   "organization.update": "Organization edited",
   "user.create": "User added",

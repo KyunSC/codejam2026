@@ -135,7 +135,11 @@ export function Vendor() {
   };
   const confirmCallback = (changeId: string) => async () => {
     await post(org(user, `/bank-changes/${changeId}/confirm-callback`));
-    return done("Confirmed by callback.");
+    return done("Confirmed by callback. Payments to the new account are held for a few days.");
+  };
+  const waiveHold = (changeId: string) => async (fd: FormData) => {
+    await post(org(user, `/bank-changes/${changeId}/waive-hold`), { reason: str(fd, "reason") ?? "" });
+    return done("Hold lifted; payments can be released.");
   };
 
   return (
@@ -201,12 +205,16 @@ export function Vendor() {
                       <Td className="text-xs">{channelName(c.request_channel)}</Td>
                       <Td className="font-mono text-xs">{c.new_institution ? `${c.new_institution}-${c.new_transit}-` : "…"}{c.new_account}</Td>
                       <Td>{c.verified_by_callback ? "verified" : <span className="text-flag">not verified</span>}</Td>
-                      <Td><Status value={c.status} /></Td>
+                      <Td>
+                        <Status value={c.status} />
+                        {c.hold_active && <div className="mt-1"><Badge tone="gold">payments held until {c.hold_until}</Badge></div>}
+                        {c.hold_waiver && <div className="mt-1 text-xs" title={c.hold_waive_reason ?? ""}>hold lifted by {c.hold_waiver}</div>}
+                      </Td>
                       <Td>
                         {can(user, "bank_change.approve") && c.status === "pending" && (
                           <ApiForm submit={decideChange(c.change_id)} className="flex flex-col gap-1" confirm={(fd) => fd.get("decision") === "rejected"
                             ? `Reject the change of ${v.legal_name}'s bank account to ${c.new_account}?`
-                            : `Approve the change of ${v.legal_name}'s bank account to ${c.new_account}? Payments will go to the new account.`}>
+                            : `Approve the change of ${v.legal_name}'s bank account to ${c.new_account}? Payments will go to the new account after a few days' hold.`}>
                             <label className="flex items-center gap-1 text-xs"><input type="checkbox" name="verified" /> called the vendor</label>
                             <div className="flex gap-1">
                               <button name="decision" value="approved" className={btn}>Approve</button>
@@ -216,6 +224,12 @@ export function Vendor() {
                         )}
                         {can(user, "bank_change.approve") && c.status === "approved" && !c.verified_by_callback && (
                           <ApiForm submit={confirmCallback(c.change_id)} confirm={`Confirm you called ${v.legal_name} on the number on file and they confirmed account ${c.new_account}?`}><button className={btnLight}>Confirmed by callback</button></ApiForm>
+                        )}
+                        {can(user, "bank_change.approve") && c.hold_active && c.requested_by !== user.user_id && c.approved_by !== user.user_id && (
+                          <ApiForm submit={waiveHold(c.change_id)} className="space-y-1" confirm={`Lift the hold and allow payments to ${v.legal_name}'s new account ${c.new_account} now?`}>
+                            <input name="reason" className={input} placeholder="Why it can't wait" required />
+                            <button className={btnLight}>Lift hold</button>
+                          </ApiForm>
                         )}
                       </Td>
                     </tr>
