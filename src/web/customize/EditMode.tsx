@@ -60,7 +60,7 @@ export function EditBar() {
       <div className="edit-bar__row">
         <div className="edit-bar__text">
           <strong>Customizing the dashboard</strong>
-          <span className="muted">Drag tiles and cards to move them, and press × to hide one.</span>
+          <span className="muted">Drag tiles and cards to move them, press × to take one off, and add more from the lists under the tiles and the cards.</span>
         </div>
         <span className="edit-bar__save muted" aria-live="polite">
           {SAVE_TEXT[saveState]}

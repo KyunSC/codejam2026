@@ -7,10 +7,18 @@ import type { User } from "./types";
 
 export const PREFERENCES_VERSION = 1;
 
-// `action`: the permission that shows the item.
-export type Def<Id extends string = string> = { id: Id; label: string; action?: Action };
+// `action`: the permission that offers the item; with a list, any one of them does.
+// `byDefault: false`: in the palette until the user adds it; everything else is on the dashboard from the start.
+export type Def<Id extends string = string> = { id: Id; label: string; action?: Action | Action[]; byDefault?: false };
 
-export const TILE_IDS = ["to_review", "raw_needs", "raw_waiting", "my_approvals", "approved_unscheduled", "to_release", "vendors_pending", "bank_changes"] as const;
+// Whether the user's role may have this widget (the server checks the same before computing its data).
+export const allowedOn = (d: Def, user: User | null) => !d.action || (Array.isArray(d.action) ? d.action.some((a) => can(user, a)) : can(user, d.action));
+const SEES_SPEND: Action[] = ["invoice.view_all", "invoice.view_department"];
+
+export const TILE_IDS = [
+  "to_review", "raw_needs", "raw_waiting", "my_approvals", "approved_unscheduled", "to_release", "vendors_pending", "bank_changes",
+  "overdue", "due_week", "paid_month", "outstanding_cheques", "open_pos", "contracts_ending",
+] as const;
 export type TileId = (typeof TILE_IDS)[number];
 
 // The dashboard count tiles, in their default order, with the permission each needs.
@@ -23,15 +31,29 @@ export const DASHBOARD_TILES: Def<TileId>[] = [
   { id: "to_release", label: "Payments to release", action: "payment.release" },
   { id: "vendors_pending", label: "Vendors pending approval", action: "vendor.approve" },
   { id: "bank_changes", label: "Bank changes pending", action: "vendor.approve" },
+  // in the palette
+  { id: "overdue", label: "Overdue invoices", action: SEES_SPEND, byDefault: false },
+  { id: "due_week", label: "Due in the next 7 days", action: SEES_SPEND, byDefault: false },
+  { id: "paid_month", label: "Paid this month (CAD)", action: "payment.view", byDefault: false },
+  { id: "outstanding_cheques", label: "Outstanding cheques", action: "payment.view", byDefault: false },
+  { id: "open_pos", label: "Open purchase orders", byDefault: false },
+  { id: "contracts_ending", label: "Contracts ending in 60 days", byDefault: false },
 ];
 
-export const CARD_IDS = ["pending", "spend", "delegate"] as const;
+export const CARD_IDS = ["pending", "spend", "delegate", "monthly_spend", "vendor_spend", "account_spend", "invoice_status", "payment_methods", "upcoming_due"] as const;
 export type CardId = (typeof CARD_IDS)[number];
 
 export const DASHBOARD_CARDS: Def<CardId>[] = [
   { id: "pending", label: "Pending approval" },
   { id: "spend", label: "Spend by department" },
   { id: "delegate", label: "Away? Delegate your approvals", action: "delegate.set" },
+  // in the palette
+  { id: "monthly_spend", label: "Monthly spend", action: SEES_SPEND, byDefault: false },
+  { id: "vendor_spend", label: "Top vendors", action: SEES_SPEND, byDefault: false },
+  { id: "account_spend", label: "Spend by GL account", action: SEES_SPEND, byDefault: false },
+  { id: "invoice_status", label: "Invoices by status", action: SEES_SPEND, byDefault: false },
+  { id: "payment_methods", label: "Payments by method", action: "payment.view", byDefault: false },
+  { id: "upcoming_due", label: "Due in the next 14 days", action: SEES_SPEND, byDefault: false },
 ];
 
 export type Ordered<Id extends string = string> = { id: Id; visible: boolean }[];
@@ -69,7 +91,8 @@ export function migratePreferences(doc: unknown, version: number): StoredPrefere
 export type ResolvedItem<Id extends string = string> = { id: Id; label: string; visible: boolean };
 export type ResolvedPreferences = { dashboard: { tiles: ResolvedItem<TileId>[]; cards: ResolvedItem<CardId>[] } };
 
-// One list: the stored order first (known, allowed ids only), then anything it doesn't mention, visible, in default order.
+// One list: the stored order first (known, allowed ids only), then anything it doesn't mention, in default order:
+// on the dashboard, or in the palette for a widget that starts there.
 function resolveOrdered<Id extends string>(stored: Ordered<Id> | undefined, defs: Def<Id>[], allowed: (d: Def<Id>) => boolean): ResolvedItem<Id>[] {
   const byId = new Map(defs.filter(allowed).map((d) => [d.id, d]));
   const out: ResolvedItem<Id>[] = [];
@@ -78,14 +101,14 @@ function resolveOrdered<Id extends string>(stored: Ordered<Id> | undefined, defs
     if (!def || out.some((o) => o.id === s.id)) continue;
     out.push({ id: def.id, label: def.label, visible: s.visible });
   }
-  for (const def of byId.values()) if (!out.some((o) => o.id === def.id)) out.push({ id: def.id, label: def.label, visible: true });
+  for (const def of byId.values()) if (!out.some((o) => o.id === def.id)) out.push({ id: def.id, label: def.label, visible: def.byDefault !== false });
   return out;
 }
 
 // The user's dashboard: the stored document over the defaults, limited to what the role can see. Never grants anything.
 export function resolvePreferences(storedDoc: StoredPreferences | null | undefined, user: User | null): ResolvedPreferences {
   const stored = sanitizePreferences(storedDoc);
-  const allowed = (d: Def) => !d.action || can(user, d.action);
+  const allowed = (d: Def) => allowedOn(d, user);
   return {
     dashboard: {
       tiles: resolveOrdered(stored.dashboard?.tiles, DASHBOARD_TILES, allowed),

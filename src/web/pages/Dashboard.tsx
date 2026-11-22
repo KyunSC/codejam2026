@@ -1,7 +1,8 @@
 import { Link, useSearchParams } from "react-router-dom";
 import { can } from "@/lib/authz";
 import { money } from "@/lib/format";
-import type { CardId, ResolvedItem, TileId } from "@/lib/preferences";
+import { DASHBOARD_CARDS, DASHBOARD_TILES, allowedOn, type CardId, type ResolvedItem, type TileId } from "@/lib/preferences";
+import type { BarRow, DueRow, WidgetData } from "@/services/dashboard.service";
 import type { User } from "@/lib/types";
 import type { InvoiceRow, WaitingApproval } from "@/services/read.service";
 import { call, get, useLoad } from "../api";
@@ -13,10 +14,11 @@ import { HideButton } from "../customize/HideButton";
 import { HiddenTray } from "../customize/HiddenTray";
 import { reorder, setVisible } from "../customize/lists";
 import { ApiForm, str } from "../components/ApiForm";
-import { A, Badge, Card, Field, PageTitle, Pager, Show, Table, Td, btn, btnLight, input, pageOf, pageParam } from "../components/ui";
+import { A, Badge, Card, Field, PageTitle, Pager, Show, Status, Table, Td, btn, btnLight, date, input, pageOf, pageParam } from "../components/ui";
+import { BarList, MonthBars } from "../components/Charts";
 
 type Pending = { href: string; ref: string; vendor: string | null; number: string | null; total: number | null; currency: string; waiting_on: string | null; note: string | null };
-type Tile = { id: TileId; label: string; value: number; href: string };
+type Tile = { id: TileId; label: string; value: number; href: string; amount?: boolean };
 type Shown = { tiles: Set<TileId>; cards: Set<CardId> };
 
 // The dashboard: counts for the user's role, what is pending approval, department spend, and the delegate form.
@@ -51,7 +53,7 @@ function DashboardPage() {
 
   return (
     <Show load={load}>
-      {({ tiles, pending, spend, colleagues }) => {
+      {({ tiles, pending, spend, colleagues, widgets }) => {
         const months = [...new Set(spend.map((s) => s.month))];
         const depts = [...new Set(spend.map((s) => s.department))];
         const tileById = new Map(tiles.map((t) => [t.id, t]));
@@ -85,6 +87,42 @@ function DashboardPage() {
                   <tr key={dname}>
                     <Td>{dname}</Td>
                     {months.map((m) => <Td key={m}>{money(spend.find((s) => s.department === dname && s.month === m)?.total ?? 0)}</Td>)}
+                  </tr>
+                ))}
+              </Table>
+            ),
+          } : null,
+          monthly_spend: widgets.monthly_spend ? {
+            title: "Monthly spend (CAD, last 12 months)",
+            body: <MonthBars rows={widgets.monthly_spend as BarRow[]} format={(n) => money(n)} />,
+          } : null,
+          vendor_spend: widgets.vendor_spend ? {
+            title: "Top vendors (CAD, last three months)",
+            body: <BarList rows={widgets.vendor_spend as BarRow[]} format={(n) => money(n)} empty="No spend in the last three months." />,
+          } : null,
+          account_spend: widgets.account_spend ? {
+            title: "Spend by GL account (CAD, last three months)",
+            body: <BarList rows={widgets.account_spend as BarRow[]} format={(n) => money(n)} empty="No spend in the last three months." />,
+          } : null,
+          invoice_status: widgets.invoice_status ? {
+            title: "Invoices by status",
+            body: <BarList rows={widgets.invoice_status as BarRow[]} format={(n) => String(n)} empty="No invoices." />,
+          } : null,
+          payment_methods: widgets.payment_methods ? {
+            title: "Payments by method (CAD, last three months)",
+            body: <BarList rows={widgets.payment_methods as BarRow[]} format={(n) => money(n)} empty="No payments in the last three months." />,
+          } : null,
+          upcoming_due: widgets.upcoming_due ? {
+            title: `Due in the next 14 days (${(widgets.upcoming_due as DueRow[]).length})`,
+            body: (
+              <Table head={["Invoice", "Vendor", "Due", "Total", "Status"]} empty="Nothing unpaid is due in the next 14 days.">
+                {(widgets.upcoming_due as DueRow[]).map((r) => (
+                  <tr key={r.invoice_id}>
+                    <Td><A href={`/invoices/${r.invoice_id}`}>{r.invoice_id}</A></Td>
+                    <Td>{r.vendor}</Td>
+                    <Td className="whitespace-nowrap">{date(r.due_date)}</Td>
+                    <Td className="whitespace-nowrap">{money(r.total, r.currency)}</Td>
+                    <Td><Status value={r.status} /></Td>
                   </tr>
                 ))}
               </Table>
@@ -136,7 +174,7 @@ function DashboardPage() {
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                     {visibleTiles.map((t) => (
                       <Link key={t.id} to={t.href} className="card p-4">
-                        <div className="heading num text-4xl leading-none">{t.value}</div>
+                        <div className="heading num text-4xl leading-none">{t.amount ? money(t.value) : t.value}</div>
                         <div className="label muted mt-2 text-xs">{t.label}</div>
                       </Link>
                     ))}
@@ -178,7 +216,7 @@ function EditableDashboard({ tiles, cards, tilePrefs, cardPrefs, update }: {
                 <>
                   {/* while customizing, a tile is only something to move: not a link, so letting go of a drag opens nothing */}
                   <div className="card block h-full select-none p-4">
-                    <div className="heading num text-4xl leading-none">{t.value}</div>
+                    <div className="heading num text-4xl leading-none">{t.amount ? money(t.value) : t.value}</div>
                     <div className="label muted mt-2 text-xs">{t.label}</div>
                   </div>
                   <div className="dash-tools">
@@ -264,6 +302,20 @@ export async function loadDashboard(user: User, shown: Shown) {
       waiting_on: i.waiting_on, note: null,
     })),
   ] : [];
+  // the widgets added from the palette: one request for those on the page
+  const added = [...DASHBOARD_TILES, ...DASHBOARD_CARDS].filter((d) => d.byDefault === false && allowedOn(d, user) && (shown.tiles.has(d.id as TileId) || shown.cards.has(d.id as CardId)));
+  const widgets: WidgetData = added.length ? await get<WidgetData>(at(`/dashboard-widgets?ids=${added.map((d) => d.id).join(",")}`)) : {};
+  const n = (id: keyof WidgetData) => (typeof widgets[id] === "number" ? (widgets[id] as number) : 0);
+  const extra: Tile[] = [
+    { id: "overdue", label: "Overdue invoices", value: n("overdue"), href: "/invoices" },
+    { id: "due_week", label: "Due in the next 7 days", value: n("due_week"), href: "/invoices" },
+    { id: "paid_month", label: "Paid this month (CAD)", value: n("paid_month"), href: "/payments?status=settled", amount: true },
+    { id: "outstanding_cheques", label: "Outstanding cheques", value: n("outstanding_cheques"), href: "/payments?status=outstanding" },
+    { id: "open_pos", label: "Open purchase orders", value: n("open_pos"), href: "/purchase-orders" },
+    { id: "contracts_ending", label: "Contracts ending in 60 days", value: n("contracts_ending"), href: "/contracts" },
+  ];
+  tiles.push(...extra.filter((t) => widgets[t.id] !== undefined));
+
   const colleagues = users.filter((u) => u.status === "active" && u.user_id !== user.user_id && APPROVER_ROLES.includes(u.role));
-  return { tiles, pending, spend, colleagues };
+  return { tiles, pending, spend, colleagues, widgets };
 }
