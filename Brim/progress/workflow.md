@@ -1,5 +1,7 @@
 # Loop C: workflow, payments, vendors, audit
 
+> **Obsolete for the current stack.** This was written for the earlier Next.js/Prisma version (loops, Neon, Prisma, vitest). The app is now an Express API and a React/Vite frontend over Postgres (`db/schema.sql`); see `README.md`. Kept for history.
+
 Branch `loop/workflow`. One item per run. Notes under each item.
 
 Local env for every command (never Neon): `BRIM_LOCAL_DB_ONLY=1 DATABASE_URL=postgresql://localhost:5432/brim DATABASE_URL_UNPOOLED=<same> APP_TODAY=2026-11-02`. The shell's values win over `.env` because dotenv never overrides. In zsh, pass them as an array (`E=(A=1 B=2); env $E npm test`): an unquoted string variable is not word-split, so `DATABASE_URL` would silently fall back to `.env` (Neon). DB tests skip unless the host is local, so a run showing "skipped" means the env is wrong.

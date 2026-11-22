@@ -1,5 +1,7 @@
 # Loop A: pipeline
 
+> **Obsolete for the current stack.** This was written for the earlier Next.js/Prisma version (loops, Neon, Prisma, vitest). The app is now an Express API and a React/Vite frontend over Postgres (`db/schema.sql`); see `README.md`. Kept for history.
+
 Branch: `loop/pipeline` · Phases 1 and 3 of `Brim/BUILD_PLAN.md` · Runs without Neon or a Claude API key: it uses a local Postgres and a stand-in for the extraction call.
 
 Before starting:

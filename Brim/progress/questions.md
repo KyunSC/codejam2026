@@ -1,5 +1,7 @@
 # Open questions
 
+> **Obsolete for the current stack.** This was written for the earlier Next.js/Prisma version (loops, Neon, Prisma, vitest). The app is now an Express API and a React/Vite frontend over Postgres (`db/schema.sql`); see `README.md`. Kept for history.
+
 ## Loop A
 
 Decisions not covered by BUILD_PLAN.md, with the option picked. Newest last.

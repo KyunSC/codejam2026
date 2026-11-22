@@ -1,5 +1,7 @@
 # Loop C: workflow, payments, vendors, audit
 
+> **Obsolete for the current stack.** This was written for the earlier Next.js/Prisma version (loops, Neon, Prisma, vitest). The app is now an Express API and a React/Vite frontend over Postgres (`db/schema.sql`); see `README.md`. Kept for history.
+
 Branch: `loop/workflow` · Connects the pipeline (Loop A) to the rules engine (Loop B), then builds BUILD_PLAN phases 6–9 and 12: approvals, payments, vendors, audit pack, Fraud watch, reconciliation. Code freeze is **Sun 2026-11-22, 12:00**.
 
 Before starting:

@@ -1,5 +1,7 @@
 # Plan: Brim AP Automation (CodeJam 16)
 
+> **Historical.** This plan was written for the earlier Next.js/Prisma version of the app. The app is now an Express API and a React/Vite frontend over Postgres (`db/schema.sql`); see `README.md`. The business rules here still apply; file paths, tooling and contracts may not.
+
 ## Context
 Brim's hackathon brief asks for a web app that moves a supplier invoice from inbox to (simulated) payment for a fictional company, Harborline Logistics (40 people, ~55 vendors, Canadian taxes, CAD/USD). It must have role-based approvals and a full audit trail. Scoring: required features 40%, technical depth Q&A 25%, UI 20%, bonus 15%. Required features are tested on a **hidden invoice batch**, so accuracy and robustness matter more than how many screens we have. Timing: coding started Fri 7pm, freeze **Sun 12:00pm** (about 40h). The pitch is 2–4 minutes, and the rest of judging is Q&A.
 

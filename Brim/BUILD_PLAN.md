@@ -1,5 +1,7 @@
 # Brim AP automation: build plan
 
+> **Historical.** This plan was written for the earlier Next.js/Prisma version of the app. The app is now an Express API and a React/Vite frontend over Postgres (`db/schema.sql`); see `README.md`. The business rules here still apply; file paths, tooling and contracts may not.
+
 Status: plan only, written Fri 2026-11-20 22:45 EST. No app code exists yet.
 Freeze: Sun 2026-11-22 12:00, submitted through GitHub. About 37 hours from the time of writing.
 Read first: the brief (`../Brim Hackathon Brief - AP Automation for Business Cards.pdf`), `PLAN.md`, `brim_ap_dataset/README.md`.

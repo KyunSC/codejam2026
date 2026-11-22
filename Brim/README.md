@@ -1,60 +1,60 @@
 # Brim AP
 
-Harborline Logistics accounts payable, from inbox to simulated payment. CodeJam 16.
+Accounts payable for Brim business card customers: an Express API over Postgres, and a React app built with Vite.
 
-- What to build and why: `PLAN.md`
-- Exact rules, contracts and build order: `BUILD_PLAN.md`
-- Overnight loop prompts: `loops/`
+- `src/server` — the Express app: routes under `/api`, which check the role and call the services.
+- `src/services` — business rules and permissions.
+- `src/lib` — database, auth, permissions, shared helpers.
+- `src/web` — the React app; it reaches the server only through `/api`.
+- `scripts` — database reset and the dataset loader, which calls the API.
 
 ## Setup
 
+Needs Node 24 (`mise install` reads `mise.toml`) and a local Postgres.
+
 ```bash
-npm install            # also generates the Prisma client
-cp .env.example .env   # fill in DATABASE_URL; ANTHROPIC_API_KEY is optional for the loops
+npm install
+createdb brim_ap
+cp .env.example .env.local   # then fill it in: SESSION_SECRET, and ANTHROPIC_API_KEY for extraction
+./scripts/reset-db.sh        # loads db/schema.sql into the database named in DATABASE_URL
+```
+
+The server checks `.env.local` at startup and exits naming any missing setting.
+
+## Run
+
+```bash
 npm run dev
 ```
 
-Node 20.19 or later.
+Express serves the API and, in development, the React app through Vite on http://localhost:3000.
 
-## Scripts
+Load the dataset (with the server running):
 
-| Command | Does |
-| -- | -- |
-| `npm run dev` | Start the app |
-| `npm test` | Run Vitest once (loads `.env`, pins `APP_TODAY=2026-11-02`) |
-| `npm run script -- scripts/x.ts` | Run a script with `.env` loaded and `APP_TODAY` defaulting to 2026-11-02 |
-| `npm run typecheck` | TypeScript, no emit |
-| `npm run lint` | ESLint |
-| `npm run db:migrate` | Create and apply a migration. Loop A only, local DB (run with `BRIM_LOCAL_DB_ONLY=1`) |
-| `npm run script -- scripts/seed-harborline.ts` | Create Harborline and its 40 dataset users, each with the demo password (`SEED_PASSWORD`, default `harborline`) |
-| `npm run script -- scripts/create-brim-staff.ts <email> "<name>" <password>` | Add a Brim staff login for `/admin` |
+```bash
+npx tsx scripts/ingest.ts setup     # organization, people, vendors, POs, contracts
+npx tsx scripts/ingest.ts history   # past invoices, approvals and payments
+npx tsx scripts/ingest.ts inbox     # poll the simulated AP inbox
+```
 
-## Logging in
+To start over, run `./scripts/reset-db.sh` again before `setup`.
 
-- Customers log in at `/login` with email and password. New people use `/signup` with their organization's ID; a controller/admin approves them in Settings.
-- Harborline users after the seed: any dataset email, e.g. `jordan.okafor@harborline-logistics.example` (AP clerk) or `marcus.webb@harborline-logistics.example` (controller/admin), password `harborline`.
-- Brim staff log in from the footer link (`/admin/login`) to onboard and manage organizations. Scripts can call `/api/admin/*` with `Authorization: Bearer $BRIM_ADMIN_TOKEN` instead.
-- `.env` needs `SESSION_SECRET` (signs the login cookies) and `BRIM_ADMIN_TOKEN`.
+For production: `npm run build`, then `npm start`.
 
-## Harborline pipeline
+## Signing in
 
-Run `BRIM_LOCAL_DB_ONLY=1 npm run db:seed` after applying the migrations locally. The import reuses Harborline logins and runs once per organization. Repeating it preserves invoices, passwords, and audit history. The development inbox is `brim_ap_dataset/inbox/emails.open.json`, containing the 44 open messages. Run `npm run script -- scripts/ingest-inbox.ts --run` to process their attachments.
+Sign-in is by email only, with no password (demo). The login page lists the demo accounts. The Brim operator account, `ops@brim.example`, creates organizations and runs setup.
 
-## Shared code
+## Sealed invoices
 
-| File | Owner | Rule |
-| -- | -- | -- |
-| `src/lib/types.ts` | both | The pipeline/rules contract. Loop A may append; Loop B never edits |
-| `src/lib/config.ts` | both | Every threshold. Rules never hard-code a number |
-| `src/lib/dataset.ts` | both | Typed CSV and email loaders |
-| `src/lib/today.ts` | both | `today()` reads `APP_TODAY`; never call `new Date()` for "today" in a rule |
-| `src/lib/db.ts` | Loop A | Prisma client, created on first use |
-| `src/lib/db-guard.ts` | Loop A | With `BRIM_LOCAL_DB_ONLY=1`, Prisma and `db()` refuse non-local databases |
+`brim_ap_dataset/sealed_invoices.txt` lists 15 incoming files held back as a stand-in for the judges' hidden batch. The inbox poll skips the emails that carry them unless the server runs with `INCLUDE_SEALED=1`. Don't open those files. See `AGENTS.md`.
 
-## Pull request checks
+## Checks
 
-GitHub Actions runs typecheck, lint, and Vitest against a fresh local Postgres database after applying migrations and seeding the open dataset.
+```bash
+npm run typecheck
+npm run lint
+npm run build
+```
 
-Vercel sends deployment events to the workflow on `main`. For each Brim preview it posts `Brim preview / Neon` on the deployed commit. The workflow records the `/api/health` result for each deployment ID and uses Vercel’s commit statuses to select the latest deployment for the required check. A skipped preview can pass when the entire change since the merge base is limited to `ChalkTalk/` or root Markdown files. Protected previews accept a short-lived GitHub OIDC token with audience `brim-preview-health` from the preview workflow on `main`.
-
-After the workflows land on `main` and run on a PR, select `Brim tests, types, and lint` and `Brim preview / Neon` as required status checks in GitHub's branch rules.
+CI (`.github/workflows/brim-ci.yml`) runs these and loads `db/schema.sql` into Postgres.

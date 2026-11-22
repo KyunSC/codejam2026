@@ -1,5 +1,7 @@
 # Loop A progress: pipeline (BUILD_PLAN phases 1 and 3)
 
+> **Obsolete for the current stack.** This was written for the earlier Next.js/Prisma version (loops, Neon, Prisma, vitest). The app is now an Express API and a React/Vite frontend over Postgres (`db/schema.sql`); see `README.md`. Kept for history.
+
 Branch `loop/pipeline`. One item per run: implement, test, commit, tick. Items that need a real
 Claude call are marked **needs key** and skipped when `ANTHROPIC_API_KEY` is unset or blank.
 
