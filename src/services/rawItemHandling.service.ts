@@ -88,7 +88,7 @@ export async function handlingHistory(organizationId: string, rawItemId: string)
 }
 
 // The AP clerk's raw-item workload, for the list's tabs and the dashboard: being read, needing handling (no invoice or
-// not readable, nobody has dealt with it), waiting on the sender; todo = reading + needs.
+// not readable, nobody has dealt with it), waiting on the sender; todo = reading + needs; open = todo + waiting.
 export async function attentionCounts(user: User | null, organizationId: string) {
   assertMember(user, organizationId);
   assertCan(user, "parsed.review");
@@ -102,5 +102,5 @@ export async function attentionCounts(user: User | null, organizationId: string)
     [organizationId, HANDLEABLE],
   );
   const c = r ?? { reading: 0, needs: 0, waiting: 0 };
-  return { ...c, todo: c.reading + c.needs };
+  return { ...c, todo: c.reading + c.needs, open: c.reading + c.needs + c.waiting };
 }

@@ -12,8 +12,9 @@ import { A, Badge, Card, PageTitle, Pager, Show, Status, Table, Td, btn, btnLigh
 
 const STATUSES = ["all", "pending_approval", "approved", "scheduled", "paid", "rejected"];
 const KINDS = ["email", "pdf", "form"];
-// The raw list's views. "todo" (what still needs someone) is the clerk's default; "all" is the archive.
-const RAW_VIEWS = ["todo", "needs", "waiting", "handled", "all"];
+// The raw list's views. "todo" (what still needs someone) is the clerk's default; "open" is everything not settled
+// (to do + waiting on sender); "all" is the archive.
+const RAW_VIEWS = ["open", "todo", "needs", "waiting", "handled", "all"];
 
 export function Invoices() {
   const user = useUser();
@@ -43,8 +44,8 @@ export function Invoices() {
   );
   const counts = useLoad(
     () => (handles
-      ? get<{ reading: number; needs: number; waiting: number; todo: number }>(org(user, "/raw-items/attention"))
-      : Promise.resolve({ reading: 0, needs: 0, waiting: 0, todo: 0 })),
+      ? get<{ reading: number; needs: number; waiting: number; todo: number; open: number }>(org(user, "/raw-items/attention"))
+      : Promise.resolve({ reading: 0, needs: 0, waiting: 0, todo: 0, open: 0 })),
     `${attention}:${rawPage}:${raw.data?.[0]?.raw_item_id ?? ""}`,
   );
   const searchRaw = (e: React.FormEvent<HTMLFormElement>) => {
@@ -106,10 +107,11 @@ export function Invoices() {
             </span>}
             {handles && <span className="flex gap-1 normal-case">
               {([
+                ["open", `All (${counts.data?.open ?? 0})`, "Everything still to address: to do, needing attention and waiting on the sender"],
                 ["todo", `To do (${counts.data?.todo ?? 0})`, "Being read, or with no invoice and not dealt with yet"],
                 ["needs", `Needs attention (${counts.data?.needs ?? 0})`, "No invoice in it or not readable, and nobody has dealt with it"],
                 ["waiting", `Waiting on sender (${counts.data?.waiting ?? 0})`, "You asked the sender to send it again"],
-                ["handled", "Handled", "Dealt with: reviewed, answered, forwarded or dismissed"],
+                ["handled", "Handled", "Fully dealt with: reviewed, answered, forwarded or dismissed. A request to the sender stays under Waiting on sender"],
                 ["all", "Archive", "Everything ever received"],
               ] as const).map(([k, label, hint]) => (
                 <Link
@@ -161,6 +163,7 @@ export function Invoices() {
                 empty={
                   !ap ? "You have not submitted anything yet."
                     : rawSearching ? "Nothing received matches this search."
+                    : rawView === "open" ? "Nothing to address: every email and upload has been read or dealt with. See Archive for everything received."
                     : rawView === "todo" ? "Nothing to do: every email and upload has been read or dealt with. See Archive for everything received."
                     : rawView === "needs" ? "Nothing needs attention."
                     : rawView === "waiting" ? "Nothing is waiting on a sender."

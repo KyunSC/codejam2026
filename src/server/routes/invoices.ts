@@ -20,7 +20,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 
 export const invoices = Router({ mergeParams: true });
 
 // --- raw items ---
-// attention=todo (what still needs someone) | needs | waiting | handled; q searches id, sender, subject and file names;
+// attention=open (todo + waiting) | todo (what still needs someone) | needs | waiting | handled; q searches id, sender, subject and file names;
 // from/to (YYYY-MM-DD) bound the day received.
 invoices.get("/raw-items", route(async ({ user, params, query }) => (
   listRawItems(user, params.orgId, {
@@ -28,7 +28,7 @@ invoices.get("/raw-items", route(async ({ user, params, query }) => (
     q: param(query, "q"), from: param(query, "from"), to: param(query, "to"), ...pagingOf(query),
   })
 )));
-// The clerk's raw-item workload: { reading, needs, waiting, todo }.
+// The clerk's raw-item workload: { reading, needs, waiting, todo, open }.
 invoices.get("/raw-items/attention", route(async ({ user, params }) => attentionCounts(user, params.orgId), { gate: "parsed.review" }));
 // Multipart body with the file in field "file". It is read in the background; its raw item shows the result.
 invoices.post("/raw-items/uploads", upload.single("file"), route(async ({ req, user }) => {
