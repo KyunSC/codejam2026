@@ -108,8 +108,9 @@ async function loadDashboard(user: User) {
   const count = (path: string) => get<{ total_count: number }[]>(at(path)).then((rows) => rows[0]?.total_count ?? 0);
   const when = <T,>(ok: boolean, f: () => Promise<T>, empty: T) => (ok ? f() : Promise.resolve(empty));
 
-  const [rawNew, waiting, approved, scheduled, vendorsPending, openChanges, othersPending, spend, users] = await Promise.all([
-    when(can(user, "raw.extract"), () => count("/raw-items?status=failed&size=1"), 0),
+  const [rawWork, toReview, waiting, approved, scheduled, vendorsPending, openChanges, othersPending, spend, users] = await Promise.all([
+    when(can(user, "parsed.review"), () => get<{ reading: number; needs: number; waiting: number; todo: number }>(at("/raw-items/attention")), null),
+    when(can(user, "parsed.review"), () => count("/parsed-invoices?size=1"), 0),
     when(can(user, "approval.act"), () => get<WaitingApproval[]>(at("/approvals?waiting_on=me")), []),
     when(can(user, "payment.prepare"), () => count("/invoices?status=approved&type=invoice&size=1"), 0),
     when(can(user, "payment.release"), () => count("/payments?status=scheduled&size=1"), 0),
@@ -121,8 +122,11 @@ async function loadDashboard(user: User) {
   ]);
 
   const tiles: { label: string; value: number; href: string }[] = [];
-  if (can(user, "raw.extract")) {
-    tiles.push({ label: "Documents that could not be read", value: rawNew, href: "/invoices#raw" });
+  // the AP clerk's queue: invoices to check and approve, emails and uploads nobody has dealt with, and requests still out
+  if (can(user, "parsed.review") && rawWork) {
+    tiles.push({ label: "Invoices to review", value: toReview, href: "/invoices#parsed" });
+    tiles.push({ label: "Emails needing attention", value: rawWork.needs, href: "/invoices?raw=needs#raw" });
+    tiles.push({ label: "Waiting on a sender", value: rawWork.waiting, href: "/invoices?raw=waiting#raw" });
   }
   if (can(user, "approval.act")) tiles.push({ label: "Waiting for your approval", value: waiting.length, href: "/invoices#invoices" });
   if (can(user, "payment.prepare")) tiles.push({ label: "Approved, not yet scheduled", value: approved, href: "/payments#ready" });

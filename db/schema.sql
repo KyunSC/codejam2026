@@ -168,6 +168,30 @@ CREATE TABLE raw_items (
   UNIQUE (organization_id, source_ref)
 );
 
+-- How AP dealt with a raw item that holds no invoice or could not be read (rawItemHandling.service.ts).
+-- The raw item is never changed; each handling is a new row and the latest one is the item's state. Append-only.
+CREATE TABLE raw_item_handling (
+  handling_id          bigserial PRIMARY KEY,
+  organization_id      text NOT NULL REFERENCES organizations,
+  raw_item_id          text NOT NULL REFERENCES raw_items,
+  -- requested: asked the sender to send it again, waiting on them; reviewed: looked at and filed;
+  -- answered: replied to the sender; forwarded: sent to the person it is for; dismissed: nothing to do (marketing, spam)
+  outcome              text NOT NULL CHECK (outcome IN ('requested','reviewed','answered','forwarded','dismissed')),
+  forwarded_to_user_id text REFERENCES users,
+  note                 text NOT NULL,
+  handled_by           text NOT NULL REFERENCES users,
+  handled_at           timestamptz NOT NULL DEFAULT now(),
+  CHECK ((outcome = 'forwarded') = (forwarded_to_user_id IS NOT NULL))
+);
+CREATE INDEX raw_item_handling_latest ON raw_item_handling (raw_item_id, handling_id DESC);
+
+CREATE FUNCTION raw_item_handling_append_only() RETURNS trigger AS $$
+BEGIN
+  RAISE EXCEPTION 'raw_item_handling is append-only';
+END $$ LANGUAGE plpgsql;
+CREATE TRIGGER raw_item_handling_no_change BEFORE UPDATE OR DELETE ON raw_item_handling
+  FOR EACH ROW EXECUTE FUNCTION raw_item_handling_append_only();
+
 CREATE TABLE parsed_invoices (
   parsed_invoice_id   text PRIMARY KEY,
   organization_id     text NOT NULL REFERENCES organizations,
