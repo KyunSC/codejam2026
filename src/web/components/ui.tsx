@@ -81,6 +81,16 @@ export function Field({ label, children }: { label: string; children: React.Reac
   );
 }
 
+// The fields a form can do without, under their own heading after the essential ones.
+export function OptionalFields({ children, className = "grid grid-cols-2 gap-2 sm:grid-cols-3" }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className="col-span-full space-y-2 border-t border-line pt-3">
+      <p className="label muted m-0 text-xs">Optional</p>
+      <div className={className}>{children}</div>
+    </div>
+  );
+}
+
 export function PageTitle({ children, sub }: { children: React.ReactNode; sub?: React.ReactNode }) {
   return (
     <div className="mb-6">

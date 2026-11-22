@@ -1,18 +1,20 @@
 import { query } from "@/lib/db";
-import { userForRole } from "../approvalRouting.service";
+import { roleHolder } from "../approvalRouting.service";
+import { activePolicies } from "../policy.service";
 import { money } from "@/lib/format";
 import { type CheckContext, type Flag } from "./types";
 
 const SPLIT_WINDOW_DAYS = 3;
-const SPLIT_THRESHOLD = 10000;
 
 export async function policyChecks(ctx: CheckContext): Promise<Flag[]> {
   const { data: d, db } = ctx;
   const flags: Flag[] = [];
   const total = d.total_cad ?? 0;
 
-  // Split invoices: same vendor, dates within 3 days, each at or under $10,000, together over it.
-  if (d.vendor_id && d.invoice_date && total > 0 && total <= SPLIT_THRESHOLD) {
+  // Split invoices: same vendor, dates within 3 days, each at or under the first amount at which approval policies add an approver, together over it.
+  const thresholds = (await activePolicies(db, ctx.organizationId, "invoice")).filter((p) => p.field === "invoice_total" && p.operator === ">").map((p) => Number(p.value));
+  const SPLIT_THRESHOLD = thresholds.length ? Math.min(...thresholds) : null;
+  if (SPLIT_THRESHOLD != null && d.vendor_id && d.invoice_date && total > 0 && total <= SPLIT_THRESHOLD) {
     const near = await query<{ ref: string; total_cad: number }>(
       `SELECT invoice_id AS ref, total_cad FROM invoices
          WHERE organization_id=$1 AND vendor_id=$2 AND status NOT IN ('rejected','void')
@@ -31,7 +33,7 @@ export async function policyChecks(ctx: CheckContext): Promise<Flag[]> {
         check_code: "split_invoice",
         category: "policy",
         severity: "warning",
-        message: `With ${near.map((r) => r.ref).join(", ")} from the same vendor within ${SPLIT_WINDOW_DAYS} days, the total is ${money(combined)}: each is under the $10,000 limit, together over it. The approval chain uses the combined total.`,
+        message: `With ${near.map((r) => r.ref).join(", ")} from the same vendor within ${SPLIT_WINDOW_DAYS} days, the total is ${money(combined)}: each is under the ${money(SPLIT_THRESHOLD)} approval threshold, together over it. The approval chain uses the combined total.`,
         evidence: { related: near.map((r) => r.ref), combined },
       });
     }
@@ -39,8 +41,8 @@ export async function policyChecks(ctx: CheckContext): Promise<Flag[]> {
 
   // Requester is the department's approver (P07): the step goes to that approver's manager.
   if (d.requester_user_id && d.department_id) {
-    if ((await userForRole(db, ctx.organizationId, "dept_manager", d.department_id)) === d.requester_user_id) {
-      flags.push({ check_code: "requester_is_approver", category: "policy", severity: "info", message: `The requester (${d.requester_user_id}) manages this department, so their step goes to their manager (policy P07).` });
+    if ((await roleHolder(db, ctx.organizationId, "dept_manager", d.department_id)) === d.requester_user_id) {
+      flags.push({ check_code: "requester_is_approver", category: "policy", severity: "info", message: `The requester (${d.requester_user_id}) manages this department, so their step goes to their manager.` });
     }
   }
   return flags;

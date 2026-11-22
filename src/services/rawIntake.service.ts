@@ -75,8 +75,8 @@ async function checkFormInvoice(organizationId: string, f: Record<string, unknow
       "SELECT status FROM purchase_orders p JOIN vendors v USING (vendor_id) WHERE p.po_id=$1 AND p.vendor_id=$2 AND v.organization_id=$3",
       [f.po_reference, f.vendor_id, organizationId],
     );
-    if (!po) fail("That PO is not one of this vendor's.");
-    if (po!.status === "closed") fail("That PO is closed.");
+    if (!po) fail("That purchase order is not one of this vendor's.");
+    if (po!.status === "closed") fail("That purchase order is closed.");
   }
   const lines = Array.isArray(f.lines) ? (f.lines as Record<string, unknown>[]) : [];
   if (!lines.length) fail("Add at least one line.");

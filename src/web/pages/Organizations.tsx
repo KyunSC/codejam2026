@@ -2,8 +2,8 @@ import { useNavigate, useParams } from "react-router-dom";
 import type { User } from "@/lib/types";
 import type { Organization as OrganizationRecord } from "@/services/organization.service";
 import { get, patch, post, useLoad } from "../api";
-import { ApiForm, str } from "../components/ApiForm";
-import { A, Card, Field, PageTitle, Show, Status, Table, Td, btn, btnLight, date, input } from "../components/ui";
+import { ApiForm, numOrNull, str } from "../components/ApiForm";
+import { A, Card, Field, OptionalFields, PageTitle, Show, Status, Table, Td, btn, btnLight, date, input } from "../components/ui";
 
 export function Organizations() {
   const navigate = useNavigate();
@@ -62,7 +62,7 @@ export function Organization() {
   const addUser = async (fd: FormData) => {
     await post(`${base}/users`, {
       full_name: str(fd, "full_name"), email: str(fd, "email"), title: str(fd, "title"), role: str(fd, "role"),
-      department_id: str(fd, "department_id"), password: str(fd, "password") ?? "",
+      department_id: str(fd, "department_id"), approval_limit_cad: numOrNull(fd, "approval_limit_cad"), password: str(fd, "password") ?? "",
     });
     load.reload();
     return "User added. They sign in on the regular login.";
@@ -90,10 +90,12 @@ export function Organization() {
               <Table head={["Department", "Cost centre", "Manager"]}>
                 {depts.map((d) => <tr key={d.department_id}><Td>{d.name}</Td><Td>{d.cost_centre}</Td><Td>{d.manager}</Td></tr>)}
               </Table>
-              <ApiForm reset submit={addDepartment} className="mt-4 flex flex-wrap items-end gap-2 border-t border-line pt-4">
+              <ApiForm reset submit={addDepartment} className="mt-4 grid grid-cols-2 gap-2 border-t border-line pt-4">
                 <Field label="Department"><input name="name" className={input} required /></Field>
-                <Field label="Cost centre"><input name="cost_centre" className={input} /></Field>
-                <button className={btnLight}>Add department</button>
+                <OptionalFields className="grid grid-cols-2 gap-2">
+                  <Field label="Cost centre"><input name="cost_centre" className={input} /></Field>
+                </OptionalFields>
+                <div className="col-span-2"><button className={btnLight}>Add department</button></div>
               </ApiForm>
             </Card>
             <Card title={`Users (${users.length})`}>
@@ -104,14 +106,17 @@ export function Organization() {
               <ApiForm key={users.some((u) => u.role === "controller_admin") ? "more" : "first"} reset submit={addUser} className="mt-4 grid grid-cols-2 gap-2 border-t border-line pt-4">
                 <Field label="Name"><input name="full_name" className={input} required /></Field>
                 <Field label="Email"><input name="email" type="email" className={input} required /></Field>
-                <Field label="Title"><input name="title" className={input} /></Field>
                 <Field label="Role">
                   <select name="role" defaultValue={users.some((u) => u.role === "controller_admin") ? "employee" : "controller_admin"} className={input}>
                     {["controller_admin", "finance_manager", "approver", "ap_clerk", "employee", "auditor"].map((r) => <option key={r} value={r}>{r.replace(/_/g, " ")}</option>)}
                   </select>
                 </Field>
-                <Field label="Department"><select name="department_id" className={input}><option value="">—</option>{depts.map((d) => <option key={d.department_id} value={d.department_id}>{d.name}</option>)}</select></Field>
                 <Field label="Password"><input name="password" type="password" minLength={8} required autoComplete="new-password" className={input} /></Field>
+                <OptionalFields className="grid grid-cols-2 gap-2">
+                  <Field label="Title"><input name="title" className={input} /></Field>
+                  <Field label="Department"><select name="department_id" className={input}><option value="">—</option>{depts.map((d) => <option key={d.department_id} value={d.department_id}>{d.name}</option>)}</select></Field>
+                  <Field label="Approval limit (CAD)"><input name="approval_limit_cad" type="number" min="0" step="0.01" className={input} /></Field>
+                </OptionalFields>
                 <p className="col-span-2 text-xs muted">The first user is usually the controller / admin, who then sets up the rest in Settings.</p>
                 <div className="col-span-2"><button className={btnLight}>Add user</button></div>
               </ApiForm>

@@ -6,7 +6,7 @@ import { TAX_CODES, expectedCodes, type TaxCode } from "@/lib/taxCodes";
 import { get, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { ApiForm } from "../components/ApiForm";
-import { Card, Field, NotFound, PageTitle, Table, Td, btn, btnLight, input } from "../components/ui";
+import { Card, Field, NotFound, OptionalFields, PageTitle, Table, Td, btn, btnLight, input } from "../components/ui";
 
 export function InvoiceUpload() {
   const user = useUser();
@@ -148,30 +148,12 @@ export function InvoiceForm() {
             <Field label="Invoice number"><input value={number} onChange={(e) => setNumber(e.target.value)} className={input} required /></Field>
             <Field label="Currency"><select value={currency} onChange={(e) => setCurrency(e.target.value)} className={input}><option>CAD</option><option>USD</option></select></Field>
             <Field label="Invoice date"><input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} className={input} required /></Field>
-            <Field label={dueDate === null && termsDue ? `Due date (${vendor!.payment_terms_days} days, from the vendor's terms)` : "Due date"}>
-              <div className="flex gap-1">
-                <input type="date" value={shownDue} onChange={(e) => setDueDate(e.target.value)} className={input} />
-                {dueDate !== null && termsDue && <button type="button" className={btnLight} onClick={() => setDueDate(null)} title="Back to the vendor's terms">↺</button>}
-              </div>
-            </Field>
-            <Field label="Purchase order">
-              <select value={poId} onChange={(e) => setPoId(e.target.value)} className={input} disabled={!vendorId}>
-                <option value="">{vendorId ? (openPos.length ? "— none —" : "— this vendor has no open PO —") : "— pick the vendor first —"}</option>
-                {openPos.map((p) => <option key={p.po_id} value={p.po_id}>{p.po_id} · {p.description}</option>)}
-              </select>
-              {vendor?.requires_po && !poId && (
-                <span className="text-xs font-normal text-flag">
-                  {vendor.legal_name} requires a PO{openPos.length ? "; pick it here." : ", and has none open: accounts payable will hold this invoice until one exists."}
-                </span>
-              )}
-            </Field>
             <Field label="Delivered to (province)">
               <select value={province} onChange={(e) => setProvince(e.target.value)} className={input} required>
                 <option value="">Choose…</option>
                 {PROVINCES.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
               </select>
             </Field>
-            <div className="sm:col-span-2"><Field label="Delivery address (optional)"><input value={address} onChange={(e) => setAddress(e.target.value)} className={input} /></Field></div>
           </div>
 
           <div>
@@ -214,9 +196,27 @@ export function InvoiceForm() {
             <div className="flex justify-between border-t border-line pt-2 font-bold"><span>Total</span><span>{money(total, currency)}</span></div>
           </div>
 
-          <Field label="Copy of the invoice (optional)">
-            <input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg" className="block w-full text-sm" />
-          </Field>
+          <OptionalFields>
+            <Field label={dueDate === null && termsDue ? `Due date (${vendor!.payment_terms_days} days, from the vendor's terms)` : "Due date"}>
+              <div className="flex gap-1">
+                <input type="date" value={shownDue} onChange={(e) => setDueDate(e.target.value)} className={input} />
+                {dueDate !== null && termsDue && <button type="button" className={btnLight} onClick={() => setDueDate(null)} title="Back to the vendor's terms">↺</button>}
+              </div>
+            </Field>
+            <Field label="Purchase order">
+              <select value={poId} onChange={(e) => setPoId(e.target.value)} className={input} disabled={!vendorId}>
+                <option value="">{vendorId ? (openPos.length ? "— none —" : "— this vendor has no open purchase order —") : "— pick the vendor first —"}</option>
+                {openPos.map((p) => <option key={p.po_id} value={p.po_id}>{p.po_id} · {p.description}</option>)}
+              </select>
+              {vendor?.requires_po && !poId && (
+                <span className="text-xs font-normal text-flag">
+                  {vendor.legal_name} requires a purchase order{openPos.length ? "; pick it here." : ", and has none open: accounts payable will hold this invoice until one exists."}
+                </span>
+              )}
+            </Field>
+            <Field label="Delivery address"><input value={address} onChange={(e) => setAddress(e.target.value)} className={input} /></Field>
+            <Field label="Copy of the invoice"><input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg" className="block w-full text-sm" /></Field>
+          </OptionalFields>
 
           <div className="flex gap-3">
             <button className={btn}>Submit invoice</button>

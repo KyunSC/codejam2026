@@ -100,7 +100,7 @@ function serverFor(user: User) {
     invoice_date: z.string().describe("YYYY-MM-DD"),
     due_date: z.string().optional().describe("YYYY-MM-DD"),
     currency: z.enum(["CAD", "USD"]).default("CAD"),
-    po_reference: z.string().optional().describe("one of the vendor's PO ids"),
+    po_reference: z.string().optional().describe("one of the vendor's purchase order ids"),
     ship_to_province: z.enum(["AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"]).describe("province the goods or services were delivered to; the tax depends on it"),
     bill_to_address: z.string().optional().describe("delivery address, if known"),
     lines: z.array(z.object({ description: z.string(), quantity: z.number().positive(), unit_price: z.number(), line_type: z.enum(["goods", "services"]).default("services") })).min(1),

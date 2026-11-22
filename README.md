@@ -28,7 +28,7 @@ Load the dataset (with the server running):
 
 Employees can let an AI agent work in the app for them. The MCP server is at `/mcp` (Streamable HTTP).
 
-1. Log in, open your name in the header (Account), and create a token under Agent access. It is shown once.
+1. Log in, open the Account tab, and create a token under Agent access. It is shown once.
 2. Add the server to your agent, for example Claude Code:
 
 ```bash

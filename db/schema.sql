@@ -25,7 +25,8 @@ CREATE TABLE users (
   department_id      text REFERENCES departments,
   manager_id         text REFERENCES users,
   role               text NOT NULL CHECK (role IN ('brim_employee','employee','ap_clerk','approver','finance_manager','controller_admin','auditor')),
-  approval_limit_cad numeric(14,2) NOT NULL DEFAULT 0,
+  -- the most this person may approve, whatever the policy; empty: no personal cap, only the policies apply
+  approval_limit_cad numeric(14,2),
   work_province      text,
   status             text NOT NULL DEFAULT 'active' CHECK (status IN ('active','on_leave','terminated')),
   status_since       date,
@@ -60,13 +61,15 @@ CREATE TABLE gl_accounts (
   PRIMARY KEY (organization_id, account_number)
 );
 
+-- When [field] [operator] [value], require [required]. The fields, operators and roles each type allows are in src/lib/policies.ts.
 CREATE TABLE approval_policies (
   rule_id         text NOT NULL,
   organization_id text NOT NULL REFERENCES organizations,
-  rule_type       text NOT NULL CHECK (rule_type IN ('approval','payment_release','match')),
-  trigger_type    text NOT NULL,
-  trigger_value   numeric(14,2),
-  step_role       text,
+  rule_type       text NOT NULL CHECK (rule_type IN ('approval','match','payment_release')),
+  field           text NOT NULL,
+  operator        text NOT NULL CHECK (operator IN ('<=','>','is','in','always')),
+  value           text,
+  required        text[] NOT NULL,
   is_active       boolean NOT NULL DEFAULT true,
   updated_by      text REFERENCES users,
   updated_at      timestamptz NOT NULL DEFAULT now(),
@@ -246,7 +249,8 @@ CREATE TABLE approvals (
   rule_id              text,
   assigned_user_id     text REFERENCES users,
   original_user_id     text REFERENCES users,
-  reassign_reason      text CHECK (reassign_reason IN ('delegate','requester_is_approver','terminated')),
+  -- over_limit: the invoice is above the assignee's own approval limit, so the step went to their manager
+  reassign_reason      text CHECK (reassign_reason IN ('delegate','requester_is_approver','terminated','over_limit')),
   status               text NOT NULL CHECK (status IN ('waiting','pending','approved','rejected')),
   acted_by             text REFERENCES users,
   on_behalf_of_user_id text REFERENCES users,

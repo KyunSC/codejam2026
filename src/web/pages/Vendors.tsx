@@ -6,7 +6,7 @@ import type { InvoiceRow } from "@/services/read.service";
 import { get, patch, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { ApiForm, numOrNull, str } from "../components/ApiForm";
-import { A, Badge, Card, Field, NotFound, PageTitle, Show, Status, Table, Td, btn, btnDanger, btnLight, date, input } from "../components/ui";
+import { A, Badge, Card, Field, NotFound, OptionalFields, PageTitle, Show, Status, Table, Td, btn, btnDanger, btnLight, date, input } from "../components/ui";
 
 type VendorRow = Awaited<ReturnType<typeof listVendors>>[number];
 
@@ -60,7 +60,8 @@ type Contract = { contract_id: string; description: string; billing_type: string
 type Po = { po_id: string; description: string; total_amount: number; status: string; issue_date: string };
 type VendorView = { v: Awaited<ReturnType<typeof getVendor>>; changes: Awaited<ReturnType<typeof listBankChanges>>; contracts: Contract[]; pos: Po[]; invoices: InvoiceRow[]; depts: { department_id: string; name: string }[] };
 
-// The vendor fields a clerk edits on the vendor page.
+// The vendor fields a clerk edits on the vendor page; a vendor needs at least a name, a country and a way to be paid.
+const ESSENTIAL_DETAILS = ["legal_name", "country", "preferred_payment_method"];
 const DETAIL_FIELDS: [string, string][] = [
   ["legal_name", "Legal name"], ["category", "Category"], ["default_gl_account", "Default GL account"], ["address", "Address"],
   ["province_or_state", "Province / state"], ["country", "Country"], ["gst_hst_number", "GST/HST number"], ["qst_number", "QST number"],
@@ -160,17 +161,22 @@ export function Vendor() {
                 <dl className="grid grid-cols-2 gap-2 text-sm">
                   {row("category", "Category")}{row("default_gl_account", "Default GL")}{row("address", "Address")}{row("country", "Country")}
                   {row("gst_hst_number", "GST/HST")}{row("qst_number", "QST")}{row("payment_terms_days", "Terms (days)")}{row("early_pay_discount", "Early-pay discount")}
-                  {row("preferred_payment_method", "Pays by")}{row("ap_contact_email", "Billing email")}{row("phone", "Phone")}{row("requires_po", "Requires PO")}{row("onboarded_at", "Onboarded")}
+                  {row("preferred_payment_method", "Pays by")}{row("ap_contact_email", "Billing email")}{row("phone", "Phone")}{row("requires_po", "Requires a purchase order")}{row("onboarded_at", "Onboarded")}
                   <dt className="muted">Bank account</dt><dd className="font-mono">{v.bank_account ? `${v.bank_institution}-${v.bank_transit}-${v.bank_account}` : "—"}</dd>
                 </dl>
                 {can(user, "vendor.onboard") && (
                   <details className="mt-4 border-t border-line pt-3">
                     <summary className="cursor-pointer text-sm font-bold">Edit details</summary>
                     <ApiForm submit={saveDetails} className="mt-3 grid grid-cols-2 gap-2">
-                      {DETAIL_FIELDS.map(([k, label]) => (
-                        <Field key={k} label={label}><input name={k} defaultValue={v[k] == null ? "" : String(v[k])} className={input} /></Field>
+                      {DETAIL_FIELDS.filter(([k]) => ESSENTIAL_DETAILS.includes(k)).map(([k, label]) => (
+                        <Field key={k} label={label}><input name={k} defaultValue={v[k] == null ? "" : String(v[k])} className={input} required /></Field>
                       ))}
-                      <label className="col-span-2 flex items-center gap-2 text-sm"><input type="checkbox" name="requires_po" defaultChecked={!!v.requires_po} /> Requires a PO</label>
+                      <OptionalFields className="grid grid-cols-2 gap-2">
+                        {DETAIL_FIELDS.filter(([k]) => !ESSENTIAL_DETAILS.includes(k)).map(([k, label]) => (
+                          <Field key={k} label={label}><input name={k} defaultValue={v[k] == null ? "" : String(v[k])} className={input} /></Field>
+                        ))}
+                        <label className="col-span-2 flex items-center gap-2 text-sm"><input type="checkbox" name="requires_po" defaultChecked={!!v.requires_po} /> Requires a purchase order</label>
+                      </OptionalFields>
                       <div className="col-span-2 text-xs muted">Bank details change through a bank change request.</div>
                       <div className="col-span-2"><button className={btnLight}>Save details</button></div>
                     </ApiForm>
@@ -213,7 +219,9 @@ export function Vendor() {
                     <Field label="Requested by">
                       <select name="channel" className={input}><option value="email_request">email</option><option value="phone_callback_verified">phone</option><option value="vendor_portal">vendor portal</option></select>
                     </Field>
-                    <label className="col-span-2 flex items-end gap-1 pb-1 text-xs"><input type="checkbox" name="verified" /> confirmed by calling the number on file</label>
+                    <OptionalFields className="grid grid-cols-1 gap-2">
+                      <label className="flex items-end gap-1 pb-1 text-xs"><input type="checkbox" name="verified" /> confirmed by calling the number on file</label>
+                    </OptionalFields>
                     <div className="col-span-3"><button className={btnLight}>Request bank change</button></div>
                   </ApiForm>
                 )}
@@ -242,12 +250,14 @@ export function Vendor() {
                     <ApiForm reset submit={addContract} className="mt-3 grid grid-cols-2 gap-2">
                       <Field label="Description"><input name="description" className={input} required /></Field>
                       <Field label="Type"><select name="billing_type" className={input}><option value="fixed_monthly">fixed monthly</option><option value="rate_card">rate card</option><option value="retainer">retainer</option><option value="blanket">blanket</option></select></Field>
+                      <OptionalFields className="grid grid-cols-2 gap-2">
                       <Field label="Monthly fee"><input name="monthly_fee" type="number" step="0.01" className={input} /></Field>
                       <Field label="Hourly rate cap"><input name="hourly_rate_cap" type="number" step="0.01" className={input} /></Field>
                       <Field label="Monthly limit"><input name="not_to_exceed_monthly" type="number" step="0.01" className={input} /></Field>
                       <Field label="Currency"><select name="currency" className={input}><option>CAD</option><option>USD</option></select></Field>
                       <Field label="Starts"><input name="start_date" type="date" className={input} /></Field>
                       <Field label="Ends"><input name="end_date" type="date" className={input} /></Field>
+                      </OptionalFields>
                       <div className="col-span-2"><button className={btnLight}>Add contract</button></div>
                     </ApiForm>
                   </details>
@@ -255,7 +265,7 @@ export function Vendor() {
               </Card>
 
               <Card title="Purchase orders">
-                <Table head={["PO", "Description", "Total", "Issued", "Status"]} empty="No POs.">
+                <Table head={["Purchase order", "Description", "Total", "Issued", "Status"]} empty="No purchase orders.">
                   {pos.map((p) => (
                     <tr key={p.po_id}><Td>{p.po_id}</Td><Td>{p.description}</Td><Td>{money(p.total_amount)}</Td><Td>{date(p.issue_date)}</Td><Td><Status value={p.status} /></Td></tr>
                   ))}
@@ -268,7 +278,9 @@ export function Vendor() {
                       <Field label="Total"><input name="total_amount" type="number" step="0.01" className={input} required /></Field>
                       <Field label="Department"><select name="department_id" className={input} required><option value="">Choose…</option>{depts.map((d) => <option key={d.department_id} value={d.department_id}>{d.name}</option>)}</select></Field>
                       <Field label="Issued"><input name="issue_date" type="date" className={input} required /></Field>
-                      <Field label="Currency"><select name="currency" className={input}><option>CAD</option><option>USD</option></select></Field>
+                      <OptionalFields className="grid grid-cols-2 gap-2">
+                        <Field label="Currency"><select name="currency" className={input}><option>CAD</option><option>USD</option></select></Field>
+                      </OptionalFields>
                       <div className="col-span-2"><button className={btnLight}>Add purchase order</button></div>
                     </ApiForm>
                   </details>
@@ -323,6 +335,9 @@ export function NewVendor() {
       <Card>
         <ApiForm submit={create} className="grid grid-cols-2 gap-3">
           {text("legal_name", "Legal name", true)}
+          <Field label="Country"><select name="country" className={input}><option>CA</option><option>US</option></select></Field>
+          <Field label="Pays by"><select name="preferred_payment_method" className={input}><option>EFT</option><option>CHEQUE</option><option>CARD</option></select></Field>
+          <OptionalFields className="grid grid-cols-2 gap-3">
           {text("category", "Category")}
           <Field label="Default GL account">
             <select name="default_gl_account" className={input}>
@@ -332,17 +347,16 @@ export function NewVendor() {
           </Field>
           {text("address", "Address")}
           {text("province_or_state", "Province / state")}
-          <Field label="Country"><select name="country" className={input}><option>CA</option><option>US</option></select></Field>
           {text("gst_hst_number", "GST/HST number")}
           {text("qst_number", "QST number")}
           {text("payment_terms_days", "Payment terms (days)")}
-          <Field label="Pays by"><select name="preferred_payment_method" className={input}><option>EFT</option><option>CHEQUE</option><option>CARD</option></select></Field>
           {text("bank_institution", "Bank institution")}
           {text("bank_transit", "Transit")}
           {text("bank_account", "Account")}
           {text("ap_contact_email", "Billing email")}
           {text("phone", "Phone (for bank change callbacks)")}
-          <label className="col-span-2 flex items-center gap-2 text-sm"><input type="checkbox" name="requires_po" /> Requires a PO</label>
+          </OptionalFields>
+          <label className="col-span-2 flex items-center gap-2 text-sm"><input type="checkbox" name="requires_po" /> Requires a purchase order</label>
           <div className="col-span-2"><button className={btn}>Create vendor</button></div>
         </ApiForm>
       </Card>

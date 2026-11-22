@@ -33,21 +33,20 @@ const login = (email: string) => call("POST", "/api/session", { email, password:
 const post = (url: string, body: unknown) => call("POST", O + url, body);
 const patch = (url: string, body: unknown) => call("PATCH", O + url, body);
 
-// Policy rows P01–P13 as structured triggers; the dataset's condition column is free text.
-const POLICY_MAP: Record<string, { trigger_type: string; trigger_value: number | null; step_role: string }> = {
-  P01: { trigger_type: "always", trigger_value: null, step_role: "dept_manager" },
-  P02: { trigger_type: "amount_over", trigger_value: 10000, step_role: "finance_manager" },
-  P03: { trigger_type: "amount_over", trigger_value: 50000, step_role: "controller" },
-  P04: { trigger_type: "amount_over", trigger_value: 250000, step_role: "cfo" },
-  P05: { trigger_type: "vendor_pending", trigger_value: null, step_role: "finance_manager" },
-  P06: { trigger_type: "vendor_category", trigger_value: null, step_role: "finance_manager" },
-  P07: { trigger_type: "requester_is_approver", trigger_value: null, step_role: "manager" },
-  P08: { trigger_type: "approver_on_leave", trigger_value: null, step_role: "delegate" },
-  P09: { trigger_type: "payment_upto", trigger_value: 100000, step_role: "finance_manager" },
-  P10: { trigger_type: "payment_over", trigger_value: 100000, step_role: "controller_admin" },
-  P11: { trigger_type: "always", trigger_value: null, step_role: "not_approver" },
-  P12: { trigger_type: "po_over_balance", trigger_value: null, step_role: "finance_manager" },
-  P13: { trigger_type: "po_required", trigger_value: null, step_role: "hold" },
+// The dataset's rules P01–P13 (free-text conditions) as: when [field] [operator] [value], require [required].
+type PolicyShape = { rule_type: string; field: string; operator: string; value: string | null; required: string[] };
+const POLICY_MAP: Record<string, PolicyShape> = {
+  P01: { rule_type: "approval", field: "invoice_total", operator: "<=", value: "10000", required: ["dept_manager"] },
+  P02: { rule_type: "approval", field: "invoice_total", operator: ">", value: "10000", required: ["dept_manager", "finance_manager"] },
+  P03: { rule_type: "approval", field: "invoice_total", operator: ">", value: "50000", required: ["dept_manager", "finance_manager", "controller"] },
+  P04: { rule_type: "approval", field: "invoice_total", operator: ">", value: "250000", required: ["dept_manager", "finance_manager", "controller", "cfo"] },
+  P05: { rule_type: "approval", field: "vendor_status", operator: "in", value: "pending_review,new", required: ["finance_manager"] },
+  P06: { rule_type: "approval", field: "vendor_category", operator: "is", value: "Legal", required: ["finance_manager"] },
+  P09: { rule_type: "payment_release", field: "payment_amount", operator: "<=", value: "100000", required: ["finance_manager"] },
+  P10: { rule_type: "payment_release", field: "payment_amount", operator: ">", value: "100000", required: ["controller"] },
+  P11: { rule_type: "payment_release", field: "any_payment", operator: "always", value: null, required: ["not_approver"] },
+  P12: { rule_type: "match", field: "po_over_balance", operator: "always", value: null, required: ["finance_manager"] },
+  P13: { rule_type: "match", field: "po_missing", operator: "always", value: null, required: ["hold"] },
 };
 
 async function setup() {
@@ -71,7 +70,8 @@ async function setup() {
   for (const d of depts) await patch(`/departments/${d.department_id}`, { manager_user_id: d.manager_user_id });
 
   for (const g of csv("gl_accounts")) await post("/gl-accounts", { account_number: g.account_number, name: g.name, account_type: g.account_type });
-  for (const p of csv("approval_policies")) await post("/policies", { rule_id: p.rule_id, rule_type: p.rule_type, ...POLICY_MAP[p.rule_id], is_active: true });
+  // P07 (requester → their manager) and P08 (on leave → delegate) are how every approval chain works, not policies
+  for (const p of csv("approval_policies")) if (POLICY_MAP[p.rule_id]) await post("/policies", { rule_id: p.rule_id, ...POLICY_MAP[p.rule_id], is_active: true });
 
   for (const v of csv("vendors")) {
     await post("/vendors", {

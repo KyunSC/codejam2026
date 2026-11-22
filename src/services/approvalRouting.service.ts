@@ -1,98 +1,98 @@
 import { Db, query, one, nextId } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
 import { ValidationError } from "@/lib/errors";
+import { matches } from "@/lib/policies";
 import type { User } from "@/lib/types";
+import { activePolicies, invoiceFacts } from "./policy.service";
 
-type Policy = { rule_id: string; rule_type: string; trigger_type: string; trigger_value: number | null; step_role: string | null; is_active: boolean };
+type Person = { user_id: string; manager_id: string | null; status: string; delegate_user_id: string | null; approval_limit_cad: number | null };
+type Reason = "delegate" | "requester_is_approver" | "terminated" | "over_limit";
 
-const ROLE_ORDER = ["dept_manager", "finance_manager", "controller", "cfo"];
-
-// Step 6: the chain is built from the approval_policies rows.
+// Step 7: who approves an invoice. Every active invoice policy that applies adds its roles; each role's holder
+// climbs the org tree until someone may approve; the steps run from the lowest approval limit to the highest.
 export async function startApprovalChain(db: Db, actor: User, invoiceId: string) {
   const inv = (await one<{ organization_id: string; total_cad: number; department_id: string | null; requester_user_id: string | null; vendor_id: string; parsed_invoice_id: string }>(
     "SELECT organization_id, total_cad, department_id, requester_user_id, vendor_id, parsed_invoice_id FROM invoices WHERE invoice_id=$1",
     [invoiceId],
     db,
   ))!;
-  const policies = await query<Policy>("SELECT * FROM approval_policies WHERE organization_id=$1 AND is_active", [inv.organization_id], db);
-  const vendor = await one<{ status: string; category: string | null }>("SELECT status, category FROM vendors WHERE vendor_id=$1", [inv.vendor_id], db);
-  const flags = await query<{ check_code: string; evidence_json: { combined?: number } | null }>(
-    "SELECT check_code, evidence_json FROM invoice_flags WHERE parsed_invoice_id=$1",
+  const flags = await query<{ check_code: string; evidence: Record<string, unknown> | null }>(
+    "SELECT check_code, evidence_json AS evidence FROM invoice_flags WHERE parsed_invoice_id=$1",
     [inv.parsed_invoice_id],
     db,
   );
-  // Split invoices: the chain uses the combined total.
-  const amount = Math.max(Math.abs(inv.total_cad ?? 0), ...flags.filter((f) => f.check_code === "split_invoice").map((f) => f.evidence_json?.combined ?? 0));
+  const facts = await invoiceFacts(db, { ...inv, invoice_id: invoiceId }, flags);
 
-  const steps: { role: string; rule: string }[] = [];
-  const add = (role: string | null, rule: string) => role && !steps.some((s) => s.role === role) && steps.push({ role, rule });
-  for (const p of policies.filter((p) => p.rule_type === "approval" || p.rule_type === "match")) {
-    if (p.trigger_type === "always") add(p.step_role, p.rule_id);
-    if (p.trigger_type === "amount_over" && p.trigger_value != null && amount > p.trigger_value) add(p.step_role, p.rule_id);
-    if (p.trigger_type === "vendor_pending" && vendor?.status === "pending_review") add(p.step_role, p.rule_id);
-    if (p.trigger_type === "vendor_category" && vendor?.category === "Legal") add(p.step_role, p.rule_id);
-    if (p.trigger_type === "po_over_balance" && flags.some((f) => f.check_code === "po_over_balance")) add(p.step_role, p.rule_id);
+  const roles = new Map<string, string[]>();
+  for (const p of (await activePolicies(db, inv.organization_id, "invoice")).filter((p) => matches(p, facts))) {
+    for (const role of p.required.filter((r) => r !== "hold")) roles.set(role, [...(roles.get(role) ?? []), p.rule_id]);
   }
-  if (!steps.length) steps.push({ role: "dept_manager", rule: "default" });
-  steps.sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role));
+  // with every policy switched off, the department manager still approves
+  if (!roles.size) roles.set("dept_manager", ["default"]);
 
-  const hasPolicy = (t: string) => policies.some((p) => p.trigger_type === t);
-  let stepNo = 0;
-  for (const s of steps) {
-    stepNo++;
-    const original = await userForRole(db, inv.organization_id, s.role, inv.department_id);
-    const { assigned, reason } = await reassign(db, original, inv.requester_user_id, { selfApproval: hasPolicy("requester_is_approver"), onLeave: hasPolicy("approver_on_leave") });
-    if (!assigned) throw new ValidationError(s.role === "dept_manager" ? "The invoice's department has no manager to approve it." : `Nobody holds the ${s.role.replace(/_/g, " ")} role to approve this invoice.`);
+  const steps: { assigned: Person; original: string; reason: Reason | null; rules: string }[] = [];
+  for (const [role, rules] of roles) {
+    const holder = await roleHolder(db, inv.organization_id, role, inv.department_id);
+    if (!holder) throw new ValidationError(role === "dept_manager" ? "The invoice's department has no manager to approve it." : `Nobody holds the ${role.replace(/_/g, " ")} role to approve this invoice.`);
+    const { assigned, reason } = await climb(db, holder, inv.requester_user_id, facts.invoice_total as number);
+    // two roles can climb to the same person: they approve once
+    if (!steps.some((s) => s.assigned.user_id === assigned.user_id)) steps.push({ assigned, original: holder, reason, rules: rules.join(",") });
+  }
+  // lowest limit first; an empty limit is no cap, so last
+  steps.sort((a, b) => (a.assigned.approval_limit_cad ?? Infinity) - (b.assigned.approval_limit_cad ?? Infinity));
+
+  for (const [i, s] of steps.entries()) {
     await query(
       `INSERT INTO approvals (approval_id, invoice_id, step_no, rule_id, assigned_user_id, original_user_id, reassign_reason, status)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [await nextId("APR", db), invoiceId, stepNo, s.rule, assigned, original, reason, stepNo === 1 ? "pending" : "waiting"],
+      [await nextId("APR", db), invoiceId, i + 1, s.rules, s.assigned.user_id, s.original, s.reason, i === 0 ? "pending" : "waiting"],
       db,
     );
   }
-  await writeAudit(db, { organizationId: inv.organization_id, actor, action: "approval.chain_start", entityType: "invoice", entityId: invoiceId, invoiceId, after: steps });
+  await writeAudit(db, {
+    organizationId: inv.organization_id, actor, action: "approval.chain_start", entityType: "invoice", entityId: invoiceId, invoiceId,
+    after: steps.map((s) => ({ user_id: s.assigned.user_id, rules: s.rules, reason: s.reason })),
+  });
 }
 
-// The person who holds an approval role: the department's manager, or the organization's finance manager, controller or CFO.
-export async function userForRole(db: Db, orgId: string, role: string, departmentId: string | null): Promise<string | null> {
+// The person who holds an approval role: the department's manager; the finance manager; the controller;
+// the CFO, who is the top of the org tree.
+export async function roleHolder(db: Db, orgId: string, role: string, departmentId: string | null): Promise<string | null> {
   if (role === "dept_manager") {
     const d = departmentId ? await one<{ manager_user_id: string }>("SELECT manager_user_id FROM departments WHERE department_id=$1", [departmentId], db) : null;
     return d?.manager_user_id ?? null;
   }
-  const sql: Record<string, string> = {
+  const where: Record<string, string> = {
     finance_manager: "role='finance_manager'",
-    controller: "role='controller_admin' AND title ILIKE '%controller%'",
-    cfo: "role='controller_admin' AND title ILIKE '%chief financial%'",
+    controller: "role='controller_admin' AND manager_id IS NOT NULL",
+    cfo: "role='controller_admin' AND manager_id IS NULL",
   };
+  if (!where[role]) return null;
   const u = await one<{ user_id: string }>(
-    `SELECT user_id FROM users WHERE organization_id=$1 AND ${sql[role] ?? "false"} AND status<>'terminated' ORDER BY approval_limit_cad DESC LIMIT 1`,
+    `SELECT user_id FROM users WHERE organization_id=$1 AND ${where[role]} AND status<>'terminated' ORDER BY approval_limit_cad DESC NULLS FIRST LIMIT 1`,
     [orgId],
     db,
   );
   return u?.user_id ?? null;
 }
 
-// P07: requester is the approver → the approver's manager. P08: on leave → delegate. Terminated → manager.
-async function reassign(db: Db, userId: string | null, requesterId: string | null, opts: { selfApproval: boolean; onLeave: boolean }) {
-  let assigned = userId;
-  let reason: "delegate" | "requester_is_approver" | "terminated" | null = null;
-  for (let i = 0; i < 5 && assigned; i++) {
-    const u = await one<{ user_id: string; manager_id: string | null; status: string; delegate_user_id: string | null }>(
-      "SELECT user_id, manager_id, status, delegate_user_id FROM users WHERE user_id=$1",
-      [assigned],
-      db,
-    );
-    if (!u) break;
-    if (opts.selfApproval && u.user_id === requesterId && u.manager_id) {
-      assigned = u.manager_id;
-      reason = "requester_is_approver";
-    } else if (u.status === "terminated" && u.manager_id) {
-      assigned = u.manager_id;
-      reason = "terminated";
-    } else if (opts.onLeave && u.status === "on_leave" && u.delegate_user_id) {
-      assigned = u.delegate_user_id;
-      reason = "delegate";
-    } else break;
+// From a role's holder to the person who approves: someone on leave is replaced by their delegate, then whoever is the requester,
+// has left, or is over their own approval limit passes the step to their manager, until someone may approve.
+async function climb(db: Db, userId: string, requesterId: string | null, amount: number): Promise<{ assigned: Person; reason: Reason | null }> {
+  let reason: Reason | null = null;
+  let u = (await person(db, userId))!;
+  for (let i = 0; i < 10; i++) {
+    let next: string | null = null;
+    if (u.status === "on_leave" && u.delegate_user_id) [next, reason] = [u.delegate_user_id, "delegate"];
+    else if (u.user_id === requesterId) [next, reason] = [u.manager_id, "requester_is_approver"];
+    else if (u.status === "terminated") [next, reason] = [u.manager_id, "terminated"];
+    else if (u.approval_limit_cad != null && amount > u.approval_limit_cad) [next, reason] = [u.manager_id, "over_limit"];
+    else return { assigned: u, reason };
+    if (!next) throw new ValidationError(`Nobody above ${u.user_id} may approve this invoice; check managers and approval limits in Settings.`);
+    u = (await person(db, next))!;
   }
-  return { assigned, reason };
+  throw new ValidationError("The managers and delegates loop; check them in Settings.");
 }
+
+const person = (db: Db, userId: string) =>
+  one<Person>("SELECT user_id, manager_id, status, delegate_user_id, approval_limit_cad FROM users WHERE user_id=$1", [userId], db);

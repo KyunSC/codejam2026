@@ -166,7 +166,7 @@ export function Invoice() {
                               {people.map((p) => <option key={p.user_id} value={p.user_id}>{p.full_name}</option>)}
                             </select>
                           </Field>
-                          <Field label="PO">
+                          <Field label="Purchase order">
                             <select name="po_id" defaultValue={d.po_id ?? ""} className={input}>
                               <option value="">— none —</option>
                               {[...new Set([...(d.po_id ? [d.po_id] : []), ...(d.po_candidates ?? [])])].map((p) => <option key={p}>{p}</option>)}
@@ -193,7 +193,7 @@ export function Invoice() {
                           <Item k="Due date">{date(d.due_date)}</Item>
                           <Item k="Department">{depts.find((x) => x.department_id === d.department_id)?.name ?? "—"}</Item>
                           <Item k="Requester">{people.find((p) => p.user_id === d.requester_user_id)?.full_name ?? "—"}</Item>
-                          <Item k="PO">{d.po_id ?? "—"}</Item>
+                          <Item k="Purchase order">{d.po_id ?? "—"}</Item>
                           <Item k="Contract">{d.contract_id ?? "—"}</Item>
                           <Item k="Delivered to">{d.ship_to_province ?? "—"}</Item>
                           <Item k="Total">{money(d.total, d.currency)}{d.currency !== "CAD" && ` (${money(d.total_cad)})`}</Item>
@@ -215,7 +215,7 @@ export function Invoice() {
                         <li key={f.flag_id} className={`flag ${f.status !== "open" ? "flag--closed" : `flag--${f.severity}`}`}>
                           <div className="flex items-start justify-between gap-3">
                             <div>
-                              <div className="mb-1 flex gap-1"><Status value={f.severity} /><Badge>{f.category}</Badge>{f.line_no && <Badge>line {f.line_no}</Badge>}{f.status !== "open" && <Status value={f.status} />}</div>
+                              <div className="mb-1 flex gap-1"><Status value={f.severity} /><Badge>{f.category === "po" ? "purchase order" : f.category}</Badge>{f.line_no && <Badge>line {f.line_no}</Badge>}{f.status !== "open" && <Status value={f.status} />}</div>
                               <p className="text-sm">{f.message} {f.related_invoice_id && <A href={`/invoices/${f.related_invoice_id}`}>Open {f.related_invoice_id}</A>}</p>
                               {f.resolution_note && <p className="mt-1 text-xs muted">{f.resolver}: {f.resolution_note}</p>}
                             </div>
@@ -253,12 +253,20 @@ export function Invoice() {
                           <Td>{s.step_no}{s.rule_id && <span className="ml-1 text-xs muted">{s.rule_id}</span>}</Td>
                           <Td>
                             {s.assignee}
-                            {s.reassign_reason && <div className="text-xs muted">{s.reassign_reason === "delegate" ? `delegate for ${s.original}` : s.reassign_reason === "requester_is_approver" ? `${s.original} requested it; escalated` : `${s.original} has left; escalated`}</div>}
+                            {s.reassign_reason && (
+                              <div className="text-xs muted">
+                                {s.reassign_reason === "delegate" ? `delegate for ${s.original}`
+                                  : s.reassign_reason === "requester_is_approver" ? `${s.original} requested it; escalated`
+                                    : s.reassign_reason === "over_limit" ? `above ${s.original}'s approval limit; escalated`
+                                      : `${s.original} has left; escalated`}
+                              </div>
+                            )}
                           </Td>
                           <Td><Status value={s.status} /></Td>
                           <Td>
                             {s.actor && <div className="text-xs">{s.actor}{s.on_behalf && ` on behalf of ${s.on_behalf}`} · {dateTime(s.acted_at)}{s.comment && ` · “${s.comment}”`}</div>}
                             {s.can_act && <span className="text-xs muted">your decision, at the top</span>}
+                            {s.blocked && <span className="text-xs text-flag">{s.blocked}</span>}
                           </Td>
                         </tr>
                       ))}
@@ -400,7 +408,7 @@ function FormView({ form, vendorName }: { form: NonNullable<RawItem["form_json"]
         <Item k="Invoice number">{f.vendor_invoice_number ?? "—"}</Item>
         <Item k="Invoice date">{date(f.invoice_date)}</Item>
         <Item k="Due date">{date(f.due_date)}</Item>
-        <Item k="PO">{f.po_reference ?? "—"}</Item>
+        <Item k="Purchase order">{f.po_reference ?? "—"}</Item>
         <Item k="Delivered to">{[f.ship_to_province, f.bill_to_address].filter(Boolean).join(" · ") || "—"}</Item>
       </dl>
       <Table head={["#", "Description", "Qty", "Unit", "Amount"]}>

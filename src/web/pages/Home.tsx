@@ -30,7 +30,7 @@ export function Home() {
           </div>
           <div className="flex flex-col items-start gap-5">
             <p className="m-0 max-w-[480px] text-[17px] sm:text-[19px]">
-              Invoices arrive by email, upload or form. Brim reads them, checks them against your vendors, contracts and POs, routes them to the right
+              Invoices arrive by email, upload or form. Brim reads them, checks them against your vendors, contracts and purchase orders, routes them to the right
               approvers, and pays by EFT, cheque or single-use virtual card, with every step recorded for audit.
             </p>
             <Link to="/login" className="btn btn--solid">Log in <span aria-hidden="true">→</span></Link>

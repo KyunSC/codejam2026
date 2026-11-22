@@ -1,8 +1,9 @@
-import { ConflictError, NotFoundError } from "@/lib/errors";
+import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { query, one, tx, nextId } from "@/lib/db";
 import { assertMember, authorize, type Action } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 import { blankToNull } from "@/lib/values";
+import { policyProblem, type Policy } from "@/lib/policies";
 import type { User } from "@/lib/types";
 
 // Simple organization records with plain create / read / update / delete.
@@ -18,6 +19,8 @@ type Spec = {
   remove: { kind: "delete" } | { kind: "set"; column: string; value: unknown };
   // names of the people a row points to, returned alongside it
   names?: string;
+  // what is wrong with a row as it would be saved, or null
+  problem?: (row: Record<string, unknown>) => string | null;
 };
 
 export const SPECS = {
@@ -41,8 +44,9 @@ export const SPECS = {
     scope: "vendor", write: "po.manage", remove: { kind: "set", column: "status", value: "closed" },
   },
   approval_policies: {
-    table: "approval_policies", key: "rule_id", idPrefix: "P", columns: ["rule_type", "trigger_type", "trigger_value", "step_role", "is_active"],
+    table: "approval_policies", key: "rule_id", idPrefix: "P", columns: ["rule_type", "field", "operator", "value", "required", "is_active"],
     scope: "organization", write: "policies.manage", remove: { kind: "set", column: "is_active", value: false },
+    problem: (row) => policyProblem(row as Partial<Policy>),
     names: "(SELECT u.full_name FROM users u WHERE u.user_id = r.updated_by) AS updater",
   },
 } satisfies Record<string, Spec>;
@@ -84,6 +88,8 @@ export async function createRecord(user: User | null, organizationId: string, ki
       const v = await one("SELECT 1 FROM vendors WHERE vendor_id=$1 AND organization_id=$2", [body.vendor_id, organizationId], c);
       if (!v) throw new NotFoundError("No such vendor in this organization");
     }
+    const problem = s.problem?.(body);
+    if (problem) throw new ValidationError(problem);
     const id = String(body[s.key] ?? (await nextId(s.idPrefix, c)));
     const cols = [s.key, ...(s.scope === "organization" ? ["organization_id"] : []), ...s.columns.filter((col) => col in body)];
     const vals = cols.map((col) => (col === s.key ? id : col === "organization_id" ? organizationId : blankToNull(body[col])));
@@ -101,6 +107,8 @@ export async function updateRecord(user: User | null, organizationId: string, ki
     if (!before) throw new NotFoundError(`No such ${kind} ${id}`);
     const cols = s.columns.filter((col) => col in body && col !== "vendor_id");
     if (!cols.length) return;
+    const problem = s.problem?.({ ...before, ...body });
+    if (problem) throw new ValidationError(problem);
     await query(
       `UPDATE ${s.table} r SET ${cols.map((col, i) => `${col} = $${i + 3}`).join(", ")}${kind === "approval_policies" ? `, updated_by = $${cols.length + 3}, updated_at = now()` : ""}
         WHERE ${scopeSql(s)} AND r.${s.key} = $2`,

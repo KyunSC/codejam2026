@@ -85,6 +85,7 @@ function WorkspaceLayout() {
     ...(can(user, "payment.view") ? [{ href: "/payments", label: "Payments", match: "/payments" }] : []),
     ...(can(user, "vendor.view") ? [{ href: "/vendors", label: "Vendors", match: "/vendors" }] : []),
     ...(can(user, "audit.view") ? [{ href: "/audit", label: "Audit", match: "/audit" }] : []),
+    { href: "/account", label: "Account", match: "/account" },
     ...(can(user, "users.manage") ? [{ href: "/settings/users", label: "Settings", match: "/settings" }] : []),
   ];
   return (
@@ -96,7 +97,7 @@ function WorkspaceLayout() {
             <span className="muted text-sm">Accounts payable</span>
           </Link>
           <div className="ml-auto flex flex-wrap items-center gap-3 text-sm">
-            <Link to="/account" className="font-bold no-underline">{user.full_name}</Link>
+            <span className="font-bold">{user.full_name}</span>
             <span className="chip chip--gray">{user.role.replace(/_/g, " ")}</span>
             <LogoutButton />
           </div>
@@ -149,9 +150,12 @@ function BrimLayout() {
             <span className="text-[17px] font-bold">Brim</span>
             <span className="muted text-sm">Operations</span>
           </Link>
-          <nav className="text-sm font-bold"><Link to="/organizations" className="no-underline">Organizations</Link></nav>
+          <nav className="flex gap-4 text-sm font-bold">
+            <Link to="/organizations" className="no-underline">Organizations</Link>
+            <Link to="/account" className="no-underline">Account</Link>
+          </nav>
           <div className="ml-auto flex items-center gap-3 text-sm">
-            <Link to="/account" className="font-bold no-underline">{user.full_name}</Link>
+            <span className="font-bold">{user.full_name}</span>
             <LogoutButton />
           </div>
         </div>

@@ -131,8 +131,9 @@ export type InvoiceRecord = {
 export type ApprovalStep = {
   approval_id: string; invoice_id: string; step_no: number; rule_id: string | null; assigned_user_id: string | null; original_user_id: string | null;
   reassign_reason: string | null; status: string; acted_at: string | null; comment: string | null; assignee: string | null; original: string | null; actor: string | null; on_behalf: string | null;
-  // whether the signed-in user may approve or reject this step now
+  // whether the signed-in user may approve or reject this step now, and if they hold it but may not, why
   can_act: boolean;
+  blocked?: string;
 };
 export type PaymentRow = {
   total_count: number; payment_id: string; invoice_id: string; vendor_id: string; vendor: string; method: string; amount: number; currency: string; amount_cad: number;
@@ -172,7 +173,10 @@ export async function getInvoiceRecord(user: User | null, organizationId: string
   );
   const mayAct = invoice.requester_user_id !== user.user_id && can(user, "approval.act");
   const approvals: ApprovalStep[] = [];
-  for (const st of steps) approvals.push({ ...st, can_act: mayAct && (await canActOn(user, st)).ok });
+  for (const st of steps) {
+    const c = mayAct ? await canActOn(user, st) : { ok: false };
+    approvals.push({ ...st, can_act: c.ok, ...("reason" in c && c.reason ? { blocked: c.reason } : {}) });
+  }
   const payments = can(user, "payment.view") ? await query<PaymentRow>(`${PAYMENT_SELECT} WHERE p.invoice_id=$1 ORDER BY p.payment_id`, [id]) : [];
   return { ...invoice, approvals, payments };
 }

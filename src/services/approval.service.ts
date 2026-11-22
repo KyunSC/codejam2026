@@ -2,6 +2,7 @@ import { ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
 import { tx, query, one } from "@/lib/db";
 import { assertCan, assertMember } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
+import { money } from "@/lib/format";
 import type { User } from "@/lib/types";
 
 type Step = { approval_id: string; invoice_id: string; step_no: number; assigned_user_id: string | null; original_user_id: string | null; reassign_reason: string | null; status: string };
@@ -11,17 +12,26 @@ type Step = { approval_id: string; invoice_id: string; step_no: number; assigned
 export const pendingForUserSql = (param: string) =>
   `a.status='pending' AND (a.assigned_user_id=${param} OR (au.status='on_leave' AND au.delegate_user_id=${param}))`;
 
-// Who may act on a pending step: its assignee, or the assignee's delegate while the assignee is on leave.
-export async function canActOn(actor: User, step: Step): Promise<{ ok: boolean; onBehalfOf: string | null }> {
+// Who may act on a pending step: its assignee, or the assignee's delegate while the assignee is on leave,
+// and only within their own approval limit (a delegate's own limit, not the absent approver's).
+export async function canActOn(actor: User, step: Step): Promise<{ ok: boolean; onBehalfOf: string | null; reason?: string }> {
   if (step.status !== "pending") return { ok: false, onBehalfOf: null };
+  let onBehalfOf: string | null;
   if (step.assigned_user_id === actor.user_id) {
-    return { ok: true, onBehalfOf: step.reassign_reason === "delegate" ? step.original_user_id : null };
+    onBehalfOf = step.reassign_reason === "delegate" ? step.original_user_id : null;
+  } else {
+    const assignee = step.assigned_user_id
+      ? await one<{ status: string; delegate_user_id: string | null }>("SELECT status, delegate_user_id FROM users WHERE user_id=$1", [step.assigned_user_id])
+      : null;
+    if (!(assignee?.status === "on_leave" && assignee.delegate_user_id === actor.user_id)) return { ok: false, onBehalfOf: null };
+    onBehalfOf = step.assigned_user_id;
   }
-  const assignee = step.assigned_user_id
-    ? await one<{ status: string; delegate_user_id: string | null }>("SELECT status, delegate_user_id FROM users WHERE user_id=$1", [step.assigned_user_id])
-    : null;
-  if (assignee?.status === "on_leave" && assignee.delegate_user_id === actor.user_id) return { ok: true, onBehalfOf: step.assigned_user_id };
-  return { ok: false, onBehalfOf: null };
+  const inv = await one<{ total_cad: number | null }>("SELECT total_cad FROM invoices WHERE invoice_id=$1", [step.invoice_id]);
+  // an empty limit is no personal cap
+  if (actor.approval_limit_cad != null && Math.abs(inv?.total_cad ?? 0) > actor.approval_limit_cad) {
+    return { ok: false, onBehalfOf, reason: `This invoice is above your approval limit of ${money(actor.approval_limit_cad)}.` };
+  }
+  return { ok: true, onBehalfOf };
 }
 
 export async function decide(actor: User | null, organizationId: string, approvalId: string, decision: "approved" | "rejected", comment: string | null) {
@@ -38,8 +48,8 @@ export async function decide(actor: User | null, organizationId: string, approva
     assertMember(actor, organizationId, { brim: true });
     if (!step || !inv || inv.organization_id !== organizationId) throw new NotFoundError("No such approval step");
     if (inv.requester_user_id === actor.user_id) throw new ForbiddenError("You requested this invoice; it goes to your manager.");
-    const { ok, onBehalfOf } = await canActOn(actor, step);
-    if (!ok) throw new ForbiddenError("This step is not assigned to you");
+    const { ok, onBehalfOf, reason } = await canActOn(actor, step);
+    if (!ok) throw new ForbiddenError(reason ?? "This step is not assigned to you");
     if (decision === "rejected" && !comment?.trim()) throw new ValidationError("Give a reason for the rejection");
 
     await query("UPDATE approvals SET status=$2, acted_by=$3, on_behalf_of_user_id=$4, comment=$5, acted_at=now() WHERE approval_id=$1", [approvalId, decision, actor.user_id, onBehalfOf, comment], c);

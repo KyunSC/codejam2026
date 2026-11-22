@@ -41,8 +41,8 @@ export function ApiForm({
       <fieldset disabled={pending} className="contents">
         {children}
       </fieldset>
-      {state?.error && <p className={inline ? "max-w-xs text-xs text-flag [overflow-wrap:anywhere]" : "form-error mt-2 basis-full"}>{state.error}</p>}
-      {state?.ok && <p className={inline ? "max-w-xs text-xs muted [overflow-wrap:anywhere]" : "form-ok mt-2 basis-full"}>{state.ok}</p>}
+      {state?.error && <p className={inline ? "max-w-xs text-xs text-flag [overflow-wrap:anywhere]" : "form-error col-span-full mt-2 basis-full"}>{state.error}</p>}
+      {state?.ok && <p className={inline ? "max-w-xs text-xs muted [overflow-wrap:anywhere]" : "form-ok col-span-full mt-2 basis-full"}>{state.ok}</p>}
     </form>
   );
 }
