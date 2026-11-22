@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { can } from "@/lib/authz";
 import { money } from "@/lib/format";
@@ -26,10 +26,22 @@ export function Invoices() {
 
   const raw = useLoad(() => get<RawItemRow[]>(org(user, `/raw-items${qs({ kind: rawKind, page: rawPage, size: PAGE_SIZE })}`)), `${rawKind}:${rawPage}`);
   const parsed = useLoad(() => get<ParsedRow[]>(org(user, `/parsed-invoices${qs({ page: parsedPage, size: PAGE_SIZE })}`)), `${parsedPage}`);
-  const invoices = useLoad(
-    () => get<InvoiceRow[]>(org(user, `/invoices${qs({ q: search || null, status: status === "all" ? null : status, page: invPage, size: PAGE_SIZE })}`)),
-    `${status}:${invPage}:${search}`,
-  );
+  const [draft, setDraft] = useState(search);
+  const pendingSearch = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    // A URL update from our timer can arrive after the next keystroke.
+    if (pendingSearch.current !== search) setDraft(search);
+    pendingSearch.current = null;
+  }, [search]);
+  const term = draft.trim();
+  useEffect(() => {
+    if (term === search) return;
+    const timer = setTimeout(() => {
+      pendingSearch.current = term;
+      setParams(withParams(sp, { q: term || null, page: null }), { replace: true });
+    }, term ? 200 : 0);
+    return () => clearTimeout(timer);
+  }, [term, search, sp, setParams]);
   // while something is being read, look again every few seconds
   const readingNow = (raw.data ?? []).some((r) => r.status === "new");
   useEffect(() => {
@@ -138,47 +150,51 @@ export function Invoices() {
         actions={
           <div className="flex gap-1 text-xs">
             {STATUSES.map((s) => (
-              <Link key={s} to={withParams(sp, { status: s === "all" ? null : s, page: null })} className="chip" aria-current={s === status}>
+              <Link key={s} to={withParams(sp, { status: s === "all" ? null : s, q: term || null, page: null })} className="chip" aria-current={s === status}>
                 {s.replace(/_/g, " ")}
               </Link>
             ))}
           </div>
         }
       >
-        <form role="search" className="mb-4 flex flex-wrap items-end gap-2" onSubmit={(event) => {
-          event.preventDefault();
-          const term = String(new FormData(event.currentTarget).get("q") ?? "").trim();
-          setParams(withParams(sp, { q: term || null, page: null }));
-        }}>
-          <label className="grid gap-1">
-            Search invoices
-            <input key={search} className="input" type="search" name="q" defaultValue={search} placeholder="Invoice ID, number, or vendor" />
-          </label>
-          <button type="submit" className={btn}>Search</button>
-          {search && <Link className={btnLight} to={withParams(sp, { q: null, page: null })}>Clear search</Link>}
-        </form>
-        <Show load={invoices}>
-          {(rows) => (
-            <>
-              <Table head={["Invoice", "Vendor", "Invoice #", "Date", "Total", "Department", "Status", "Waiting on"]} empty={search ? "No invoices match your search." : "No invoices."}>
-                {rows.map((i) => (
-                  <tr key={i.invoice_id} className={i.mine ? "row-mine" : ""}>
-                    <Td className="font-mono text-xs"><A href={`/invoices/${i.invoice_id}`}>{i.invoice_id}</A></Td>
-                    <Td>{i.vendor_name}</Td>
-                    <Td>{i.vendor_invoice_number}</Td>
-                    <Td className="whitespace-nowrap">{date(i.invoice_date)}</Td>
-                    <Td className="whitespace-nowrap">{money(i.total, i.currency)}</Td>
-                    <Td>{i.department}</Td>
-                    <Td><Status value={i.status} /></Td>
-                    <Td>{i.mine ? <Badge tone="gold">you</Badge> : i.waiting_on}</Td>
-                  </tr>
-                ))}
-              </Table>
-              <Pager param="page" page={invPage} total={rows[0]?.total_count ?? 0} />
-            </>
-          )}
-        </Show>
+        <label className="mb-4 grid w-fit gap-1">
+          Filter invoices
+          <input className="input" type="search" value={draft} placeholder="Invoice ID, number, or vendor"
+            onChange={(event) => setDraft(event.target.value)} />
+        </label>
+        {term !== search
+          ? <p role="status" className="muted">Filtering invoices…</p>
+          : <InvoiceResults key={JSON.stringify([term, status, invPage])} term={term} status={status} page={invPage} />}
       </Card>
     </div>
+  );
+}
+
+function InvoiceResults({ term, status, page }: { term: string; status: string; page: number }) {
+  const user = useUser();
+  const path = org(user, `/invoices${qs({ q: term, status: status === "all" ? null : status, page, size: PAGE_SIZE })}`);
+  const invoices = useLoad(() => get<InvoiceRow[]>(path), path);
+  return (
+    <Show load={invoices}>
+      {(rows) => (
+        <>
+          <Table head={["Invoice", "Vendor", "Invoice #", "Date", "Total", "Department", "Status", "Waiting on"]} empty={term ? "No invoices match your filter." : "No invoices."}>
+            {rows.map((i) => (
+              <tr key={i.invoice_id} className={i.mine ? "row-mine" : ""}>
+                <Td className="font-mono text-xs"><A href={`/invoices/${i.invoice_id}`}>{i.invoice_id}</A></Td>
+                <Td>{i.vendor_name}</Td>
+                <Td>{i.vendor_invoice_number}</Td>
+                <Td className="whitespace-nowrap">{date(i.invoice_date)}</Td>
+                <Td className="whitespace-nowrap">{money(i.total, i.currency)}</Td>
+                <Td>{i.department}</Td>
+                <Td><Status value={i.status} /></Td>
+                <Td>{i.mine ? <Badge tone="gold">you</Badge> : i.waiting_on}</Td>
+              </tr>
+            ))}
+          </Table>
+          <Pager param="page" page={page} total={rows[0]?.total_count ?? 0} />
+        </>
+      )}
+    </Show>
   );
 }
