@@ -1,5 +1,7 @@
-import { query, one } from "@/lib/db";
-import { money, type CheckContext, type Flag } from "./types";
+import { query } from "@/lib/db";
+import { userForRole } from "../approvalRouting.service";
+import { money } from "@/lib/format";
+import { type CheckContext, type Flag } from "./types";
 
 const SPLIT_WINDOW_DAYS = 3;
 const SPLIT_THRESHOLD = 10000;
@@ -37,8 +39,7 @@ export async function policyChecks(ctx: CheckContext): Promise<Flag[]> {
 
   // Requester is the department's approver (P07): the step goes to that approver's manager.
   if (d.requester_user_id && d.department_id) {
-    const dept = await one<{ manager_user_id: string }>("SELECT manager_user_id FROM departments WHERE department_id=$1", [d.department_id], db);
-    if (dept?.manager_user_id === d.requester_user_id) {
+    if ((await userForRole(db, ctx.organizationId, "dept_manager", d.department_id)) === d.requester_user_id) {
       flags.push({ check_code: "requester_is_approver", category: "policy", severity: "info", message: `The requester (${d.requester_user_id}) manages this department, so their step goes to their manager (policy P07).` });
     }
   }

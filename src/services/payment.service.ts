@@ -1,19 +1,20 @@
+import { ConflictError, ForbiddenError, NotFoundError } from "@/lib/errors";
 import { tx, query, one, nextId } from "@/lib/db";
-import { assertCan, assertOrg, ForbiddenError } from "@/lib/authz";
+import { assertCan, assertMember } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 import type { User } from "@/lib/types";
 
 type Invoice = { invoice_id: string; organization_id: string; status: string; type: string; vendor_id: string; due_date: string | null; currency: string; total: number; fx_rate_to_cad: number; total_cad: number };
 
 // Prepare (AP clerk): method from the vendor's preferred payment method.
-export async function preparePayment(actor: User | null, invoiceId: string) {
+export async function preparePayment(actor: User | null, organizationId: string, invoiceId: string) {
   assertCan(actor, "payment.prepare");
   return tx(async (c) => {
-    const inv = await one<Invoice>("SELECT * FROM invoices WHERE invoice_id=$1 FOR UPDATE", [invoiceId], c);
-    if (!inv) throw new ForbiddenError("No such invoice");
-    assertOrg(actor, inv.organization_id);
-    if (inv.status !== "approved") throw new ForbiddenError("Only approved invoices can be paid");
-    if (inv.type === "credit_note") throw new ForbiddenError("A credit note is not paid");
+    assertMember(actor, organizationId, { brim: true });
+    const inv = await one<Invoice>("SELECT * FROM invoices WHERE invoice_id=$1 AND organization_id=$2 FOR UPDATE", [invoiceId, organizationId], c);
+    if (!inv) throw new NotFoundError("No such invoice");
+    if (inv.status !== "approved") throw new ConflictError("Only approved invoices can be paid");
+    if (inv.type === "credit_note") throw new ConflictError("A credit note is not paid");
     const vendor = (await one<{ preferred_payment_method: "EFT" | "CHEQUE" | "CARD" }>("SELECT preferred_payment_method FROM vendors WHERE vendor_id=$1", [inv.vendor_id], c))!;
     const id = await nextId("PAY", c);
     await query(
@@ -30,17 +31,17 @@ export async function preparePayment(actor: User | null, invoiceId: string) {
 
 // Release: limits from the payment_release policies, never by an approver of the invoice,
 // refused while the vendor's latest bank change is unverified; the bank account is snapshotted.
-export async function releasePayment(actor: User | null, paymentId: string) {
+export async function releasePayment(actor: User | null, organizationId: string, paymentId: string) {
   assertCan(actor, "payment.release");
   await tx(async (c) => {
     const pay = await one<{ payment_id: string; organization_id: string; invoice_id: string; vendor_id: string; amount_cad: number; status: string }>(
-      "SELECT * FROM payments WHERE payment_id=$1 FOR UPDATE",
-      [paymentId],
+      "SELECT * FROM payments WHERE payment_id=$1 AND organization_id=$2 FOR UPDATE",
+      [paymentId, organizationId],
       c,
     );
-    if (!pay) throw new ForbiddenError("No such payment");
-    assertOrg(actor, pay.organization_id);
-    if (pay.status !== "scheduled") throw new ForbiddenError("Payment is not waiting for release");
+    assertMember(actor, organizationId, { brim: true });
+    if (!pay) throw new NotFoundError("No such payment");
+    if (pay.status !== "scheduled") throw new ConflictError("Payment is not waiting for release");
 
     const limit = await releaseLimit(actor, pay.organization_id);
     if (limit !== null && Math.abs(pay.amount_cad) > limit) throw new ForbiddenError(`Your release limit is ${limit.toLocaleString("en-CA")} CAD; this payment needs the controller.`);
@@ -52,7 +53,7 @@ export async function releasePayment(actor: User | null, paymentId: string) {
       [pay.vendor_id],
       c,
     );
-    if (change && (!change.verified_by_callback || change.status === "pending")) throw new ForbiddenError(`The vendor's bank change ${change.change_id} is not verified.`);
+    if (change && (!change.verified_by_callback || change.status === "pending")) throw new ConflictError(`The vendor's bank change ${change.change_id} is not verified.`);
 
     const v = (await one<{ bank_institution: string | null; bank_transit: string | null; bank_account: string | null }>("SELECT bank_institution, bank_transit, bank_account FROM vendors WHERE vendor_id=$1", [pay.vendor_id], c))!;
     await query(

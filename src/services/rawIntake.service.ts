@@ -1,8 +1,9 @@
+import { ValidationError } from "@/lib/errors";
 import { createHash } from "crypto";
 import { mkdirSync, writeFileSync, readFileSync } from "fs";
 import path from "path";
 import { query, tx, nextId, one, Db } from "@/lib/db";
-import { assertCan, assertOrg } from "@/lib/authz";
+import { assertCan, assertMember } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 import type { User } from "@/lib/types";
 
@@ -31,6 +32,7 @@ export function readStoredFile(f: StoredFile): Buffer {
 
 export async function submitPdf(actor: User | null, fileName: string, bytes: Buffer) {
   assertCan(actor, "raw.submit");
+  if (!/\.(pdf|png|jpe?g)$/i.test(fileName)) throw new ValidationError("Upload a PDF, PNG or JPEG");
   return tx(async (c) => {
     const id = await nextId("RAW", c);
     const file = storeFile(id, fileName, bytes);
@@ -61,10 +63,10 @@ export async function submitForm(actor: User | null, form: Record<string, unknow
   });
 }
 
-export async function getRawItem(actor: User, id: string, db?: Db) {
-  const row = await one<RawItem>("SELECT * FROM raw_items WHERE raw_item_id = $1", [id], db);
-  if (row) assertOrg(actor, row.organization_id);
-  return row;
+// A raw item of the organization, or null when it has none with this id.
+export async function getRawItem(actor: User | null, organizationId: string, id: string, db?: Db) {
+  assertMember(actor, organizationId, { brim: true });
+  return one<RawItem>("SELECT * FROM raw_items WHERE raw_item_id = $1 AND organization_id = $2", [id, organizationId], db);
 }
 
 export type RawItem = {

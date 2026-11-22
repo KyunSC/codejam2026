@@ -1,7 +1,8 @@
 import { query } from "@/lib/db";
 import { invoiceNumberCore } from "@/lib/normalize";
 import { cardChargesFor } from "./cardFeed.service";
-import { money, type CheckContext, type Flag } from "./checks/types";
+import { money } from "@/lib/format";
+import { type CheckContext, type Flag } from "./checks/types";
 
 type Candidate = { ref: string; is_invoice: boolean; vendor_id: string | null; number: string | null; total: number | null; invoice_date: string | null; sha256: string | null; status: string };
 

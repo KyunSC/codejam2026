@@ -1,5 +1,6 @@
 import { round2 } from "@/lib/normalize";
-import { money, type CheckContext, type Flag } from "./types";
+import { money } from "@/lib/format";
+import { type CheckContext, type Flag } from "./types";
 
 export async function mathChecks(ctx: CheckContext): Promise<Flag[]> {
   const { data: d } = ctx;

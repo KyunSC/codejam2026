@@ -1,5 +1,6 @@
+import { ConflictError, NotFoundError } from "@/lib/errors";
 import { tx, query, one, nextId, Db } from "@/lib/db";
-import { assertCan, assertOrg, ForbiddenError } from "@/lib/authz";
+import { assertCan, assertMember } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 import type { InvoiceData, User } from "@/lib/types";
 import { getRawItem, RawItem } from "./rawIntake.service";
@@ -19,11 +20,11 @@ const EMPTY: InvoiceData = {
 };
 
 // Step 2: the Extract button. Steps 3–5 follow for each invoice found.
-export async function extract(actor: User | null, rawItemId: string): Promise<{ parsed: string[]; noInvoice?: string }> {
+export async function extract(actor: User | null, organizationId: string, rawItemId: string): Promise<{ parsed: string[]; noInvoice?: string }> {
   assertCan(actor, actor?.role === "brim_employee" ? "org.manage" : "raw.extract");
-  const raw = await getRawItem(actor, rawItemId);
-  if (!raw) throw new ForbiddenError("No such raw item");
-  if (raw.status !== "new") throw new ForbiddenError("Already extracted");
+  const raw = await getRawItem(actor, organizationId, rawItemId);
+  if (!raw) throw new NotFoundError("No such raw item");
+  if (raw.status !== "new") throw new ConflictError("Already extracted");
 
   const found: Found[] = [];
   let noInvoice: string | null = null;
@@ -89,10 +90,10 @@ export async function resolveAndCheck(db: Db, parsedInvoiceId: string, raw: RawI
   return resolved;
 }
 
-export async function getParsed(actor: User, id: string, db?: Db) {
-  const p = await one<ParsedInvoice>("SELECT * FROM parsed_invoices WHERE parsed_invoice_id=$1", [id], db);
-  if (p) assertOrg(actor, p.organization_id);
-  return p;
+// A parsed invoice of the organization, or null when it has none with this id.
+export async function getParsed(actor: User | null, organizationId: string, id: string, db?: Db) {
+  assertMember(actor, organizationId, { brim: true });
+  return one<ParsedInvoice>("SELECT * FROM parsed_invoices WHERE parsed_invoice_id=$1 AND organization_id=$2", [id, organizationId], db);
 }
 
 export type ParsedInvoice = {

@@ -4,9 +4,9 @@ import { Pool, PoolClient, types } from "pg";
 types.setTypeParser(1700, (v) => (v === null ? null : parseFloat(v)));
 types.setTypeParser(1082, (v) => v);
 
-const g = globalThis as unknown as { pgPool?: Pool };
-export const pool = g.pgPool ?? new Pool({ connectionString: process.env.DATABASE_URL });
-g.pgPool = pool;
+export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+// An idle connection the database closed (a restart, the reset script) is dropped; the pool opens a new one on the next query.
+pool.on("error", (e) => console.error("idle database connection closed:", e.message));
 
 export type Db = Pool | PoolClient;
 export type PoolClientLike = Db;

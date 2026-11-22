@@ -1,6 +1,7 @@
 import { TAX_CODES, codeForLabel, expectedCodes, isGstHst } from "@/lib/taxCodes";
 import { round2 } from "@/lib/normalize";
-import { money, type CheckContext, type Flag } from "./types";
+import { money } from "@/lib/format";
+import { type CheckContext, type Flag } from "./types";
 
 export async function taxChecks(ctx: CheckContext): Promise<Flag[]> {
   const { data: d, vendor } = ctx;

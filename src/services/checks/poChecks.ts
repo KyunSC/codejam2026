@@ -1,5 +1,6 @@
 import { one } from "@/lib/db";
-import { money, type CheckContext, type Flag } from "./types";
+import { money } from "@/lib/format";
+import { type CheckContext, type Flag } from "./types";
 
 export async function poChecks(ctx: CheckContext): Promise<Flag[]> {
   const { data: d, vendor, db } = ctx;

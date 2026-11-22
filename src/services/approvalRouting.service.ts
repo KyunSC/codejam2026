@@ -51,7 +51,8 @@ export async function startApprovalChain(db: Db, actor: User, invoiceId: string)
   await writeAudit(db, { organizationId: inv.organization_id, actor, action: "approval.chain_start", entityType: "invoice", entityId: invoiceId, invoiceId, after: steps });
 }
 
-async function userForRole(db: Db, orgId: string, role: string, departmentId: string | null): Promise<string | null> {
+// The person who holds an approval role: the department's manager, or the organization's finance manager, controller or CFO.
+export async function userForRole(db: Db, orgId: string, role: string, departmentId: string | null): Promise<string | null> {
   if (role === "dept_manager") {
     const d = departmentId ? await one<{ manager_user_id: string }>("SELECT manager_user_id FROM departments WHERE department_id=$1", [departmentId], db) : null;
     return d?.manager_user_id ?? null;

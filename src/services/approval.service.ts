@@ -1,9 +1,15 @@
+import { ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
 import { tx, query, one } from "@/lib/db";
-import { assertCan, assertOrg, ForbiddenError } from "@/lib/authz";
+import { assertCan, assertMember } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 import type { User } from "@/lib/types";
 
 type Step = { approval_id: string; invoice_id: string; step_no: number; assigned_user_id: string | null; original_user_id: string | null; reassign_reason: string | null; status: string };
+
+// SQL for a step waiting on the user in `param`: assigned to them, or to someone on leave who named them delegate.
+// Expects approvals as `a` joined to the assignee's users row as `au`. The same rule as canActOn.
+export const pendingForUserSql = (param: string) =>
+  `a.status='pending' AND (a.assigned_user_id=${param} OR (au.status='on_leave' AND au.delegate_user_id=${param}))`;
 
 // Who may act on a pending step: its assignee, or the assignee's delegate while the assignee is on leave.
 export async function canActOn(actor: User, step: Step): Promise<{ ok: boolean; onBehalfOf: string | null }> {
@@ -18,21 +24,23 @@ export async function canActOn(actor: User, step: Step): Promise<{ ok: boolean; 
   return { ok: false, onBehalfOf: null };
 }
 
-export async function decide(actor: User | null, approvalId: string, decision: "approved" | "rejected", comment: string | null) {
+export async function decide(actor: User | null, organizationId: string, approvalId: string, decision: "approved" | "rejected", comment: string | null) {
   assertCan(actor, "approval.act");
   await tx(async (c) => {
     const step = await one<Step>("SELECT * FROM approvals WHERE approval_id=$1 FOR UPDATE", [approvalId], c);
-    if (!step) throw new ForbiddenError("No such step");
-    const inv = (await one<{ organization_id: string; requester_user_id: string | null; status: string }>(
-      "SELECT organization_id, requester_user_id, status FROM invoices WHERE invoice_id=$1",
-      [step.invoice_id],
-      c,
-    ))!;
-    assertOrg(actor, inv.organization_id);
+    const inv = step
+      ? await one<{ organization_id: string; requester_user_id: string | null; status: string }>(
+          "SELECT organization_id, requester_user_id, status FROM invoices WHERE invoice_id=$1",
+          [step.invoice_id],
+          c,
+        )
+      : null;
+    assertMember(actor, organizationId, { brim: true });
+    if (!step || !inv || inv.organization_id !== organizationId) throw new NotFoundError("No such approval step");
     if (inv.requester_user_id === actor.user_id) throw new ForbiddenError("You requested this invoice; it goes to your manager.");
     const { ok, onBehalfOf } = await canActOn(actor, step);
     if (!ok) throw new ForbiddenError("This step is not assigned to you");
-    if (decision === "rejected" && !comment?.trim()) throw new ForbiddenError("Give a reason for the rejection");
+    if (decision === "rejected" && !comment?.trim()) throw new ValidationError("Give a reason for the rejection");
 
     await query("UPDATE approvals SET status=$2, acted_by=$3, on_behalf_of_user_id=$4, comment=$5, acted_at=now() WHERE approval_id=$1", [approvalId, decision, actor.user_id, onBehalfOf, comment], c);
     if (decision === "rejected") {
@@ -54,7 +62,7 @@ export async function setDelegate(actor: User | null, onLeave: boolean, delegate
   await tx(async (c) => {
     if (onLeave) {
       const d = delegateUserId ? await one<{ organization_id: string; status: string }>("SELECT organization_id, status FROM users WHERE user_id=$1", [delegateUserId], c) : null;
-      if (!d || d.organization_id !== actor.organization_id || d.status !== "active" || delegateUserId === actor.user_id) throw new ForbiddenError("Pick an active colleague as delegate");
+      if (!d || d.organization_id !== actor.organization_id || d.status !== "active" || delegateUserId === actor.user_id) throw new ValidationError("Pick an active colleague as delegate");
     }
     await query(
       "UPDATE users SET status=$2, status_since=current_date, delegate_user_id=$3 WHERE user_id=$1",

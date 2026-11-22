@@ -1,10 +1,11 @@
+import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { tx, query, one, nextId, PoolClientLike } from "@/lib/db";
-import { assertCan, ForbiddenError } from "@/lib/authz";
+import { assertCan} from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 import { invoiceNumberCore } from "@/lib/normalize";
 import type { InvoiceData, User } from "@/lib/types";
-import { getParsed, resolveAndCheck } from "./pipeline.service";
-import { getRawItem } from "./rawIntake.service";
+import { extract, getParsed, resolveAndCheck } from "./pipeline.service";
+import { getRawItem, submitForm } from "./rawIntake.service";
 import { startApprovalChain } from "./approvalRouting.service";
 
 const HEADER_FIELDS = [
@@ -18,11 +19,12 @@ export type ReviewEdit = {
 };
 
 // The clerk's edits on the invoice page; steps 3–5 run again afterwards.
-export async function saveEdits(actor: User | null, parsedInvoiceId: string, edit: ReviewEdit) {
+export async function saveEdits(actor: User | null, organizationId: string, parsedInvoiceId: string, edit: ReviewEdit) {
   assertCan(actor, "parsed.review");
   return tx(async (c) => {
-    const p = await getParsed(actor, parsedInvoiceId, c);
-    if (!p || p.status !== "pending") throw new ForbiddenError("Not pending");
+    const p = await getParsed(actor, organizationId, parsedInvoiceId, c);
+    if (!p) throw new NotFoundError("No such parsed invoice");
+    if (p.status !== "pending") throw new ConflictError("Not pending");
     const before = p.invoice_json;
     const d: InvoiceData = structuredClone(before);
     const manual = new Set(d.manual ?? []);
@@ -49,30 +51,32 @@ export async function saveEdits(actor: User | null, parsedInvoiceId: string, edi
       l.coded_by = actor.user_id;
       l.coded_at = now;
     }
-    const raw = (await getRawItem(actor, p.raw_item_id, c))!;
+    const raw = (await getRawItem(actor, organizationId, p.raw_item_id, c))!;
     const after = await resolveAndCheck(c, parsedInvoiceId, raw, d);
     await writeAudit(c, { organizationId: p.organization_id, actor, action: "parsed_invoice.edit", entityType: "parsed_invoice", entityId: parsedInvoiceId, before, after });
   });
 }
 
-export async function resolveFlag(actor: User | null, flagId: string, status: "resolved" | "overridden", note: string) {
+export async function resolveFlag(actor: User | null, organizationId: string, flagId: string, status: "resolved" | "overridden", note: string) {
   assertCan(actor, "parsed.review");
   await tx(async (c) => {
     const f = await one<{ parsed_invoice_id: string; status: string }>("SELECT parsed_invoice_id, status FROM invoice_flags WHERE flag_id=$1", [flagId], c);
-    if (!f) throw new ForbiddenError("No such flag");
-    const p = await getParsed(actor, f.parsed_invoice_id, c);
-    if (!p || p.status !== "pending") throw new ForbiddenError("Not pending");
-    if (!note.trim()) throw new ForbiddenError("A note is required");
+    const p = f ? await getParsed(actor, organizationId, f.parsed_invoice_id, c) : null;
+    if (!f || !p) throw new NotFoundError("No such flag");
+    if (p.status !== "pending") throw new ConflictError("Not pending");
+    if (!note.trim()) throw new ValidationError("A note is required");
     await query("UPDATE invoice_flags SET status=$2, resolved_by=$3, resolved_at=now(), resolution_note=$4 WHERE flag_id=$1", [flagId, status, actor.user_id, note], c);
     await writeAudit(c, { organizationId: p.organization_id, actor, action: `flag.${status}`, entityType: "invoice_flag", entityId: flagId, note });
   });
 }
 
-export async function reject(actor: User | null, parsedInvoiceId: string, reason: string) {
+export async function reject(actor: User | null, organizationId: string, parsedInvoiceId: string, reason: string) {
   assertCan(actor, "parsed.review");
+  if (!reason.trim()) throw new ValidationError("Give a reason");
   await tx(async (c) => {
-    const p = await getParsed(actor, parsedInvoiceId, c);
-    if (!p || p.status !== "pending") throw new ForbiddenError("Not pending");
+    const p = await getParsed(actor, organizationId, parsedInvoiceId, c);
+    if (!p) throw new NotFoundError("No such parsed invoice");
+    if (p.status !== "pending") throw new ConflictError("Not pending");
     await query("UPDATE parsed_invoices SET status='rejected', reviewed_by=$2, reviewed_at=now(), rejection_reason=$3 WHERE parsed_invoice_id=$1", [parsedInvoiceId, actor.user_id, reason], c);
     await writeAudit(c, { organizationId: p.organization_id, actor, action: "parsed_invoice.reject", entityType: "parsed_invoice", entityId: parsedInvoiceId, note: reason });
   });
@@ -91,16 +95,21 @@ export type HistoryRecord = {
 };
 
 // Approve: the parsed invoice becomes an invoice and its approval chain starts.
-export async function approve(actor: User | null, parsedInvoiceId: string, history?: HistoryRecord) {
+export async function approve(actor: User | null, organizationId: string, parsedInvoiceId: string) {
+  return approveParsed(actor, organizationId, parsedInvoiceId);
+}
+
+async function approveParsed(actor: User | null, organizationId: string, parsedInvoiceId: string, history?: HistoryRecord) {
   if (history) assertCan(actor, "org.manage");
   else assertCan(actor, "parsed.review");
   return tx(async (c) => {
-    const p = await getParsed(actor, parsedInvoiceId, c);
-    if (!p || p.status !== "pending") throw new ForbiddenError("Not pending");
+    const p = await getParsed(actor, organizationId, parsedInvoiceId, c);
+    if (!p) throw new NotFoundError("No such parsed invoice");
+    if (p.status !== "pending") throw new ConflictError("Not pending");
     const open = await query<{ message: string }>("SELECT message FROM invoice_flags WHERE parsed_invoice_id=$1 AND severity='blocking' AND status='open'", [parsedInvoiceId], c);
-    if (open.length && !history) throw new ForbiddenError(`Resolve the blocking flags first: ${open.map((f) => f.message).join(" | ")}`);
+    if (open.length && !history) throw new ConflictError(`Resolve the blocking flags first: ${open.map((f) => f.message).join(" | ")}`);
     const d = p.invoice_json;
-    if (!d.vendor_id && !history) throw new ForbiddenError("Pick a vendor first");
+    if (!d.vendor_id && !history) throw new ValidationError("Pick a vendor first");
 
     const id = history?.invoice_id ?? (await nextId("INV", c));
     const dup = await one<{ related_invoice_id: string }>(
@@ -155,4 +164,18 @@ async function recordHistory(c: PoolClientLike, orgId: string, invoiceId: string
       c,
     );
   }
+}
+
+// Import of a past invoice for an organization being set up: the recorded invoice goes in as a form entry,
+// is extracted and approved, and keeps the approvals and payments it already had.
+export async function importInvoice(
+  actor: User | null,
+  organizationId: string,
+  input: { form: Record<string, unknown>; submitted_by?: string; received_at?: string; history: HistoryRecord },
+) {
+  assertCan(actor, "org.manage");
+  const rawId = await submitForm(actor, input.form, { submittedBy: input.submitted_by, receivedAt: input.received_at, organizationId });
+  const { parsed } = await extract(actor, organizationId, rawId);
+  if (parsed.length !== 1) throw new ValidationError("The form did not produce one invoice");
+  return approveParsed(actor, organizationId, parsed[0], input.history);
 }

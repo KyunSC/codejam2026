@@ -40,5 +40,3 @@ export type Flag = {
   related_card_txn_ref?: string;
 };
 
-export const money = (n: number | null | undefined) =>
-  n == null ? "—" : n.toLocaleString("en-CA", { style: "currency", currency: "CAD" });

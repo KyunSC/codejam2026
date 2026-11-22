@@ -1,5 +1,5 @@
-// Sends the Harborline dataset through the app's API, the way users would enter it.
-// Usage: npx tsx scripts/ingest.ts setup|history|inbox   (dev server must be running)
+// Loads the Harborline dataset by calling the app's API, the way people would enter it.
+// Usage (dev server running): npx tsx scripts/ingest.ts setup|history|inbox
 import { readFileSync } from "fs";
 import path from "path";
 import { parseCsv } from "../src/lib/csv";
@@ -8,24 +8,27 @@ const BASE = process.env.BASE_URL ?? "http://localhost:3000";
 const DATA = path.join(process.env.DATASET_DIR ?? "/Users/ming/Downloads/brim_ap_dataset", "data");
 const ORG = "ORG-HARBORLINE";
 const ORG_GST = "100000001RT0001";
+const O = `/api/organizations/${ORG}`;
 
 const csv = (name: string) => parseCsv(readFileSync(path.join(DATA, `${name}.csv`), "utf8"));
 const num = (s: string) => (s === "" ? null : Number(s));
 const yes = (s: string) => s === "yes";
+const orNull = (s: string) => (s === "" ? null : s);
 
 let cookie = "";
 async function call(method: string, url: string, body?: unknown) {
   const res = await fetch(BASE + url, { method, headers: { "content-type": "application/json", cookie }, body: body === undefined ? undefined : JSON.stringify(body) });
   const set = res.headers.get("set-cookie");
   if (set) cookie = set.split(";")[0];
-  const json = await res.json();
-  if (!res.ok) throw new Error(`${method} ${url}: ${json.error}`);
-  return json;
+  const out = await res.json();
+  if (!res.ok) throw new Error(`${method} ${url}: ${out.error}`);
+  return out;
 }
 const login = (email: string) => call("POST", "/api/session", { email });
-const records = (kind: string, rows: unknown[]) => call("POST", `/api/organizations/${ORG}/records`, { kind, rows });
+const post = (url: string, body: unknown) => call("POST", O + url, body);
+const patch = (url: string, body: unknown) => call("PATCH", O + url, body);
 
-// Policy rows P01–P13 as structured triggers. The dataset's condition column is free text.
+// Policy rows P01–P13 as structured triggers; the dataset's condition column is free text.
 const POLICY_MAP: Record<string, { trigger_type: string; trigger_value: number | null; step_role: string }> = {
   P01: { trigger_type: "always", trigger_value: null, step_role: "dept_manager" },
   P02: { trigger_type: "amount_over", trigger_value: 10000, step_role: "finance_manager" },
@@ -45,25 +48,54 @@ const POLICY_MAP: Record<string, { trigger_type: string; trigger_value: number |
 async function setup() {
   await login("ops@brim.example");
   await call("POST", "/api/organizations", { organization_id: ORG, legal_name: "Harborline Logistics Inc.", gst_hst_number: ORG_GST, base_currency: "CAD" });
+
   const depts = csv("departments");
-  await records("departments", depts.map((d) => ({ department_id: d.department_id, name: d.name, cost_centre: d.cost_centre })));
-  await records("users", csv("users").map((u) => ({ ...u, approval_limit_cad: num(u.approval_limit_cad), status_since: u.status_since || null })));
-  await records("department_managers", depts.map((d) => ({ department_id: d.department_id, manager_user_id: d.manager_user_id })));
-  await records("gl_accounts", csv("gl_accounts").map((g) => ({ account_number: g.account_number, name: g.name, account_type: g.account_type })));
-  await records("approval_policies", csv("approval_policies").map((p) => ({ rule_id: p.rule_id, rule_type: p.rule_type, ...POLICY_MAP[p.rule_id], is_active: true })));
-  await records("vendors", csv("vendors").map((v) => ({
-    ...v, payment_terms_days: num(v.payment_terms_days), accepts_card_payment: yes(v.accepts_card_payment), requires_po: yes(v.requires_po),
-    onboarded_at: v.onboarded_at || null, preferred_payment_method: v.preferred_payment_method || "EFT",
-  })));
-  await records("vendor_bank_changes", csv("bank_change_history").map((b) => ({
-    change_id: b.change_id, vendor_id: b.vendor_id, requested_at: b.changed_at, requested_by: b.changed_by_user_id, request_channel: b.request_channel,
-    new_account: b.new_account_last4, verified_by_callback: yes(b.verified_by_callback), status: "approved",
-  })));
-  await records("contracts", csv("contracts").map((c) => ({
-    ...c, monthly_fee: num(c.monthly_fee), hourly_rate_cap: num(c.hourly_rate_cap), fuel_surcharge_cap_pct: num(c.fuel_surcharge_cap_pct),
-    not_to_exceed_monthly: num(c.not_to_exceed_monthly), start_date: c.start_date || null, end_date: c.end_date || null,
-  })));
-  await records("purchase_orders", csv("purchase_orders").map((p) => ({ ...p, total_amount: num(p.total_amount), issue_date: p.issue_date || null })));
+  for (const d of depts) await post("/departments", { department_id: d.department_id, name: d.name, cost_centre: d.cost_centre });
+
+  // users first without managers and delegates, who may not exist yet; then those links
+  const users = csv("users");
+  for (const u of users) {
+    await post("/users", {
+      user_id: u.user_id, full_name: u.full_name, email: u.email, title: u.title, department_id: u.department_id, role: u.role,
+      approval_limit_cad: num(u.approval_limit_cad), work_province: u.work_province, status: u.status, status_since: orNull(u.status_since),
+    });
+  }
+  for (const u of users) {
+    if (u.manager_id || u.delegate_user_id) await patch(`/users/${u.user_id}`, { manager_id: orNull(u.manager_id), delegate_user_id: orNull(u.delegate_user_id) });
+  }
+  for (const d of depts) await patch(`/departments/${d.department_id}`, { manager_user_id: d.manager_user_id });
+
+  for (const g of csv("gl_accounts")) await post("/gl-accounts", { account_number: g.account_number, name: g.name, account_type: g.account_type });
+  for (const p of csv("approval_policies")) await post("/policies", { rule_id: p.rule_id, rule_type: p.rule_type, ...POLICY_MAP[p.rule_id], is_active: true });
+
+  for (const v of csv("vendors")) {
+    await post("/vendors", {
+      vendor_id: v.vendor_id, legal_name: v.legal_name, category: v.category, default_gl_account: v.default_gl_account, address: v.address,
+      province_or_state: v.province_or_state, country: v.country, gst_hst_number: orNull(v.gst_hst_number), qst_number: orNull(v.qst_number),
+      payment_terms_days: num(v.payment_terms_days), early_pay_discount: orNull(v.early_pay_discount), preferred_payment_method: v.preferred_payment_method || "EFT",
+      accepts_card_payment: yes(v.accepts_card_payment), bank_institution: orNull(v.bank_institution), bank_transit: orNull(v.bank_transit),
+      bank_account: orNull(v.bank_account), ap_contact_email: orNull(v.ap_contact_email), requires_po: yes(v.requires_po), status: v.status, onboarded_at: orNull(v.onboarded_at),
+    });
+  }
+  for (const b of csv("bank_change_history")) {
+    await post(`/vendors/${b.vendor_id}/bank-changes`, {
+      change_id: b.change_id, account: b.new_account_last4, channel: b.request_channel, verified_by_callback: yes(b.verified_by_callback),
+      requested_at: b.changed_at, requested_by: b.changed_by_user_id, status: "approved",
+    });
+  }
+  for (const c of csv("contracts")) {
+    await post("/contracts", {
+      contract_id: c.contract_id, vendor_id: c.vendor_id, description: c.description, billing_type: c.billing_type, monthly_fee: num(c.monthly_fee),
+      currency: c.currency, hourly_rate_cap: num(c.hourly_rate_cap), fuel_surcharge_cap_pct: num(c.fuel_surcharge_cap_pct),
+      not_to_exceed_monthly: num(c.not_to_exceed_monthly), start_date: orNull(c.start_date), end_date: orNull(c.end_date), status: c.status,
+    });
+  }
+  for (const p of csv("purchase_orders")) {
+    await post("/purchase-orders", {
+      po_id: p.po_id, vendor_id: p.vendor_id, department_id: p.department_id, requester_user_id: p.requester_user_id, issue_date: orNull(p.issue_date),
+      description: p.description, total_amount: num(p.total_amount), currency: p.currency, status: p.status, approved_by: orNull(p.approved_by),
+    });
+  }
   console.log("setup done");
 }
 
@@ -79,55 +111,61 @@ async function history() {
   let n = 0;
   for (const inv of invoices) {
     const v = vendors.get(inv.vendor_id)!;
-    const myLines = lines.filter((l) => l.invoice_id === inv.invoice_id);
-    const gstCode = myLines.find((l) => l.gst_hst_code === "HST13" || l.gst_hst_code === "GST5")?.gst_hst_code;
-    const pstCode = myLines.find((l) => l.pst_qst_code)?.pst_qst_code;
+    const mine = lines.filter((l) => l.invoice_id === inv.invoice_id);
+    const gstCode = mine.find((l) => l.gst_hst_code === "HST13" || l.gst_hst_code === "GST5")?.gst_hst_code;
+    const pstCode = mine.find((l) => l.pst_qst_code)?.pst_qst_code;
     const taxes = [
       ...(Number(inv.gst_hst_amount) && gstCode ? [{ label: TAX_LABEL[gstCode], rate: null, amount: Number(inv.gst_hst_amount) }] : []),
       ...(Number(inv.pst_qst_amount) && pstCode ? [{ label: TAX_LABEL[pstCode], rate: null, amount: Number(inv.pst_qst_amount) }] : []),
     ];
-    const form = {
-      document_type: Number(inv.total) < 0 ? "credit_note" : "invoice",
-      vendor_name: v.legal_name, vendor_gst_hst_number: v.gst_hst_number || null, vendor_qst_number: v.qst_number || null,
-      vendor_invoice_number: inv.vendor_invoice_number, invoice_date: inv.invoice_date, due_date: inv.due_date, received_date: inv.received_date,
-      bill_to_name: "Harborline Logistics Inc.", bill_to_tax_number: ORG_GST, currency: inv.currency,
-      subtotal: Number(inv.subtotal), taxes, total: Number(inv.total),
-      lines: myLines.map((l) => ({
-        line_no: Number(l.line_no), description: l.description, quantity: Number(l.quantity), unit_price: Number(l.unit_price), amount: Number(l.amount),
-        gl_account: l.gl_account, department_id: l.department_id, gst_hst_code: l.gst_hst_code || null, pst_qst_code: l.pst_qst_code || null,
-        line_type: l.line_type, coding_status: "accepted",
-      })),
-      vendor_id: inv.vendor_id, ship_to_province: inv.ship_to_province, department_id: inv.department_id, requester_user_id: inv.requester_user_id,
-      po_id: inv.po_id || null, contract_id: inv.contract_id || null,
-      manual: ["vendor_id", "ship_to_province", "department_id", "requester_user_id", "po_id", "contract_id"],
-    };
-    const { raw_item_id } = await call("POST", "/api/raw-items", { form, submitted_by: inv.requester_user_id, received_at: inv.received_date, organization_id: ORG });
-    const { parsed } = await call("POST", `/api/raw-items/${raw_item_id}/extract`);
-    const h = {
-      invoice_id: inv.invoice_id,
-      status: inv.status,
-      approvals: approvals.filter((a) => a.invoice_id === inv.invoice_id).map((a) => ({
-        approval_id: a.approval_id, step_no: Number(a.step_no), approver_user_id: a.approver_user_id, action: a.action, acted_at: a.acted_at, comment: a.comment || null,
-      })),
-      payments: payments.filter((p) => p.invoice_id === inv.invoice_id).map((p) => ({
-        payment_id: p.payment_id, method: p.method, scheduled_date: p.scheduled_date || null, paid_date: p.paid_date || null, currency: p.currency,
-        amount: Number(p.amount), fx_rate_to_cad: Number(p.fx_rate_to_cad), amount_cad: Number(p.amount_cad), discount_taken: Number(p.discount_taken || 0),
-        reference: p.reference, status: p.status, prepared_by: p.prepared_by || null, released_by: p.released_by || null,
-      })),
-    };
-    await call("POST", `/api/parsed-invoices/${parsed[0]}/approve`, { history: h });
-    if (++n % 50 === 0) console.log(`${n} history invoices`);
+    await post("/invoice-imports", {
+      submitted_by: inv.requester_user_id,
+      received_at: inv.received_date,
+      form: {
+        document_type: Number(inv.total) < 0 ? "credit_note" : "invoice",
+        vendor_name: v.legal_name, vendor_gst_hst_number: orNull(v.gst_hst_number), vendor_qst_number: orNull(v.qst_number),
+        vendor_invoice_number: inv.vendor_invoice_number, invoice_date: inv.invoice_date, due_date: inv.due_date, received_date: inv.received_date,
+        bill_to_name: "Harborline Logistics Inc.", bill_to_tax_number: ORG_GST, currency: inv.currency,
+        subtotal: Number(inv.subtotal), taxes, total: Number(inv.total),
+        lines: mine.map((l) => ({
+          line_no: Number(l.line_no), description: l.description, quantity: Number(l.quantity), unit_price: Number(l.unit_price), amount: Number(l.amount),
+          gl_account: l.gl_account, department_id: l.department_id, gst_hst_code: orNull(l.gst_hst_code), pst_qst_code: orNull(l.pst_qst_code),
+          line_type: l.line_type, coding_status: "accepted",
+        })),
+        vendor_id: inv.vendor_id, ship_to_province: inv.ship_to_province, department_id: inv.department_id, requester_user_id: inv.requester_user_id,
+        po_id: orNull(inv.po_id), contract_id: orNull(inv.contract_id),
+        manual: ["vendor_id", "ship_to_province", "department_id", "requester_user_id", "po_id", "contract_id"],
+      },
+      history: {
+        invoice_id: inv.invoice_id,
+        status: inv.status,
+        approvals: approvals.filter((a) => a.invoice_id === inv.invoice_id).map((a) => ({
+          approval_id: a.approval_id, step_no: Number(a.step_no), approver_user_id: a.approver_user_id, action: a.action, acted_at: a.acted_at, comment: orNull(a.comment),
+        })),
+        payments: payments.filter((p) => p.invoice_id === inv.invoice_id).map((p) => ({
+          payment_id: p.payment_id, method: p.method, scheduled_date: orNull(p.scheduled_date), paid_date: orNull(p.paid_date), currency: p.currency,
+          amount: Number(p.amount), fx_rate_to_cad: Number(p.fx_rate_to_cad), amount_cad: Number(p.amount_cad), discount_taken: Number(p.discount_taken || 0),
+          reference: p.reference, status: p.status, prepared_by: orNull(p.prepared_by), released_by: orNull(p.released_by),
+        })),
+      },
+    });
+    if (++n % 100 === 0) console.log(`${n} history invoices`);
   }
   console.log(`history done: ${n}`);
 }
 
 async function inbox() {
   await login("jordan.okafor@harborline-logistics.example");
-  console.log(await call("POST", "/api/raw-items/poll"));
+  console.log(await post("/raw-items/poll", {}));
 }
 
 const step = process.argv[2];
-({ setup, history, inbox } as Record<string, () => Promise<void>>)[step]?.().catch((e) => {
-  console.error(e);
+const steps: Record<string, () => Promise<void>> = { setup, history, inbox };
+if (!steps[step]) {
+  console.error("Usage: npx tsx scripts/ingest.ts setup|history|inbox");
+  process.exit(1);
+}
+steps[step]().catch((e) => {
+  console.error(e.message ?? e);
   process.exit(1);
 });
