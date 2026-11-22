@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { can } from "@/lib/authz";
 import { money } from "@/lib/format";
@@ -5,23 +6,49 @@ import type { getInvoiceRecord, InvoiceRow, PaymentRow } from "@/services/read.s
 import { get, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { ApiForm } from "../components/ApiForm";
+import { DataTable, type Column } from "../components/DataTable";
+import { FilterStar } from "../customize/FilterStar";
+import { HiddenTray } from "../customize/HiddenTray";
+import { HideButton } from "../customize/HideButton";
+import { setVisible } from "../customize/lists";
+import { usePreferences } from "../preferences";
 import { A, Card, NotFound, PAGE_SIZE, PageTitle, Pager, Show, Status, Table, Td, btn, date, dateTime, pageParam, withParams } from "../components/ui";
 
 const TABS = ["scheduled", "released", "outstanding", "settled", "all"];
 
+// The payments table's columns (ids and labels in TABLES.payments, src/lib/preferences.ts).
+const PAYMENT_COLUMNS: Column<PaymentRow>[] = [
+  { id: "id", render: (p) => <A href={`/payments/${p.payment_id}`}>{p.payment_id}</A> },
+  { id: "invoice", render: (p) => <A href={`/invoices/${p.invoice_id}`}>{p.invoice_id}</A> },
+  { id: "vendor", render: (p) => p.vendor },
+  { id: "method", render: (p) => p.method },
+  { id: "amount", className: "whitespace-nowrap", render: (p) => money(p.amount, p.currency) },
+  { id: "scheduled", render: (p) => date(p.scheduled_date) },
+  { id: "paid", render: (p) => date(p.paid_date) },
+  { id: "prepared_released", className: "text-xs", render: (p) => <>{p.preparer ?? "—"} / {p.releaser ?? "—"}</> },
+  { id: "status", render: (p) => <Status value={p.status} /> },
+];
+
 export function Payments() {
   const user = useUser();
   const [sp] = useSearchParams();
-  const status = TABS.includes(sp.get("status") ?? "") ? sp.get("status")! : "scheduled";
+  const { prefs, update } = usePreferences();
+  // "Ready to pay" can be hidden (plan 6.8, in place of the totals row this page no longer has); the list is locked.
+  // A hidden section isn't fetched.
+  const sections = prefs.sections.payments;
+  const showReady = sections.some((x) => x.id === "ready" && x.visible);
+  const sectionPath = { kind: "section", page: "payments" } as const;
+  // The filter in the URL wins; without one, the list opens on the user's default (plan 6.6).
+  const status = TABS.includes(sp.get("status") ?? "") ? sp.get("status")! : (prefs.tables.payments.filter ?? "scheduled");
   const page = pageParam(sp.get("page"));
   const readyPage = pageParam(sp.get("readyPage"));
   const rows = useLoad(() => get<PaymentRow[]>(org(user, `/payments${qs({ status: status === "all" ? null : status, page, size: PAGE_SIZE })}`)), `${status}:${page}`);
   // approved invoices with no payment yet, for the clerk to prepare
   const ready = useLoad(
-    () => (can(user, "payment.prepare")
+    () => (can(user, "payment.prepare") && showReady
       ? get<InvoiceRow[]>(org(user, `/invoices${qs({ status: "approved", type: "invoice", page: readyPage, size: PAGE_SIZE })}`))
       : Promise.resolve([] as InvoiceRow[])),
-    String(readyPage),
+    `${showReady}:${readyPage}`,
   );
   if (!can(user, "payment.view")) return <NotFound />;
 
@@ -41,7 +68,7 @@ export function Payments() {
     <div className="space-y-5">
       <PageTitle sub="The AP clerk prepares payments for approved invoices; the payment policies say who may release them; a payment settles when the bank statement shows it.">Payments</PageTitle>
       {can(user, "payment.prepare") && (ready.data?.length ?? 0) > 0 && (
-        <Card id="ready" title={`${ready.data![0].total_count} ready to pay`}>
+        <Card id="ready" title={`${ready.data![0].total_count} ready to pay`} actions={<HideButton label="the Ready to pay section" onHide={() => update(setVisible(sectionPath, sections, "ready", false))} />}>
           <Table head={["Invoice", "Vendor", "Invoice #", "Due", "Total", ""]}>
             {ready.data!.map((i) => (
               <tr key={i.invoice_id}>
@@ -57,13 +84,17 @@ export function Payments() {
           <Pager param="readyPage" page={readyPage} total={ready.data![0].total_count} />
         </Card>
       )}
+      <HiddenTray what="sections" items={sections} onShow={(id) => update(setVisible(sectionPath, sections, id, true))} />
       <Card
         id="payments"
         title={`${rows.data?.[0]?.total_count ?? 0} payments`}
         actions={
           <>
             {TABS.map((s) => (
-              <Link key={s} to={withParams(sp, { status: s, page: null })} className="chip" aria-current={s === status}>{s}</Link>
+              <Fragment key={s}>
+                <Link to={withParams(sp, { status: s, page: null })} className="chip" aria-current={s === status}>{s}</Link>
+                <FilterStar table="payments" value={s} label={s} to={withParams(sp, { status: s, page: null })} />
+              </Fragment>
             ))}
           </>
         }
@@ -71,25 +102,19 @@ export function Payments() {
         <Show load={rows}>
           {(list) => (
             <>
-              <Table head={["Payment", "Invoice", "Vendor", "Method", "Amount", "Scheduled", "Paid", "Prepared / released", "Status", ""]} empty="No payments.">
-                {list.map((p) => (
-                  <tr key={p.payment_id}>
-                    <Td><A href={`/payments/${p.payment_id}`}>{p.payment_id}</A></Td>
-                    <Td><A href={`/invoices/${p.invoice_id}`}>{p.invoice_id}</A></Td>
-                    <Td>{p.vendor}</Td>
-                    <Td>{p.method}</Td>
-                    <Td className="whitespace-nowrap">{money(p.amount, p.currency)}</Td>
-                    <Td>{date(p.scheduled_date)}</Td>
-                    <Td>{date(p.paid_date)}</Td>
-                    <Td className="text-xs">{p.preparer ?? "—"} / {p.releaser ?? "—"}</Td>
-                    <Td><Status value={p.status} /></Td>
-                    <Td>
-                      {p.can_release && <ApiForm submit={release(p.payment_id)} confirm={`Release ${money(p.amount, p.currency)} to ${p.vendor}?`}><button className={btn}>Release</button></ApiForm>}
-                      {p.release_blocked && <span className="text-xs muted">{p.release_blocked}</span>}
-                    </Td>
-                  </tr>
-                ))}
-              </Table>
+              <DataTable
+                table="payments"
+                rows={list}
+                rowKey={(p) => p.payment_id}
+                columns={PAYMENT_COLUMNS}
+                trailing={(p) => (
+                  <>
+                    {p.can_release && <ApiForm submit={release(p.payment_id)} confirm={`Release ${money(p.amount, p.currency)} to ${p.vendor}?`}><button className={btn}>Release</button></ApiForm>}
+                    {p.release_blocked && <span className="text-xs muted">{p.release_blocked}</span>}
+                  </>
+                )}
+                empty="No payments."
+              />
               <Pager param="page" page={page} total={list[0]?.total_count ?? 0} />
             </>
           )}

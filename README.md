@@ -24,6 +24,16 @@ Load Harborline's existing records, then poll the AP inbox (the last step needs 
 ./scripts/reset-db.sh && npx tsx scripts/ingest.ts setup && npx tsx scripts/ingest.ts history && npx tsx scripts/ingest.ts inbox
 ```
 
+A database created before workspace preferences needs their table. Add it without a reset (safe to run again):
+
+```bash
+psql "$(sed -n 's/^DATABASE_URL=//p' .env.local | tr -d '"')" -f db/migrations/001_user_preferences.sql
+```
+
+## Customizing the workspace
+
+Each person can tailor their own workspace: press **Customize** in the header, then drag or hide tabs, dashboard tiles and cards, Invoices sections and table columns; star a filter as a table's default; pick rows per page. **Workspace options** sets the start page, theme, density, accent and text size. Changes save to the signed-in user (`GET/PUT/DELETE /api/me/preferences`, stored in `user_preferences`) and follow them to any browser. Preferences only rearrange what the user's role already allows; they never grant access.
+
 ## Payments and the bank
 
 Releasing a payment sends it to the bank: its instruction goes to `BANK_DIR/outbox`. The bank answers with statement lines and virtual card charges in `BANK_DIR`; outside the app, `scripts/bank.ts` gives those answers for every instruction due by the business date:

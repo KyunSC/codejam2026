@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { TABS, type ResolvedPreferences } from "@/lib/preferences";
 import { post, get, useLoad } from "../api";
 import { useSession } from "../session";
 import { ApiForm, str } from "../components/ApiForm";
@@ -9,6 +10,16 @@ const ROLE_LABEL: Record<string, string> = {
   brim_employee: "Brim employee", employee: "Employee", ap_clerk: "AP clerk", approver: "Approver", finance_manager: "Finance manager", controller_admin: "Controller / admin", auditor: "Auditor",
 };
 
+// Where an organization user starts: the start page from their workspace preferences, else the dashboard.
+async function startPage() {
+  try {
+    const { resolved } = await get<{ resolved: ResolvedPreferences }>("/api/me/preferences");
+    return TABS.find((t) => t.id === resolved.landingPage)?.href ?? "/dashboard";
+  } catch {
+    return "/dashboard";
+  }
+}
+
 // Signs in through POST /api/session, then opens the portal's first screen.
 function useLogin(portal: "organization" | "brim") {
   const { refresh } = useSession();
@@ -16,7 +27,7 @@ function useLogin(portal: "organization" | "brim") {
   return async (fd: FormData) => {
     await post("/api/session", { email: str(fd, "email") ?? "", password: str(fd, "password") ?? "", portal });
     await refresh();
-    navigate(portal === "brim" ? "/organizations" : "/dashboard");
+    navigate(portal === "brim" ? "/organizations" : await startPage());
   };
 }
 
@@ -32,7 +43,7 @@ function DemoAccounts({ portal }: { portal: "organization" | "brim" }) {
     try {
       await post("/api/session/demo", { email: address, portal });
       await refresh();
-      navigate(portal === "brim" ? "/organizations" : "/dashboard");
+      navigate(portal === "brim" ? "/organizations" : await startPage());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }

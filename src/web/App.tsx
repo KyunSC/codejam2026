@@ -5,7 +5,7 @@ import type { Organization } from "@/services/organization.service";
 import type { User } from "@/lib/types";
 import { del, get, useLoad } from "./api";
 import { org, useSession, useUser } from "./session";
-import { NavTabs, SubTabs } from "./components/NavTabs";
+import { SubTabs, WorkspaceTabs } from "./components/NavTabs";
 import { NotFound, PageTitle } from "./components/ui";
 import { Home } from "./pages/Home";
 import { EmployeeLogin, Login } from "./pages/Login";
@@ -20,6 +20,8 @@ import { PoliciesSettings, UsersSettings } from "./pages/Settings";
 import { Audit } from "./pages/Audit";
 import { Account } from "./pages/Account";
 import { Organization as OrganizationPage, Organizations } from "./pages/Organizations";
+import { CustomizeButton, EditModeProvider } from "./customize/EditMode";
+import { EditBar } from "./customize/EditBar";
 
 export function App() {
   const { pathname } = useLocation();
@@ -101,16 +103,9 @@ function WorkspaceLayout() {
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
   if (user.role === "brim_employee") return <Navigate to="/organizations" replace />;
-  const tabs = [
-    { href: "/dashboard", label: "Dashboard", match: "/dashboard" },
-    { href: "/invoices", label: "Invoices", match: "/invoices" },
-    { href: "/purchase-orders", label: "Purchase orders", match: "/purchase-orders" },
-    ...(can(user, "payment.view") ? [{ href: "/payments", label: "Payments", match: "/payments" }] : []),
-    ...(can(user, "vendor.view") ? [{ href: "/vendors", label: "Vendors", match: "/vendors" }] : []),
-    { href: "/account", label: "Account", match: "/account" },
-    ...(settingsTabs(user).length ? [{ href: "/settings", label: "Settings", match: "/settings" }] : []),
-  ];
+  // The tabs come from the user's workspace preferences (WorkspaceTabs, TABS in src/lib/preferences.ts).
   return (
+    <EditModeProvider>
     <div className="flex min-h-screen flex-col">
       <header className="z-10 border-b-2 border-border bg-bg sm:sticky sm:top-0">
         <div className="mx-auto flex max-w-[1240px] flex-wrap items-center gap-x-6 gap-y-2 px-4 pt-3 sm:px-5">
@@ -121,18 +116,21 @@ function WorkspaceLayout() {
           <div className="ml-auto flex flex-wrap items-center gap-3 text-sm">
             <span className="font-bold">{user.full_name}</span>
             <span className="chip chip--gray">{user.role.replace(/_/g, " ")}</span>
+            <CustomizeButton />
             <LogoutButton />
           </div>
           <div className="basis-full">
-            <NavTabs items={tabs} />
+            <WorkspaceTabs />
           </div>
         </div>
+        <EditBar workspace />
       </header>
       <main className="mx-auto w-full max-w-[1240px] flex-1 px-4 py-8 sm:px-5">
         <ScrollToSection />
         <Outlet />
       </main>
     </div>
+    </EditModeProvider>
   );
 }
 
@@ -175,6 +173,7 @@ function BrimLayout() {
   if (!user) return <Navigate to="/employee-login" replace />;
   if (user.role !== "brim_employee") return <Navigate to="/dashboard" replace />;
   return (
+    <EditModeProvider>
     <div className="flex min-h-screen flex-col">
       <header className="z-10 border-b border-rule bg-bg sm:sticky sm:top-0">
         <div className="mx-auto flex max-w-[1240px] flex-wrap items-center gap-x-8 gap-y-3 px-4 py-3.5 sm:px-5">
@@ -188,13 +187,16 @@ function BrimLayout() {
           </nav>
           <div className="ml-auto flex items-center gap-3 text-sm">
             <span className="font-bold">{user.full_name}</span>
+            <CustomizeButton />
             <LogoutButton />
           </div>
         </div>
+        <EditBar workspace={false} />
       </header>
       <main className="mx-auto w-full max-w-[1240px] flex-1 px-4 py-8 sm:px-5">
         <Outlet />
       </main>
     </div>
+    </EditModeProvider>
   );
 }

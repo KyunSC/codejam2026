@@ -9,6 +9,19 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <title>Brim AP</title>
+    <script>
+      // Workspace appearance before the app loads, so a saved theme doesn't flash. src/web/preferences.tsx keeps this cache.
+      try {
+        var a = JSON.parse(localStorage.getItem("brim:prefs:last") || "null");
+        if (a) {
+          var d = document.documentElement;
+          if (a.theme === "light" || a.theme === "dark") d.setAttribute("data-theme", a.theme);
+          if (typeof a.density === "string") d.setAttribute("data-density", a.density);
+          if (typeof a.accent === "string") d.setAttribute("data-accent", a.accent);
+          if (typeof a.textSize === "string") d.setAttribute("data-text-size", a.textSize);
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body class="flex min-h-full flex-col">
     <div id="root" class="flex min-h-full flex-1 flex-col"></div>

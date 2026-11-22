@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { can } from "@/lib/authz";
 import { money } from "@/lib/format";
@@ -7,14 +7,40 @@ import type { InvoiceRow } from "@/services/read.service";
 import { del, get, patch, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { ApiForm, numOrNull, str } from "../components/ApiForm";
+import { DataTable, type Column } from "../components/DataTable";
+import { FilterStar } from "../customize/FilterStar";
+import { usePreferences } from "../preferences";
 import { A, Badge, Card, Field, NotFound, OptionalFields, PAGE_SIZE, PageTitle, Pager, Show, Status, Table, Td, btn, btnDanger, btnLight, date, input, pageParam } from "../components/ui";
 
 type VendorRow = Awaited<ReturnType<typeof listVendors>>[number];
 
+// The vendors table's columns (ids and labels in TABLES.vendors, src/lib/preferences.ts).
+const VENDOR_COLUMNS: Column<VendorRow>[] = [
+  { id: "vendor", render: (v) => <><A href={`/vendors/${v.vendor_id}`}>{v.legal_name}</A> <span className="text-xs muted">{v.vendor_id}</span></> },
+  { id: "category", render: (v) => v.category },
+  { id: "location", render: (v) => <>{v.province_or_state} {v.country}</> },
+  { id: "gst_hst", className: "font-mono text-xs", render: (v) => v.gst_hst_number ?? "—" },
+  { id: "pays_by", render: (v) => v.preferred_payment_method },
+  { id: "invoices", render: (v) => v.invoices },
+  { id: "status", render: (v) => <Status value={v.status} /> },
+  {
+    id: "warnings",
+    className: "space-x-1",
+    render: (v) => (
+      <>
+        {v.lookalike_of.length > 0 && <Badge tone="gold">looks like {v.lookalike_of.map((o) => o.legal_name).join(", ")}</Badge>}
+        {v.pending_change && <Badge tone="red">bank change unverified</Badge>}
+      </>
+    ),
+  },
+];
+
 export function Vendors() {
   const user = useUser();
   const [sp] = useSearchParams();
-  const status = sp.get("status") ?? "all";
+  const { prefs } = usePreferences();
+  // The filter in the URL wins; without one, the list opens on the user's default (plan 6.6).
+  const status = sp.get("status") ?? prefs.tables.vendors.filter ?? "all";
   const page = pageParam(sp.get("page"));
   const load = useLoad(() => get<VendorRow[]>(org(user, `/vendors${qs({ status: status === "all" ? null : status, page, size: PAGE_SIZE })}`)), `${status}:${page}`);
   if (!can(user, "vendor.view")) return <NotFound />;
@@ -26,7 +52,10 @@ export function Vendors() {
         actions={
           <>
             {["all", "active", "pending_review", "on_hold"].map((s) => (
-              <Link key={s} to={s === "all" ? "/vendors" : `/vendors?status=${s}`} className="chip" aria-current={s === status}>{s.replace("_", " ")}</Link>
+              <Fragment key={s}>
+                <Link to={`/vendors?status=${s}`} className="chip" aria-current={s === status}>{s.replace("_", " ")}</Link>
+                <FilterStar table="vendors" value={s} label={s.replace("_", " ")} to={`/vendors?status=${s}`} />
+              </Fragment>
             ))}
             {can(user, "vendor.onboard") && <Link to="/vendors/new" className={btn}>Onboard vendor</Link>}
           </>
@@ -35,23 +64,7 @@ export function Vendors() {
         <Show load={load}>
           {(vendors) => (
             <>
-              <Table head={["Vendor", "Category", "Location", "GST/HST", "Pays by", "Invoices", "Status", "Warnings"]}>
-              {vendors.map((v) => (
-                <tr key={v.vendor_id}>
-                  <Td><A href={`/vendors/${v.vendor_id}`}>{v.legal_name}</A> <span className="text-xs muted">{v.vendor_id}</span></Td>
-                  <Td>{v.category}</Td>
-                  <Td>{v.province_or_state} {v.country}</Td>
-                  <Td className="font-mono text-xs">{v.gst_hst_number ?? "—"}</Td>
-                  <Td>{v.preferred_payment_method}</Td>
-                  <Td>{v.invoices}</Td>
-                  <Td><Status value={v.status} /></Td>
-                  <Td className="space-x-1">
-                    {v.lookalike_of.length > 0 && <Badge tone="gold">looks like {v.lookalike_of.map((o) => o.legal_name).join(", ")}</Badge>}
-                    {v.pending_change && <Badge tone="red">bank change unverified</Badge>}
-                  </Td>
-                </tr>
-              ))}
-            </Table>
+              <DataTable table="vendors" rows={vendors} rowKey={(v) => v.vendor_id} columns={VENDOR_COLUMNS} />
               <Pager param="page" page={page} total={vendors[0]?.total_count ?? 0} />
             </>
           )}
