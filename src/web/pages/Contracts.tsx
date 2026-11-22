@@ -7,6 +7,7 @@ import { del, get, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { ApiForm, str } from "../components/ApiForm";
 import { A, Card, Field, OptionalFields, PAGE_SIZE, PageTitle, Pager, Show, Status, Table, Td, btn, btnDanger, btnLight, date, input, pageParam } from "../components/ui";
+import { VendorLink } from "../components/VendorLink";
 
 // A contract as the records endpoint returns it, with its vendor's name
 type ContractRow = {
@@ -116,7 +117,7 @@ export function Contracts() {
                 {rows.map((c) => (
                   <tr key={c.contract_id}>
                     <Td className="whitespace-nowrap"><A href={`/contracts/${c.contract_id}`}>{c.contract_id}</A></Td>
-                    <Td><A href={`/vendors/${c.vendor_id}`}>{c.vendor_name}</A></Td>
+                    <Td><VendorLink id={c.vendor_id}>{c.vendor_name}</VendorLink></Td>
                     <Td>{c.description}</Td>
                     <Td className="text-xs"><Terms c={c} /></Td>
                     <Td className="whitespace-nowrap">{date(c.start_date)}</Td>
@@ -152,7 +153,7 @@ export function Contract() {
           <div className="grid gap-5 lg:grid-cols-2">
             <Card title="Details">
               <dl className="grid grid-cols-2 gap-2 text-sm">
-                <dt className="muted">Vendor</dt><dd><A href={`/vendors/${c.vendor_id}`}>{c.vendor_name}</A></dd>
+                <dt className="muted">Vendor</dt><dd><VendorLink id={c.vendor_id}>{c.vendor_name}</VendorLink></dd>
                 <dt className="muted">Description</dt><dd>{c.description ?? "—"}</dd>
                 <dt className="muted">Terms</dt><dd><Terms c={c} /></dd>
                 <dt className="muted">Starts</dt><dd>{date(c.start_date)}</dd>
