@@ -51,6 +51,10 @@ For production: `npm run build`, then `npm start`.
 
 Sign-in is by email only, with no password (demo). The login page lists the demo accounts. The Brim operator account, `ops@brim.example`, creates organizations and runs setup.
 
+## Customizing the workspace
+
+Each person can tailor their own workspace: press **Customize** in the header, then drag or hide tabs, dashboard tiles and cards, Invoices sections and table columns; star a filter as a table's default; pick rows per page. **Workspace options** sets the start page, theme, density, accent and text size. Changes save to the signed-in user (`GET/PUT/DELETE /api/me/preferences`, stored in `user_preferences`) and follow them to any browser. Preferences only rearrange what the user's role already allows; they never grant access.
+
 ## Sealed invoices
 
 `brim_ap_dataset/sealed_invoices.txt` lists 15 incoming files held back as a stand-in for the judges' hidden batch. The inbox poll skips the emails that carry them unless the server runs with `INCLUDE_SEALED=1`. Don't open those files. See `AGENTS.md`.

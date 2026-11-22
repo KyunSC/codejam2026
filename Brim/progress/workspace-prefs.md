@@ -4,6 +4,54 @@ Branch `feature/workspace-preferences`. Builds `WORKSPACE_PREFS_PLAN.md`. One it
 
 Checks for every commit (from `Brim/`): `npm run typecheck`, `npm run lint -- --ignore-pattern '.next/**'`, `npm run build`. (Plain `npm run lint` reports ~11,700 problems, all in a stale, gitignored `.next/` folder left from the Next.js version; CI never sees it. See questions.md.) Running app for curl checks: `PORT=3100 npm run dev`; stop it with `kill $(lsof -tiTCP:3100 -sTCP:LISTEN)` (never a pattern-based pkill: something else listens on 3000). Database: the local one in `.env.local`, read-only except item 1's migration.
 
+## Summary (loop finished 2026-11-22 ~01:45, every item ticked, none blocked)
+
+**What works.** Checked with typecheck, lint, build, the 14 `check-preferences.ts` checks, curl, and HTML comparisons rendered with `react-dom/server`.
+- Per-user preferences are stored in `user_preferences` behind `GET/PUT/DELETE /api/me/preferences`. Each real change writes one audit row; an unchanged PUT or a redundant reset writes none. Saves are validated with field-named 400s, and preferences never widen what a role sees.
+- A **Customize** button opens edit mode in both layouts. The edit bar has Workspace options, Undo, Reset this page and Done; Esc also leaves edit mode.
+- Tabs can be dragged and hidden, and the start page shows a house icon. Sign-in lands on the start page.
+- Dashboard tiles and cards can be dragged and hidden. Hidden ones aren't fetched, and there is an empty state.
+- All six tables (Raw, Parsed, Invoices, Payments, Vendors, Audit) have columns that can be reordered and hidden. Outside edit mode each renders byte-identical HTML to the old `Table`.
+- Default filters: a ☆ on each chip and on each Payments tile sets one. Rows per page: Raw, Parsed, Invoices and Audit.
+- The Invoices sections can be reordered and hidden, and the Payments totals row can be hidden. Hidden sections aren't fetched.
+- Theme, density, accent and text size are applied before the bundle loads, so there is no flash.
+
+**Changes outside edit mode (all on purpose, per the plan):**
+- The Invoices section titles lost their "1./2./3." prefixes.
+- "All" filter links now write `=all` in the URL.
+- Audit requests send `size=20` explicitly.
+
+**What doesn't work / known gaps.**
+- No known broken behaviour, but none of it has been driven in a real browser. Drag and drop, keyboard dragging and touch are untested by a human.
+- Plain `npm run lint` fails locally because of a stale `.next/` folder (see questions.md). Lint passes with `--ignore-pattern '.next/**'`.
+
+**Not verified in a browser.** All of plan 8's browser checklist; item 12 below records step by step what was checked another way.
+
+**Commits** (`feature/workspace-preferences`, not pushed):
+- `53c6b29` plan
+- `05fa582` storage
+- `cf481ae` shared model
+- `57d15a7` API
+- `3f893ae` provider and appearance
+- `5c7ddd0` edit mode shell
+- `e5a0d52` tabs and start page
+- `f472119` dashboard
+- `9465889` `1cf419c` `4fd47bb` `41a7e23` `389412c` `1570217` tables
+- `e46d0c7` default filters
+- `d8df75b` rows per page
+- `891a43c` sections
+- then the wrap-up commit (README section and this summary)
+
+**What to demo** (sign in as the clerk `jordan.okafor@harborline-logistics.example`):
+1. Customize → Workspace options: Dark theme and a blue accent, then start page = Invoices. Sign out and in, and it lands on Invoices.
+2. On Invoices, drag the Invoices section above Raw, hide the Raw "Received" column, and set Invoices to 10 rows per page.
+3. On Payments, star `released`. Leave and come back, and it opens on Released.
+4. On Dashboard, hide a card. Press Undo, then Reset this page.
+5. Press Done. Open a private window and sign in again: the same workspace comes from the server.
+6. Show the Audit tab as the controller (`marcus.webb`): every change appears as `preferences.update` / `preferences.reset`.
+
+## Items
+
 - [x] 0. Commit WORKSPACE_PREFS_PLAN.md as it is. Create progress/workspace-prefs.md.
 - [x] 1. Storage: user_preferences in db/schema.sql, db/migrations/001_user_preferences.sql, README line; migration applied twice.
   - Table added to `db/schema.sql` right after `users` (and the departments FK). Migration is the same statement with `IF NOT EXISTS`.
@@ -85,4 +133,31 @@ Checks for every commit (from `Brim/`): `npm run typecheck`, `npm run lint -- --
   - Hidden sections aren't fetched: their `useLoad` resolves `[]` without a request, and visibility is part of the key, so showing one again loads it.
   - Payments: the totals row hides with × on a small "Totals" bar above it in edit mode (`.section-edit`), tray to bring it back; hidden totals aren't fetched (`/payments/totals` skipped). The list is locked, so there's nothing to reorder. The totals row is a `totalsRow` const now, unchanged markup.
   - Verified: typecheck, lint, build; curl on :3100: a PUT that hides raw, reorders Invoices sections and tries to hide/move the locked Payments list resolves to the new Invoices order with raw hidden, and Payments `totals` hidden with `list` visible in its default place. DELETE restores defaults. Not seen in a browser yet.
-- [ ] 12. Wrap-up: README line, curl flow end to end, browser checklist notes.
+- [x] 12. Wrap-up: README line, curl flow end to end, browser checklist notes.
+  - README: new "Customizing the workspace" section (what can change, where it's stored, that it never grants access). The migration line from item 1 stays under "Run".
+  - Plan 8's curl flow on :3100, as the clerk U004:
+    - GET returned stored `{}` and landing page `dashboard`.
+    - PUT theme + pageSize returned 200. The identical PUT returned 200 with no new row.
+    - `theme: neon` and `pageSize: 7` returned 400s naming `theme` and `tables.invoices.pageSize`.
+    - Hiding the `audit` tab was accepted and had no effect for a clerk, whose tabs stay dashboard, invoices, payments, vendors.
+    - DELETE returned 200, and a second DELETE wrote no row. No cookie returned 401.
+    - `audit_events` after the run: exactly `preferences.update`, `preferences.update`, `preferences.reset`, all on `user_preferences`/U004.
+  - Role checks: the visible tabs match the old hard-coded lists.
+    - Controller: all 6 tabs.
+    - Employee and approver: Dashboard and Invoices.
+    - Finance manager: everything except Audit and Settings.
+    - Auditor: everything except Settings.
+    - An employee who saves `landingPage: audit` resolves to `dashboard`.
+  - Every SPA route returned 200.
+  - Plan 8 browser checklist, step by step:
+    1. Start page and sign-in. API part verified: `landingPage` resolves, and `Login.tsx` maps it to the tab's href (item 6). **Needs a human:** the actual redirect.
+    2. Move a section, hide a column. Resolution verified by curl, markup by build. **Needs a human:** the drag itself.
+    3. Star `released`, then "all". Filter resolution and the 400 for bad values verified by curl. **Needs a human:** the star click and navigation.
+    4. 10 rows per page. API `size` verified by curl. **Needs a human:** the control and pager.
+    5. Compact density, large text, 375 px. **Needs a human** (visual).
+    6. Keyboard and touch. **Needs a human.** The sensors are configured: grip plus Space, 5 px pointer distance, 200 ms touch delay.
+    7. Private window uses the server copy. Server copy verified by curl. **Needs a human** for the browser part.
+    8. Role change. Resolution verified for an employee, including the start-page fallback. **Needs a human:** changing a role in Settings → Users and signing in.
+    9. Server stopped mid-drag shows "Couldn't save · Retry". **Needs a human.**
+    10. Detail pages and Settings say nothing can be customized. `pageFor()` was checked by reading the code. **Needs a human** to see it.
+    11. Brim operator sees Workspace options only. `EditBar workspace={false}` in the Brim layout was checked by reading the code. **Needs a human.**
