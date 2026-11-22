@@ -7,7 +7,8 @@ import type { InvoiceData, InvoiceLine, User } from "@/lib/types";
 import { canActOn, pendingForUserSql } from "./approval.service";
 import { getParsed } from "./pipeline.service";
 import { getRawItem, type RawItem } from "./rawIntake.service";
-import { releaseBlocks } from "./payment.service";
+import { HANDLEABLE, handlingHistory, type HandlingOutcome, type HandlingRow } from "./rawItemHandling.service";
+import { cancelProblem, releaseBlocks } from "./payment.service";
 
 // Read side shared by the API and the pages: each list and record has one function, limited to what the user may see.
 
@@ -17,28 +18,60 @@ export type RawItemRow = {
   total_count: number; raw_item_id: string; kind: string; received_at: string; from_name: string | null; from_address: string | null; subject: string | null;
   files: { file_name: string }[]; form_json: InvoiceData | null; submitted_by: string | null; submitter: string | null; status: string; no_invoice_reason: string | null;
   failure_reason: string | null;
+  // the latest handling of an item with no invoice or not readable (rawItemHandling.service.ts); null when none yet
+  handling_outcome: HandlingOutcome | null; handled_at: string | null; handled_by_name: string | null; handling_note: string | null;
 };
 
+// "open": everything not settled yet, i.e. todo plus waiting; "todo": still needs someone, i.e. being read, or no invoice /
+// not readable and nobody has handled it (the clerk's everyday view); "needs": no invoice or not readable, and nobody has
+// handled it; "waiting": asked the sender to send it again; "handled": dealt with in another way.
+export const ATTENTION = ["open", "todo", "needs", "waiting", "handled"] as const;
+export type Attention = (typeof ATTENTION)[number];
+
 // Raw items not yet extracted come first. The AP clerk sees them all; everyone else sees only what they submitted.
-export async function listRawItems(user: User | null, organizationId: string, f: Paging & { kind?: string | null; status?: string | null } = {}) {
+// q matches the raw item id, sender, subject or a file name; from/to bound the day it was received (YYYY-MM-DD).
+export async function listRawItems(
+  user: User | null,
+  organizationId: string,
+  f: Paging & { kind?: string | null; status?: string | null; attention?: string | null; q?: string | null; from?: string | null; to?: string | null } = {},
+) {
   assertMember(user, organizationId);
   const { limit, offset } = window(f);
+  const attention = (ATTENTION as readonly string[]).includes(f.attention ?? "") ? (f.attention as Attention) : null;
+  const day = (v: string | null | undefined) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
+  const q = f.q?.trim() ? `%${f.q.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
   return query<RawItemRow>(
     `SELECT r.raw_item_id, r.kind, r.received_at, r.from_name, r.from_address, r.subject, r.files, r.form_json, r.submitted_by, u.full_name AS submitter,
-            r.status, r.no_invoice_reason, r.failure_reason, count(*) OVER ()::int AS total_count
+            r.status, r.no_invoice_reason, r.failure_reason,
+            h.outcome AS handling_outcome, h.handled_at, hu.full_name AS handled_by_name, h.note AS handling_note,
+            count(*) OVER ()::int AS total_count
        FROM raw_items r LEFT JOIN users u ON u.user_id=r.submitted_by
+       LEFT JOIN LATERAL (SELECT * FROM raw_item_handling WHERE raw_item_id=r.raw_item_id ORDER BY handling_id DESC LIMIT 1) h ON true
+       LEFT JOIN users hu ON hu.user_id=h.handled_by
       WHERE r.organization_id=$1 AND ($2::text IS NULL OR r.kind=$2) AND ($3::text IS NULL OR r.status=$3) AND ($4::text IS NULL OR r.submitted_by=$4)
+        AND ($5::text IS NULL
+              OR ($5 = 'open' AND (r.status = 'new' OR (r.status = ANY($6) AND (h.outcome IS NULL OR h.outcome = 'requested'))))
+              OR ($5 = 'todo' AND (r.status = 'new' OR (r.status = ANY($6) AND h.outcome IS NULL)))
+              OR ($5 NOT IN ('open', 'todo') AND r.status = ANY($6) AND CASE $5
+                    WHEN 'needs' THEN h.outcome IS NULL
+                    WHEN 'waiting' THEN h.outcome = 'requested'
+                    ELSE h.outcome IS NOT NULL AND h.outcome <> 'requested' END))
+        AND ($7::text IS NULL OR r.raw_item_id ILIKE $7 OR r.from_name ILIKE $7 OR r.from_address ILIKE $7 OR r.subject ILIKE $7
+              OR EXISTS (SELECT 1 FROM jsonb_array_elements(r.files) fl WHERE fl->>'file_name' ILIKE $7))
+        AND ($8::date IS NULL OR r.received_at >= $8::date)
+        AND ($9::date IS NULL OR r.received_at < $9::date + 1)
       ORDER BY (r.status='new') DESC, r.received_at DESC LIMIT ${limit} OFFSET ${offset}`,
-    [organizationId, f.kind || null, f.status || null, can(user, "parsed.review") ? null : user.user_id],
+    [organizationId, f.kind || null, f.status || null, can(user, "parsed.review") ? null : user.user_id, attention, HANDLEABLE, q, day(f.from), day(f.to)],
   );
 }
 
-// A raw item, for the AP clerk who reviews them all, its submitter, and anyone who may see the invoice made from it.
-export async function getRawItemRecord(user: User | null, organizationId: string, id: string): Promise<RawItem> {
+// A raw item, for the AP clerk who reviews them all, its submitter, and anyone who may see the invoice made from it,
+// with what has been done about it when it holds no invoice.
+export async function getRawItemRecord(user: User | null, organizationId: string, id: string): Promise<RawItem & { handling: HandlingRow[] }> {
   assertMember(user, organizationId);
   const r = await getRawItem(user, organizationId, id);
   if (!r || !(can(user, "parsed.review") || r.submitted_by === user.user_id || (await seesInvoiceFrom(user, id)))) throw new NotFoundError("No such raw item");
-  return r;
+  return { ...r, handling: await handlingHistory(organizationId, id) };
 }
 
 async function seesInvoiceFrom(user: User, rawItemId: string) {
@@ -57,19 +90,32 @@ export type ParsedRow = {
   invoice_json: InvoiceData; vendor_name: string | null; blocking: number; warnings: number;
 };
 
-export async function listParsedInvoices(user: User | null, organizationId: string, f: Paging & { status?: string | null } = {}) {
+export const PARSED_FLAG_FILTERS = ["blocking", "warning", "clear"] as const;
+
+// q matches the parsed id, vendor (in the master or as read) or invoice #. `flags` sorts each parsed invoice into exactly one
+// bucket: any open blocking flag, else any open warning, else clear.
+export async function listParsedInvoices(user: User | null, organizationId: string, f: Paging & { status?: string | null; q?: string | null; flags?: string | null } = {}) {
   assertMember(user, organizationId);
   const { limit, offset } = window(f);
+  const flags = PARSED_FLAG_FILTERS.find((x) => x === f.flags) ?? null;
   return query<ParsedRow>(
-    `SELECT p.parsed_invoice_id, p.raw_item_id, p.file_name, p.status, p.invoice_id, p.invoice_json, v.legal_name AS vendor_name,
+    `SELECT x.*, count(*) OVER ()::int AS total_count FROM (
+     SELECT p.parsed_invoice_id, p.raw_item_id, p.file_name, p.status, p.invoice_id, p.invoice_json, v.legal_name AS vendor_name,
             (SELECT count(*)::int FROM invoice_flags f WHERE f.parsed_invoice_id=p.parsed_invoice_id AND f.status='open' AND f.severity='blocking') AS blocking,
-            (SELECT count(*)::int FROM invoice_flags f WHERE f.parsed_invoice_id=p.parsed_invoice_id AND f.status='open' AND f.severity='warning') AS warnings,
-            count(*) OVER ()::int AS total_count
+            (SELECT count(*)::int FROM invoice_flags f WHERE f.parsed_invoice_id=p.parsed_invoice_id AND f.status='open' AND f.severity='warning') AS warnings
        FROM parsed_invoices p LEFT JOIN vendors v ON v.vendor_id = p.invoice_json->>'vendor_id'
       WHERE p.organization_id=$1 AND p.status=COALESCE($2, 'pending')
         AND ($3::text IS NULL OR EXISTS (SELECT 1 FROM raw_items r WHERE r.raw_item_id=p.raw_item_id AND r.submitted_by=$3))
-      ORDER BY p.parsed_invoice_id LIMIT ${limit} OFFSET ${offset}`,
-    [organizationId, f.status || null, can(user, "parsed.review") ? null : user.user_id],
+        AND ($4::text IS NULL
+             OR strpos(lower(p.parsed_invoice_id), lower($4)) > 0
+             OR strpos(lower(v.legal_name), lower($4)) > 0
+             OR strpos(lower(p.invoice_json->>'vendor_name'), lower($4)) > 0
+             OR strpos(lower(p.invoice_json->>'vendor_invoice_number'), lower($4)) > 0)
+     ) x
+      WHERE CASE $5::text WHEN 'blocking' THEN x.blocking > 0 WHEN 'warning' THEN x.blocking = 0 AND x.warnings > 0
+                          WHEN 'clear' THEN x.blocking = 0 AND x.warnings = 0 ELSE true END
+      ORDER BY x.parsed_invoice_id LIMIT ${limit} OFFSET ${offset}`,
+    [organizationId, f.status || null, can(user, "parsed.review") ? null : user.user_id, f.q?.trim() || null, flags],
   );
 }
 
@@ -146,17 +192,24 @@ export type PaymentRow = {
   cheque_number: number | null; failure_reason: string | null;
   // for a scheduled payment: whether the signed-in user may release it, and if not, why
   can_release?: boolean; release_blocked?: string | null;
+  // a cancelled payment: who stopped it, when and why; for a scheduled one, whether the signed-in user may cancel it
+  canceller: string | null; cancelled_at: string | null; cancel_reason: string | null; prepared_by: string | null;
+  can_cancel?: boolean;
 };
 
-// Adds can_release / release_blocked for the signed-in user.
+// Adds can_release / release_blocked and can_cancel for the signed-in user.
 async function withRelease(user: User, organizationId: string, rows: PaymentRow[]) {
-  if (!can(user, "payment.release")) return rows;
-  const blocks = await releaseBlocks(user, organizationId, rows);
-  return rows.map((r) => (r.status === "scheduled" ? { ...r, can_release: !blocks.get(r.payment_id), release_blocked: blocks.get(r.payment_id) ?? null } : r));
+  const blocks = can(user, "payment.release") ? await releaseBlocks(user, organizationId, rows) : null;
+  return rows.map((r) => {
+    if (r.status !== "scheduled") return r;
+    const out: PaymentRow = { ...r, can_cancel: can(user, "payment.cancel") && !cancelProblem(user, r) };
+    return blocks ? { ...out, can_release: !blocks.get(r.payment_id), release_blocked: blocks.get(r.payment_id) ?? null } : out;
+  });
 }
 
-const PAYMENT_SELECT = `SELECT p.*, v.legal_name vendor, u1.full_name preparer, u2.full_name releaser, count(*) OVER ()::int AS total_count
-  FROM payments p JOIN vendors v USING (vendor_id) LEFT JOIN users u1 ON u1.user_id=p.prepared_by LEFT JOIN users u2 ON u2.user_id=p.released_by`;
+const PAYMENT_SELECT = `SELECT p.*, v.legal_name vendor, u1.full_name preparer, u2.full_name releaser, u3.full_name canceller, count(*) OVER ()::int AS total_count
+  FROM payments p JOIN vendors v USING (vendor_id) LEFT JOIN users u1 ON u1.user_id=p.prepared_by LEFT JOIN users u2 ON u2.user_id=p.released_by
+    LEFT JOIN users u3 ON u3.user_id=p.cancelled_by`;
 
 // An invoice the user may see, with its approval chain and, for those who see payments, its payments.
 export async function getInvoiceRecord(user: User | null, organizationId: string, id: string) {

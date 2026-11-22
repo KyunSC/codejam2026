@@ -5,7 +5,7 @@ import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "@
 import { tx, query, one, nextId, pool, type Db } from "@/lib/db";
 import { matches, RELEASE_RANK, REQUIREMENTS, type Policy } from "@/lib/policies";
 import { activePolicies } from "./policy.service";
-import { assertCan, assertMember } from "@/lib/authz";
+import { assertCan, assertMember, can } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 import type { User } from "@/lib/types";
 
@@ -130,6 +130,36 @@ export async function releasePayment(actor: User | null, organizationId: string,
   const outbox = path.join(process.env.BANK_DIR!, "outbox");
   mkdirSync(outbox, { recursive: true });
   writeFileSync(path.join(outbox, `${paymentId}.json`), JSON.stringify(instruction, null, 2));
+}
+
+// Cancel: stops a scheduled payment before it is released, and puts its invoice back to approved so it can be prepared again.
+// Those who may release payments may cancel any; an AP clerk only the ones they prepared. Once released it has gone to the bank.
+export async function cancelPayment(actor: User | null, organizationId: string, paymentId: string, reason: string) {
+  assertCan(actor, "payment.cancel");
+  if (!reason.trim()) throw new ValidationError("A reason is required to cancel a payment");
+  return tx(async (c) => {
+    assertMember(actor, organizationId, { brim: true });
+    const pay = await one<{ payment_id: string; organization_id: string; invoice_id: string; vendor_id: string; status: string; prepared_by: string | null }>(
+      "SELECT payment_id, organization_id, invoice_id, vendor_id, status, prepared_by FROM payments WHERE payment_id=$1 AND organization_id=$2 FOR UPDATE",
+      [paymentId, organizationId],
+      c,
+    );
+    if (!pay) throw new NotFoundError("No such payment");
+    const problem = cancelProblem(actor, pay);
+    if (problem) throw (pay.status !== "scheduled" ? new ConflictError(problem) : new ForbiddenError(problem));
+    await query("UPDATE payments SET status='cancelled', cancelled_by=$2, cancelled_at=now(), cancel_reason=$3 WHERE payment_id=$1", [paymentId, actor.user_id, reason.trim()], c);
+    await query("UPDATE invoices SET status='approved' WHERE invoice_id=$1 AND status='scheduled'", [pay.invoice_id], c);
+    await writeAudit(c, { organizationId: pay.organization_id, actor, action: "payment.cancel", entityType: "payment", entityId: paymentId, invoiceId: pay.invoice_id, paymentId, vendorId: pay.vendor_id,
+      before: { status: "scheduled" }, after: { status: "cancelled", reason: reason.trim() } });
+  });
+}
+
+// Why the user may not cancel this payment, or null when they can: the same rule for the API and the buttons.
+export function cancelProblem(actor: User, pay: { status: string; prepared_by: string | null }): string | null {
+  if (!can(actor, "payment.cancel")) return "Not allowed: payment.cancel";
+  if (pay.status !== "scheduled") return "Only a scheduled payment can be cancelled; this one is " + pay.status + ".";
+  if (!can(actor, "payment.release") && pay.prepared_by !== actor.user_id) return "You can only cancel payments you prepared.";
+  return null;
 }
 
 // Why the user cannot release each scheduled payment, or null when they can: the same rules as releasePayment.

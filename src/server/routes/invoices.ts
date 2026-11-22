@@ -6,6 +6,7 @@ import {
 } from "@/services/read.service";
 import { invoiceTrail, parsedInvoiceTrail } from "@/services/audit.service";
 import { readStoredFile } from "@/services/rawIntake.service";
+import { attentionCounts, handleRawItem } from "@/services/rawItemHandling.service";
 import { pollAndRead, submitInvoiceForm, uploadInvoice } from "@/services/intake.service";
 import { approve, editParsedInvoice, reject, resolveFlag, runChecksAgain, saveEdits, type ReviewEdit } from "@/services/parsedInvoiceReview.service";
 import { readParsedAgain } from "@/services/pipeline.service";
@@ -19,9 +20,16 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 
 export const invoices = Router({ mergeParams: true });
 
 // --- raw items ---
+// attention=open (todo + waiting) | todo (what still needs someone) | needs | waiting | handled; q searches id, sender, subject and file names;
+// from/to (YYYY-MM-DD) bound the day received.
 invoices.get("/raw-items", route(async ({ user, params, query }) => (
-  listRawItems(user, params.orgId, { kind: param(query, "kind"), status: param(query, "status"), ...pagingOf(query) })
+  listRawItems(user, params.orgId, {
+    kind: param(query, "kind"), status: param(query, "status"), attention: param(query, "attention"),
+    q: param(query, "q"), from: param(query, "from"), to: param(query, "to"), ...pagingOf(query),
+  })
 )));
+// The clerk's raw-item workload: { reading, needs, waiting, todo, open }.
+invoices.get("/raw-items/attention", route(async ({ user, params }) => attentionCounts(user, params.orgId), { gate: "parsed.review" }));
 // Multipart body with the file in field "file". It is read in the background; its raw item shows the result.
 invoices.post("/raw-items/uploads", upload.single("file"), route(async ({ req, user }) => {
   if (!req.file || req.file.size === 0) throw new ValidationError("Send the file in a multipart field named file");
@@ -44,6 +52,11 @@ invoices.post("/raw-items/forms", upload.single("file"), route(async ({ req, use
 // Reads the AP inbox, stores each new email as a raw item, and starts reading everything not yet read.
 invoices.post("/raw-items/poll", route(async ({ user }) => pollAndRead(user), { gate: "raw.poll" }));
 invoices.get("/raw-items/:id", route(async ({ user, params }) => getRawItemRecord(user, params.orgId, params.id)));
+// Records how an item with no invoice, or one not readable, was dealt with: { outcome, note, forwardedTo? }.
+invoices.post("/raw-items/:id/handle", route(async ({ user, params, body }) => {
+  await handleRawItem(user, params.orgId, params.id, { outcome: body.outcome, note: body.note, forwardedTo: body.forwardedTo });
+  return getRawItemRecord(user, params.orgId, params.id);
+}, { gate: "parsed.review" }));
 // The stored attachment, as it arrived.
 invoices.get("/raw-items/:id/files/:name", route(async ({ res, user, params }) => {
   const raw = await getRawItemRecord(user, params.orgId, params.id);
@@ -53,7 +66,7 @@ invoices.get("/raw-items/:id/files/:name", route(async ({ res, user, params }) =
 }));
 
 // --- parsed invoices ---
-invoices.get("/parsed-invoices", route(async ({ user, params, query }) => listParsedInvoices(user, params.orgId, { status: param(query, "status"), ...pagingOf(query) })));
+invoices.get("/parsed-invoices", route(async ({ user, params, query }) => listParsedInvoices(user, params.orgId, { status: param(query, "status"), q: param(query, "q"), flags: param(query, "flags"), ...pagingOf(query) })));
 invoices.get("/parsed-invoices/:id", route(async ({ user, params }) => getParsedInvoiceRecord(user, params.orgId, params.id)));
 // Clerk edits: header fields and line coding. Resolution runs again; the checks run again only when asked (below).
 invoices.patch("/parsed-invoices/:id", route(async ({ user, params, body }) => {

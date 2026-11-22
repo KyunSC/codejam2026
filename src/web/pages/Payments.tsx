@@ -5,10 +5,29 @@ import { money } from "@/lib/format";
 import type { getInvoiceRecord, InvoiceRow, PaymentRow } from "@/services/read.service";
 import { get, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
-import { ApiForm } from "../components/ApiForm";
+import { ApiForm, str } from "../components/ApiForm";
 import { A, Card, NotFound, PAGE_SIZE, PageTitle, Pager, Show, Status, Table, Td, btn, btnDanger, btnLight, date, dateTime, input, pageParam, withParams } from "../components/ui";
 
-const TABS = ["scheduled", "released", "outstanding", "settled", "failed", "all"];
+const TABS = ["scheduled", "released", "outstanding", "settled", "failed", "cancelled", "all"];
+
+// Stops a scheduled payment, asking for the reason first; its invoice goes back to approved.
+// The reload that follows removes this form, so the confirmation goes to the page through done.
+function CancelPayment({ p, done }: { p: PaymentRow; done: (notice: string) => void }) {
+  const user = useUser();
+  const [open, setOpen] = useState(false);
+  if (!open) return <button type="button" className={btnLight} onClick={() => setOpen(true)}>Cancel payment</button>;
+  const cancel = async (fd: FormData) => {
+    await post(org(user, `/payments/${p.payment_id}/cancel`), { reason: str(fd, "reason") ?? "" });
+    done(`Cancelled ${p.payment_id} (${money(p.amount, p.currency)} to ${p.vendor}). Invoice ${p.invoice_id} is back to approved.`);
+  };
+  return (
+    <ApiForm inline submit={cancel} confirm={`Cancel the ${money(p.amount, p.currency)} payment to ${p.vendor}? Its invoice goes back to approved.`}>
+      <input name="reason" placeholder="Reason" className={`${input} max-w-48`} required autoFocus />
+      <button className={btnDanger}>Cancel payment</button>
+      <button type="button" className={btnLight} onClick={() => setOpen(false)}>Keep</button>
+    </ApiForm>
+  );
+}
 
 // A released or outstanding payment that will not settle is marked failed, with the reason; its invoice can then be paid again.
 function FailPayment({ p, onFailed }: { p: { payment_id: string; status: string; amount: number; currency: string; vendor: string }; onFailed: () => void }) {
@@ -46,6 +65,7 @@ export function Payments() {
       : Promise.resolve([] as InvoiceRow[])),
     String(readyPage),
   );
+  const [notice, setNotice] = useState<string | null>(null);
   if (!can(user, "payment.view")) return <NotFound />;
 
   const release = (id: string) => async () => {
@@ -63,6 +83,7 @@ export function Payments() {
   return (
     <div className="space-y-5">
       <PageTitle sub="The AP clerk prepares payments for approved invoices; the payment policies say who may release them; a payment settles when the bank statement shows it.">Payments</PageTitle>
+      {notice && <p className="form-ok">{notice}</p>}
       {can(user, "payment.prepare") && (ready.data?.length ?? 0) > 0 && (
         <Card id="ready" title={`${ready.data![0].total_count} ready to pay`}>
           <Table head={["Invoice", "Vendor", "Invoice #", "Due", "Total", ""]}>
@@ -109,6 +130,7 @@ export function Payments() {
                     <Td>
                       {p.can_release && <ApiForm submit={release(p.payment_id)} confirm={`Release ${money(p.amount, p.currency)} to ${p.vendor}?`}><button className={btn}>Release</button></ApiForm>}
                       {p.release_blocked && <span className="text-xs muted">{p.release_blocked}</span>}
+                      {p.can_cancel && <div className="mt-1"><CancelPayment p={p} done={(n) => { setNotice(n); rows.reload(); ready.reload(); }} /></div>}
                       <FailPayment p={p} onFailed={() => rows.reload()} />
                     </Td>
                   </tr>
@@ -134,6 +156,7 @@ export function Payment() {
     const [inv, gl] = await Promise.all([get<PaymentView["inv"]>(org(user, `/invoices/${p.invoice_id}`)), get<PaymentView["gl"]>(org(user, "/gl-accounts"))]);
     return { p, inv, gl };
   }, id);
+  const [notice, setNotice] = useState<string | null>(null);
   if (!can(user, "payment.view")) return <NotFound />;
   const release = async () => {
     await post(org(user, `/payments/${id}/release`));
@@ -148,19 +171,20 @@ export function Payment() {
         return (
           <div className="space-y-5">
             <PageTitle sub={<Status value={p.status} />}>{p.payment_id} · {p.vendor} · {money(p.amount, p.currency)}</PageTitle>
+            {notice && <p className="form-ok">{notice}</p>}
             <div className="grid gap-5 lg:grid-cols-2">
-              <Card
-                title="Payment"
-                actions={p.can_release
-                  ? <ApiForm inline submit={release} confirm={`Release ${money(p.amount, p.currency)} to ${p.vendor}?`}><button className={btn}>Release</button></ApiForm>
-                  : p.release_blocked ? <span className="text-xs muted">{p.release_blocked}</span> : <FailPayment p={p} onFailed={() => load.reload()} />}
-              >
+              <Card title="Payment" actions={<div className="flex flex-wrap items-center gap-2">
+                {p.can_release ? <ApiForm inline submit={release} confirm={`Release ${money(p.amount, p.currency)} to ${p.vendor}?`}><button className={btn}>Release</button></ApiForm> : p.release_blocked && <span className="text-xs muted">{p.release_blocked}</span>}
+                {p.can_cancel && <CancelPayment p={p} done={(n) => { setNotice(n); load.reload(); }} />}
+                <FailPayment p={p} onFailed={() => load.reload()} />
+              </div>}>
                 <dl className="grid grid-cols-2 gap-2 text-sm">
                   <dt className="muted">Method</dt><dd>{p.method}</dd>
                   <dt className="muted">Amount</dt><dd>{money(p.amount, p.currency)}{p.currency !== "CAD" && ` = ${money(p.amount_cad)} at ${p.fx_rate_to_cad}`}</dd>
                   <dt className="muted">Scheduled</dt><dd>{date(p.scheduled_date)}</dd>
                   <dt className="muted">Prepared by</dt><dd>{p.preparer ?? "—"}</dd>
                   <dt className="muted">Released by</dt><dd>{p.releaser ?? "—"} {p.released_at && `· ${dateTime(p.released_at)}`}</dd>
+                  {p.status === "cancelled" && <><dt className="muted">Cancelled by</dt><dd>{p.canceller ?? "—"} · {dateTime(p.cancelled_at)}</dd><dt className="muted">Reason</dt><dd>{p.cancel_reason}</dd></>}
                   <dt className="muted">Paid</dt><dd>{date(p.paid_date)}</dd>
                   <dt className="muted">Bank account paid</dt><dd>{p.snapshot_account ? `${p.snapshot_institution}-${p.snapshot_transit}-${p.snapshot_account}` : "—"}</dd>
                   <dt className="muted">Reference</dt><dd className="font-mono text-xs">{p.bank_reference ?? p.card_reference ?? "—"}</dd>

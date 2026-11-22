@@ -167,6 +167,30 @@ CREATE TABLE raw_items (
   UNIQUE (organization_id, source_ref)
 );
 
+-- How AP dealt with a raw item that holds no invoice or could not be read (rawItemHandling.service.ts).
+-- The raw item is never changed; each handling is a new row and the latest one is the item's state. Append-only.
+CREATE TABLE raw_item_handling (
+  handling_id          bigserial PRIMARY KEY,
+  organization_id      text NOT NULL REFERENCES organizations,
+  raw_item_id          text NOT NULL REFERENCES raw_items,
+  -- requested: asked the sender to send it again, waiting on them; reviewed: looked at and filed;
+  -- answered: replied to the sender; forwarded: sent to the person it is for; dismissed: nothing to do (marketing, spam)
+  outcome              text NOT NULL CHECK (outcome IN ('requested','reviewed','answered','forwarded','dismissed')),
+  forwarded_to_user_id text REFERENCES users,
+  note                 text NOT NULL,
+  handled_by           text NOT NULL REFERENCES users,
+  handled_at           timestamptz NOT NULL DEFAULT now(),
+  CHECK ((outcome = 'forwarded') = (forwarded_to_user_id IS NOT NULL))
+);
+CREATE INDEX raw_item_handling_latest ON raw_item_handling (raw_item_id, handling_id DESC);
+
+CREATE FUNCTION raw_item_handling_append_only() RETURNS trigger AS $$
+BEGIN
+  RAISE EXCEPTION 'raw_item_handling is append-only';
+END $$ LANGUAGE plpgsql;
+CREATE TRIGGER raw_item_handling_no_change BEFORE UPDATE OR DELETE ON raw_item_handling
+  FOR EACH ROW EXECUTE FUNCTION raw_item_handling_append_only();
+
 CREATE TABLE parsed_invoices (
   parsed_invoice_id   text PRIMARY KEY,
   organization_id     text NOT NULL REFERENCES organizations,
@@ -271,7 +295,7 @@ CREATE TABLE payments (
   fx_rate_to_cad       numeric(10,4) NOT NULL DEFAULT 1,
   amount_cad           numeric(14,2) NOT NULL,
   discount_taken       numeric(14,2) NOT NULL DEFAULT 0,
-  status               text NOT NULL CHECK (status IN ('scheduled','released','outstanding','settled','failed')),
+  status               text NOT NULL CHECK (status IN ('scheduled','released','outstanding','settled','failed','cancelled')),
   prepared_by          text REFERENCES users,
   released_by          text REFERENCES users,
   released_at          timestamptz,
@@ -282,7 +306,11 @@ CREATE TABLE payments (
   card_reference       text,
   -- a cheque's number, given when it is issued; the bank statement reports it when the cheque clears
   cheque_number        integer,
-  failure_reason       text
+  failure_reason       text,
+  -- a scheduled payment stopped before release: who stopped it, when and why
+  cancelled_by         text REFERENCES users,
+  cancelled_at         timestamptz,
+  cancel_reason        text
 );
 
 -- What the bank and the card feed report: bank statement lines (EFT payments, cleared cheques, fees) and virtual card charges.
