@@ -1,4 +1,3 @@
-import { writeAudit } from "@/lib/audit";
 import { one, query, tx } from "@/lib/db";
 import { ValidationError } from "@/lib/errors";
 import {
@@ -30,7 +29,7 @@ export async function getPreferences(user: User): Promise<PreferencesView> {
   return view(user, row ? migratePreferences(row.prefs, row.version) : {});
 }
 
-// Replace the user's stored document. Nothing is written, and no audit row, when it hasn't changed.
+// Replace the user's stored document. Nothing is written when it hasn't changed. A layout is not audited: it changes no record.
 export async function savePreferences(user: User, input: unknown): Promise<PreferencesView> {
   const parsed = preferencesSchema.safeParse(input);
   if (!parsed.success) {
@@ -49,7 +48,6 @@ export async function savePreferences(user: User, input: unknown): Promise<Prefe
       [user.user_id, JSON.stringify(next), PREFERENCES_VERSION],
       c,
     );
-    await writeAudit(c, { organizationId: user.organization_id, actor: user, action: "preferences.update", entityType: "user_preferences", entityId: user.user_id, before, after: next });
     return view(user, next);
   });
 }
@@ -61,7 +59,6 @@ export async function resetPreferences(user: User): Promise<PreferencesView> {
     const before = row ? migratePreferences(row.prefs, row.version) : {};
     if (!Object.keys(before).length) return view(user, {});
     await query("UPDATE user_preferences SET prefs = '{}'::jsonb, version = $2, updated_at = now() WHERE user_id = $1", [user.user_id, PREFERENCES_VERSION], c);
-    await writeAudit(c, { organizationId: user.organization_id, actor: user, action: "preferences.reset", entityType: "user_preferences", entityId: user.user_id, before, after: {} });
     return view(user, {});
   });
 }

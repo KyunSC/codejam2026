@@ -41,8 +41,6 @@ const NAMES: Record<string, string> = {
   "user.password_set": "Password set",
   "user.password_change": "Password changed",
   "token.create": "Agent token created",
-  "preferences.update": "Dashboard customized",
-  "preferences.reset": "Dashboard reset",
   "token.revoke": "Agent token revoked",
   "departments.create": "Department added",
   "departments.update": "Department edited",
