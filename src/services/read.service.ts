@@ -69,8 +69,18 @@ export async function listRawItems(
 export async function getRawItemRecord(user: User | null, organizationId: string, id: string): Promise<RawItem & { handling: HandlingRow[] }> {
   assertMember(user, organizationId);
   const r = await getRawItem(user, organizationId, id);
-  if (!r || !(can(user, "parsed.review") || r.submitted_by === user.user_id || (await seesInvoiceFrom(user, id)))) throw new NotFoundError("No such raw item");
+  if (!r || !(can(user, "parsed.review") || r.submitted_by === user.user_id || (await seesInvoiceFrom(user, id)) || (can(user, "flag.resolve_fraud") && (await hasOpenFraud(id))))) {
+    throw new NotFoundError("No such raw item");
+  }
   return { ...r, handling: await handlingHistory(organizationId, id) };
+}
+
+// A parsed invoice from the raw item has an open fraud flag: the finance manager and the controller, who close those, see it.
+async function hasOpenFraud(rawItemId: string) {
+  return !!(await one(
+    "SELECT 1 FROM parsed_invoices p JOIN invoice_flags f ON f.parsed_invoice_id=p.parsed_invoice_id WHERE p.raw_item_id=$1 AND f.category='fraud' AND f.status='open'",
+    [rawItemId],
+  ));
 }
 
 async function seesInvoiceFrom(user: User, rawItemId: string) {
@@ -99,9 +109,10 @@ export async function listParsedInvoices(user: User | null, organizationId: stri
             count(*) OVER ()::int AS total_count
        FROM parsed_invoices p LEFT JOIN vendors v ON v.vendor_id = p.invoice_json->>'vendor_id'
       WHERE p.organization_id=$1 AND p.status=COALESCE($2, 'pending')
-        AND ($3::text IS NULL OR EXISTS (SELECT 1 FROM raw_items r WHERE r.raw_item_id=p.raw_item_id AND r.submitted_by=$3))
+        AND ($3::text IS NULL OR EXISTS (SELECT 1 FROM raw_items r WHERE r.raw_item_id=p.raw_item_id AND r.submitted_by=$3)
+             OR ($4 AND EXISTS (SELECT 1 FROM invoice_flags f WHERE f.parsed_invoice_id=p.parsed_invoice_id AND f.category='fraud' AND f.status='open')))
       ORDER BY p.parsed_invoice_id LIMIT ${limit} OFFSET ${offset}`,
-    [organizationId, f.status || null, can(user, "parsed.review") ? null : user.user_id],
+    [organizationId, f.status || null, can(user, "parsed.review") ? null : user.user_id, can(user, "flag.resolve_fraud")],
   );
 }
 
@@ -136,7 +147,7 @@ export type InvoiceRow = {
 };
 
 // Invoices the user may see; those waiting on the user's approval come first.
-export async function listInvoices(user: User | null, organizationId: string, f: Paging & { status?: string | null; vendor_id?: string | null; type?: string | null; po_id?: string | null } = {}) {
+export async function listInvoices(user: User | null, organizationId: string, f: Paging & { status?: string | null; vendor_id?: string | null; q?: string | null; type?: string | null; po_id?: string | null } = {}) {
   assertMember(user, organizationId);
   const { limit, offset } = window(f);
   const s = invoiceScope(user);
@@ -149,8 +160,12 @@ export async function listInvoices(user: User | null, organizationId: string, f:
        FROM invoices i LEFT JOIN vendors v ON v.vendor_id=i.vendor_id LEFT JOIN departments d ON d.department_id=i.department_id
       WHERE ${s.sql} AND ($${n + 2}::text IS NULL OR i.status=$${n + 2}) AND ($${n + 3}::text IS NULL OR i.vendor_id=$${n + 3})
         AND ($${n + 4}::text IS NULL OR i.type=$${n + 4}) AND ($${n + 5}::text IS NULL OR i.po_id=$${n + 5})
+        AND ($${n + 6}::text IS NULL
+             OR strpos(lower(i.invoice_id), lower($${n + 6})) > 0
+             OR strpos(lower(i.vendor_invoice_number), lower($${n + 6})) > 0
+             OR strpos(lower(v.legal_name), lower($${n + 6})) > 0)
       ORDER BY mine DESC, i.invoice_date DESC, i.invoice_id DESC LIMIT ${limit} OFFSET ${offset}`,
-    [...s.params, user.user_id, f.status || null, f.vendor_id || null, f.type || null, f.po_id || null],
+    [...s.params, user.user_id, f.status || null, f.vendor_id || null, f.type || null, f.po_id || null, f.q?.trim() || null],
   );
 }
 

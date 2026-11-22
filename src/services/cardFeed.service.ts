@@ -1,5 +1,6 @@
 import path from "path";
 import { readCsv } from "@/lib/csv";
+import { allowedEdits, levenshtein } from "@/lib/normalize";
 
 export type CardTxn = {
   txn_id: string;
@@ -30,7 +31,8 @@ function load() {
 
 const norm = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "");
 
-// Employee-card charges whose merchant matches the vendor and whose amount equals the invoice total.
+// Employee-card charges whose merchant matches the vendor and whose amount equals the invoice total. The merchant descriptor is
+// often cut short, so it matches when it and the vendor name agree over the shorter one's length, give or take a few letters.
 export function cardChargesFor(vendorName: string, amount: number, onOrAfter: string): CardTxn[] {
   const v = norm(vendorName);
   return load().filter((t) => {
@@ -38,6 +40,7 @@ export function cardChargesFor(vendorName: string, amount: number, onOrAfter: st
     if (Math.abs(t.amount - amount) > 0.005) return false;
     if (t.posted_date < onOrAfter) return false;
     const m = norm(t.merchant_descriptor);
-    return m.length >= 8 && (v.startsWith(m) || m.startsWith(v.slice(0, m.length)));
+    const n = Math.min(m.length, v.length);
+    return m.length >= 8 && levenshtein(m.slice(0, n), v.slice(0, n)) <= allowedEdits(m.slice(0, n), v.slice(0, n));
   });
 }

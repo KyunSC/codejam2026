@@ -4,8 +4,8 @@ import { assertCan} from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 import { invoiceNumberCore } from "@/lib/normalize";
 import type { InvoiceData, User } from "@/lib/types";
-import { getParsed, resolveAndCheck } from "./pipeline.service";
-import { getRawItem } from "./rawIntake.service";
+import { checkParsed, getParsed, resolveAndSave } from "./pipeline.service";
+import { checkFormInvoice, getRawItem } from "./rawIntake.service";
 import { startApprovalChain } from "./approvalRouting.service";
 
 const HEADER_FIELDS = [
@@ -18,7 +18,7 @@ export type ReviewEdit = {
   lines: { line_no: number; gl_account: string | null; department_id: string | null; line_type: "goods" | "services" }[];
 };
 
-// The clerk's edits on the invoice page; steps 3–5 run again afterwards.
+// The clerk's edits on the invoice page; step 3 (resolution) runs again. The checks run again only when asked (runChecksAgain).
 export async function saveEdits(actor: User | null, organizationId: string, parsedInvoiceId: string, edit: ReviewEdit) {
   assertCan(actor, "parsed.review");
   return tx(async (c) => {
@@ -52,15 +52,76 @@ export async function saveEdits(actor: User | null, organizationId: string, pars
       l.coded_at = now;
     }
     const raw = (await getRawItem(actor, organizationId, p.raw_item_id, c))!;
-    const after = await resolveAndCheck(c, parsedInvoiceId, raw, d);
+    const after = await resolveAndSave(c, parsedInvoiceId, raw, d);
     await writeAudit(c, { organizationId: p.organization_id, actor, action: "parsed_invoice.edit", entityType: "parsed_invoice", entityId: parsedInvoiceId, before, after });
   });
 }
 
-export async function resolveFlag(actor: User | null, organizationId: string, flagId: string, status: "resolved" | "overridden", note: string) {
+// The clerk's edit of a parsed invoice under review, made as on the invoice form: what is typed replaces what was read (vendor,
+// number, dates, currency, delivery, purchase order, lines, taxes, totals), with the form's own checks on what is typed, plus the
+// department, the requester and each line's GL account and department. A line left on "suggested" keeps the suggested coding.
+// The links are resolved again; the checks run again only when asked.
+const ENTRY_FIELDS = [
+  "vendor_id", "vendor_invoice_number", "invoice_date", "due_date", "currency", "ship_to_province", "bill_to_address", "po_reference",
+  "subtotal", "taxes", "total",
+] as const;
+type EntryLine = InvoiceData["lines"][number] & { gl_account?: string | null; department_id?: string | null };
+export async function editParsedInvoice(actor: User | null, organizationId: string, parsedInvoiceId: string, entry: Record<string, unknown>) {
+  assertCan(actor, "parsed.review");
+  await checkFormInvoice(organizationId, entry);
+  await tx(async (c) => {
+    const p = await getParsed(actor, organizationId, parsedInvoiceId, c);
+    if (!p) throw new NotFoundError("No such parsed invoice");
+    if (p.status !== "pending") throw new ConflictError("Not pending");
+    const before = p.invoice_json;
+    const d: InvoiceData = structuredClone(before);
+    for (const f of ENTRY_FIELDS) (d as Record<string, unknown>)[f] = entry[f] ?? null;
+    const typed = entry.lines as EntryLine[];
+    // the lines as typed, coded by the suggestions first
+    d.lines = typed.map((l) => ({ line_no: l.line_no, description: l.description, quantity: l.quantity, unit_price: l.unit_price, amount: l.amount, line_type: l.line_type }));
+    const manual = new Set((d.manual ?? []).filter((f) => !["po_id", "department_id", "requester_user_id"].includes(f)));
+    for (const f of ["vendor_id", "ship_to_province"]) manual.add(f);
+    d.po_id = (entry.po_reference as string | null) ?? null;
+    if (d.po_id) manual.add("po_id");
+    if (entry.department_id) { d.department_id = entry.department_id as string; manual.add("department_id"); }
+    if (entry.requester_user_id) { d.requester_user_id = entry.requester_user_id as string; manual.add("requester_user_id"); }
+    d.manual = [...manual];
+    const raw = (await getRawItem(actor, organizationId, p.raw_item_id, c))!;
+    const after = await resolveAndSave(c, parsedInvoiceId, raw, d);
+    // then the coding the clerk chose, line by line
+    const now = new Date().toISOString();
+    for (const l of after.lines) {
+      const t = typed.find((x) => x.line_no === l.line_no);
+      if (!t?.gl_account && !t?.department_id) continue;
+      l.gl_account = t.gl_account || l.gl_account;
+      l.department_id = t.department_id || l.department_id;
+      l.coding_status = l.gl_account === l.suggested_gl_account && l.department_id === l.suggested_department_id ? "accepted" : "changed";
+      l.coded_by = actor.user_id;
+      l.coded_at = now;
+    }
+    await query("UPDATE parsed_invoices SET invoice_json=$2 WHERE parsed_invoice_id=$1", [parsedInvoiceId, JSON.stringify(after)], c);
+    await writeAudit(c, { organizationId: p.organization_id, actor, action: "parsed_invoice.edit", entityType: "parsed_invoice", entityId: parsedInvoiceId, before, after });
+  });
+}
+
+// Runs the checks and duplicate detection again on the invoice as it is now, while it is under review.
+export async function runChecksAgain(actor: User | null, organizationId: string, parsedInvoiceId: string) {
   assertCan(actor, "parsed.review");
   await tx(async (c) => {
-    const f = await one<{ parsed_invoice_id: string; status: string }>("SELECT parsed_invoice_id, status FROM invoice_flags WHERE flag_id=$1", [flagId], c);
+    const p = await getParsed(actor, organizationId, parsedInvoiceId, c);
+    if (!p) throw new NotFoundError("No such parsed invoice");
+    if (p.status !== "pending") throw new ConflictError("Not pending");
+    const raw = (await getRawItem(actor, organizationId, p.raw_item_id, c))!;
+    await checkParsed(c, parsedInvoiceId, raw, p.invoice_json);
+    await writeAudit(c, { organizationId: p.organization_id, actor, action: "parsed_invoice.recheck", entityType: "parsed_invoice", entityId: parsedInvoiceId });
+  });
+}
+
+// Closes a flag with a note. A fraud flag is closed only by a finance manager or the controller; any other flag by the AP clerk.
+export async function resolveFlag(actor: User | null, organizationId: string, flagId: string, status: "resolved" | "overridden", note: string) {
+  await tx(async (c) => {
+    const f = await one<{ parsed_invoice_id: string; status: string; category: string }>("SELECT parsed_invoice_id, status, category FROM invoice_flags WHERE flag_id=$1", [flagId], c);
+    assertCan(actor, f?.category === "fraud" ? "flag.resolve_fraud" : "parsed.review");
     const p = f ? await getParsed(actor, organizationId, f.parsed_invoice_id, c) : null;
     if (!f || !p) throw new NotFoundError("No such flag");
     if (p.status !== "pending") throw new ConflictError("Not pending");

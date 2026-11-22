@@ -46,21 +46,27 @@ export async function contractChecks(ctx: CheckContext): Promise<Flag[]> {
     }
   }
 
+  // Fuel surcharge: its amount as a percentage of the shipment lines (every other line except detention and waiting time),
+  // worked out from the amounts rather than read from the percentage printed on the line. In past invoices the printed
+  // percentage reproduces from exactly those lines.
+  const isFuel = (desc: string) => /fuel surcharge|surcharge (de )?carburant|suppl[ée]ment carburant/i.test(desc);
+  const isWaiting = (desc: string) => /detention|waiting|attente|immobilisation/i.test(desc);
+  const shipments = d.lines.filter((x) => !isFuel(x.description) && !isWaiting(x.description)).reduce((s, x) => s + x.amount, 0);
   for (const l of d.lines) {
-    const m = l.description.match(/fuel surcharge\s*\(([\d.,]+)\s*%\)/i);
-    if (m && c.fuel_surcharge_cap_pct != null) {
-      const pct = parseFloat(m[1].replace(",", "."));
-      if (pct > c.fuel_surcharge_cap_pct) {
-        flags.push({
-          check_code: "fuel_surcharge_over_cap",
-          category: "contract",
-          severity: "warning",
-          line_no: l.line_no,
-          message: `Fuel surcharge ${pct}% is above the contract cap of ${c.fuel_surcharge_cap_pct}%.`,
-          evidence: { expected: c.fuel_surcharge_cap_pct, found: pct },
-        });
-      }
+    if (!isFuel(l.description) || c.fuel_surcharge_cap_pct == null || shipments <= 0) continue;
+    const pct = Math.round((l.amount / shipments) * 10000) / 100;
+    if (pct > c.fuel_surcharge_cap_pct) {
+      flags.push({
+        check_code: "fuel_surcharge_over_cap",
+        category: "contract",
+        severity: "warning",
+        line_no: l.line_no,
+        message: `Fuel surcharge ${money(l.amount)} is ${pct}% of the shipment lines (${money(shipments)}); the contract cap is ${c.fuel_surcharge_cap_pct}%.`,
+        evidence: { expected: c.fuel_surcharge_cap_pct, found: pct },
+      });
     }
+  }
+  for (const l of d.lines) {
     if (c.hourly_rate_cap != null && l.quantity > 1 && l.unit_price > c.hourly_rate_cap + 0.005) {
       flags.push({
         check_code: "hourly_rate_over_cap",

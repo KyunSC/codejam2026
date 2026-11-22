@@ -4,7 +4,7 @@ import { tx, query, one, nextId } from "@/lib/db";
 import { assertMember, authorize } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 import { blankToNull } from "@/lib/values";
-import { vendorName } from "@/lib/normalize";
+import { sameName } from "@/lib/normalize";
 import type { User } from "@/lib/types";
 import { window, type Paging } from "@/lib/paging";
 
@@ -20,28 +20,28 @@ export type Vendor = {
   status: string; gst_hst_number: string | null; bank_institution: string | null; bank_transit: string | null; bank_account: string | null;
 } & Record<string, string | number | boolean | null>;
 
-// A name with case, punctuation and the company suffix taken off: two vendors with the same key look alike.
-const nameKey = (s: string) => vendorName(s).replace(/ (inc|ltd|llp)$/, "");
 
 // The organization's other vendors whose names look like this one.
 async function lookalikesOf(organizationId: string, vendorId: string | null, legalName: string) {
   const all = await query<{ vendor_id: string; legal_name: string }>("SELECT vendor_id, legal_name FROM vendors WHERE organization_id=$1", [organizationId]);
-  return all.filter((o) => o.vendor_id !== vendorId && nameKey(o.legal_name) === nameKey(legalName));
+  return all.filter((o) => o.vendor_id !== vendorId && sameName(o.legal_name, legalName));
 }
 
 // Vendors with their number of invoices, whether a bank change is pending or unverified,
 // and the other vendors of the organization (in any status) with a lookalike name.
-export async function listVendors(actor: User | null, organizationId: string, f: Paging & { status?: string | null } = {}) {
+export async function listVendors(actor: User | null, organizationId: string, f: Paging & { status?: string | null; q?: string | null } = {}) {
   authorize(actor, organizationId, "vendor.view");
   const all = await query<{ vendor_id: string; legal_name: string }>("SELECT vendor_id, legal_name FROM vendors WHERE organization_id=$1", [organizationId]);
   const { limit, offset } = window(f);
   const rows = await query<Vendor & { invoices: number; pending_change: boolean; total_count: number }>(
     `SELECT v.*, count(*) OVER ()::int AS total_count, (SELECT count(*)::int FROM invoices i WHERE i.vendor_id=v.vendor_id) invoices,
        EXISTS (SELECT 1 FROM vendor_bank_changes c WHERE c.vendor_id=v.vendor_id AND (c.status='pending' OR NOT c.verified_by_callback)) pending_change
-     FROM vendors v WHERE v.organization_id=$1 AND ($2::text IS NULL OR v.status=$2) ORDER BY v.legal_name LIMIT ${limit} OFFSET ${offset}`,
-    [organizationId, f.status || null],
+     FROM vendors v WHERE v.organization_id=$1 AND ($2::text IS NULL OR v.status=$2)
+       AND ($3::text IS NULL OR strpos(lower(v.vendor_id), lower($3)) > 0 OR strpos(lower(v.legal_name), lower($3)) > 0)
+     ORDER BY v.legal_name, v.vendor_id LIMIT ${limit} OFFSET ${offset}`,
+    [organizationId, f.status || null, f.q?.trim() || null],
   );
-  return rows.map((v) => ({ ...v, lookalike_of: all.filter((o) => o.vendor_id !== v.vendor_id && nameKey(o.legal_name) === nameKey(v.legal_name)) }));
+  return rows.map((v) => ({ ...v, lookalike_of: all.filter((o) => o.vendor_id !== v.vendor_id && sameName(o.legal_name, v.legal_name)) }));
 }
 
 export async function getVendor(actor: User | null, organizationId: string, vendorId: string) {

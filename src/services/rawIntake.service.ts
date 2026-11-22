@@ -53,7 +53,7 @@ const cents = (n: number) => Math.round(n * 100);
 
 // What a person types into the invoice form must be a complete, consistent invoice: a vendor of the organization that is not on hold,
 // a number, valid dates, lines that multiply out, and totals that add up. The form then needs no reading.
-async function checkFormInvoice(organizationId: string, f: Record<string, unknown>) {
+export async function checkFormInvoice(organizationId: string, f: Record<string, unknown>) {
   const fail = (m: string) => {
     throw new ValidationError(m);
   };

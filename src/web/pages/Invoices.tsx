@@ -5,6 +5,7 @@ import { money } from "@/lib/format";
 import { HANDLING_OUTCOMES } from "@/lib/handling";
 import type { InvoiceRow, ParsedRow, RawItemRow } from "@/services/read.service";
 import { get, post, qs, useLoad } from "../api";
+import { useListFilter } from "../useListFilter";
 import { org, useUser } from "../session";
 import { ApiForm } from "../components/ApiForm";
 import { A, Badge, Card, PageTitle, Pager, Show, Status, Table, Td, btn, btnLight, date, PAGE_SIZE, pageParam, withParams } from "../components/ui";
@@ -16,7 +17,9 @@ const RAW_VIEWS = ["todo", "needs", "waiting", "handled", "all"];
 
 export function Invoices() {
   const user = useUser();
-  const [sp, setSp] = useSearchParams();
+  const { sp, search, draft, setDraft, term } = useListFilter();
+  // the raw list's own search (rawQ, rawFrom, rawTo) sets the URL directly
+  const [, setSp] = useSearchParams();
   const notice = (useLocation().state as { notice?: string } | null)?.notice;
   // AP sees the whole pipeline; someone who only submits sees their submissions and what happened to them
   const ap = can(user, "raw.extract") || can(user, "parsed.review");
@@ -59,10 +62,12 @@ export function Invoices() {
     setSp(next);
   };
   const parsed = useLoad(() => get<ParsedRow[]>(org(user, `/parsed-invoices${qs({ page: parsedPage, size: PAGE_SIZE })}`)), `${parsedPage}`);
-  const invoices = useLoad(
-    () => get<InvoiceRow[]>(org(user, `/invoices${qs({ status: status === "all" ? null : status, page: invPage, size: PAGE_SIZE })}`)),
-    `${status}:${invPage}`,
-  );
+  // the clerk runs the checks again on a parsed invoice from its row too
+  const review = can(user, "parsed.review");
+  const runChecks = (id: string) => async () => {
+    await post(org(user, `/parsed-invoices/${id}/checks`));
+    parsed.reload();
+  };
   // while something is being read, look again every few seconds
   const readingNow = (raw.data ?? []).some((r) => r.status === "new");
   useEffect(() => {
@@ -208,7 +213,7 @@ export function Invoices() {
         <Show load={parsed}>
           {(rows) => (
             <>
-              <Table head={[ap ? "Parsed" : "Reference", "Vendor", "Invoice #", "Date", "Total", "Flags"]} empty="Nothing waiting for review.">
+              <Table head={[ap ? "Parsed" : "Reference", "Vendor", "Invoice #", "Date", "Total", "Flags", ...(review ? [""] : [])]} empty="Nothing waiting for review.">
                 {rows.map((p) => (
                   <tr key={p.parsed_invoice_id}>
                     <Td className="font-mono text-xs"><A href={`/invoices/${p.parsed_invoice_id}`}>{p.parsed_invoice_id}</A></Td>
@@ -221,6 +226,11 @@ export function Invoices() {
                       {p.warnings > 0 && <Badge tone="gold">{p.warnings} warning{p.warnings > 1 ? "s" : ""}</Badge>}
                       {!p.blocking && !p.warnings && <Badge tone="green">clear</Badge>}
                     </Td>
+                    {review && (
+                      <Td className="text-right">
+                        <ApiForm inline submit={runChecks(p.parsed_invoice_id)}><button className={btnLight}>Run checks again</button></ApiForm>
+                      </Td>
+                    )}
                   </tr>
                 ))}
               </Table>
@@ -234,37 +244,58 @@ export function Invoices() {
         id="invoices"
         title={ap ? "3. Invoices" : "Invoices"}
         actions={
-          <div className="flex gap-1 text-xs">
+          <div className="flex flex-wrap items-center gap-1 text-xs">
+            <input
+              className="input mr-1 w-60 max-w-full"
+              type="search"
+              aria-label="Filter invoices"
+              placeholder="Invoice ID, number, or vendor"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+            />
             {STATUSES.map((s) => (
-              <Link key={s} to={withParams(sp, { status: s === "all" ? null : s, page: null })} className="chip" aria-current={s === status}>
+              <Link key={s} to={withParams(sp, { status: s === "all" ? null : s, q: term || null, page: null })} className="chip" aria-current={s === status}>
                 {s.replace(/_/g, " ")}
               </Link>
             ))}
           </div>
         }
       >
-        <Show load={invoices}>
-          {(rows) => (
-            <>
-              <Table head={["Invoice", "Vendor", "Invoice #", "Date", "Total", "Department", "Status", "Waiting on"]} empty="No invoices.">
-                {rows.map((i) => (
-                  <tr key={i.invoice_id} className={i.mine ? "row-mine" : ""}>
-                    <Td className="font-mono text-xs"><A href={`/invoices/${i.invoice_id}`}>{i.invoice_id}</A></Td>
-                    <Td>{i.vendor_name}</Td>
-                    <Td>{i.vendor_invoice_number}</Td>
-                    <Td className="whitespace-nowrap">{date(i.invoice_date)}</Td>
-                    <Td className="whitespace-nowrap">{money(i.total, i.currency)}</Td>
-                    <Td>{i.department}</Td>
-                    <Td><Status value={i.status} /></Td>
-                    <Td>{i.mine ? <Badge tone="gold">you</Badge> : i.waiting_on}</Td>
-                  </tr>
-                ))}
-              </Table>
-              <Pager param="page" page={invPage} total={rows[0]?.total_count ?? 0} />
-            </>
-          )}
-        </Show>
+        <InvoiceResults search={search} status={status} page={invPage} filtering={term !== search} />
       </Card>
+    </div>
+  );
+}
+
+// The rows stay on screen, dimmed, while a typed filter waits to apply or the next page loads.
+function InvoiceResults({ search, status, page, filtering }: { search: string; status: string; page: number; filtering: boolean }) {
+  const user = useUser();
+  const path = org(user, `/invoices${qs({ q: search, status: status === "all" ? null : status, page, size: PAGE_SIZE })}`);
+  const invoices = useLoad(() => get<InvoiceRow[]>(path), path);
+  const busy = filtering || !!invoices.stale;
+  return (
+    <div aria-busy={busy} className={busy ? "opacity-60 transition-opacity" : "transition-opacity"}>
+    <Show load={invoices}>
+      {(rows) => (
+        <>
+          <Table head={["Invoice", "Vendor", "Invoice #", "Date", "Total", "Department", "Status", "Waiting on"]} empty={search ? "No invoices match your filter." : "No invoices."}>
+            {rows.map((i) => (
+              <tr key={i.invoice_id} className={i.mine ? "row-mine" : ""}>
+                <Td className="font-mono text-xs"><A href={`/invoices/${i.invoice_id}`}>{i.invoice_id}</A></Td>
+                <Td>{i.vendor_name}</Td>
+                <Td>{i.vendor_invoice_number}</Td>
+                <Td className="whitespace-nowrap">{date(i.invoice_date)}</Td>
+                <Td className="whitespace-nowrap">{money(i.total, i.currency)}</Td>
+                <Td>{i.department}</Td>
+                <Td><Status value={i.status} /></Td>
+                <Td>{i.mine ? <Badge tone="gold">you</Badge> : i.waiting_on}</Td>
+              </tr>
+            ))}
+          </Table>
+          <Pager param="page" page={page} total={rows[0]?.total_count ?? 0} />
+        </>
+      )}
+    </Show>
     </div>
   );
 }

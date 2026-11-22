@@ -15,21 +15,21 @@ export async function poChecks(ctx: CheckContext): Promise<Flag[]> {
     }
     return flags;
   }
-  const po = await one<{ po_id: string; vendor_id: string; total_amount: number; status: string; requester_user_id: string | null; requester_status: string | null }>(
+  const po = await one<{ po_id: string; vendor_id: string; total_amount: number; status: string; department_id: string | null; requester_user_id: string | null; requester_status: string | null }>(
     `SELECT p.*, u.status AS requester_status FROM purchase_orders p LEFT JOIN users u ON u.user_id = p.requester_user_id WHERE p.po_id=$1`,
     [d.po_id],
     db,
   );
   if (!po) return flags;
   if (vendor && po.vendor_id !== vendor.vendor_id) {
-    flags.push({ check_code: "po_other_vendor", category: "po", severity: "blocking", message: `${po.po_id} belongs to vendor ${po.vendor_id}, not ${vendor.vendor_id}.` });
+    flags.push({ check_code: "po_other_vendor", category: "fraud", severity: "blocking", message: `${po.po_id} belongs to vendor ${po.vendor_id}, not ${vendor.vendor_id}.` });
   }
   if (po.status === "closed") {
     flags.push({ check_code: "po_closed", category: "po", severity: "warning", message: `${po.po_id} is closed.` });
   }
   const billed = await one<{ s: number }>(
-    "SELECT COALESCE(SUM(subtotal),0) AS s FROM invoices WHERE po_id=$1 AND status NOT IN ('rejected','void')",
-    [po.po_id],
+    "SELECT COALESCE(SUM(subtotal),0) AS s FROM invoices WHERE po_id=$1 AND status NOT IN ('rejected','void') AND parsed_invoice_id IS DISTINCT FROM $2",
+    [po.po_id, ctx.parsedInvoiceId],
     db,
   );
   const remaining = po.total_amount - (billed?.s ?? 0);
@@ -41,6 +41,12 @@ export async function poChecks(ctx: CheckContext): Promise<Flag[]> {
       message: `Subtotal ${money(d.subtotal)} is above ${po.po_id}'s remaining balance of ${money(remaining)}.`,
       evidence: { expected: remaining, found: d.subtotal },
     });
+  }
+  if (po.department_id && d.department_id && po.department_id !== d.department_id) {
+    flags.push({ check_code: "po_department_mismatch", category: "po", severity: "warning", message: `The invoice's department is ${d.department_id}; ${po.po_id} is for ${po.department_id}.`, evidence: { expected: po.department_id, found: d.department_id } });
+  }
+  if (po.requester_user_id && d.requester_user_id && po.requester_user_id !== d.requester_user_id) {
+    flags.push({ check_code: "po_requester_mismatch", category: "po", severity: "warning", message: `The invoice's requester is ${d.requester_user_id}; ${po.po_id} was requested by ${po.requester_user_id}.`, evidence: { expected: po.requester_user_id, found: d.requester_user_id } });
   }
   if (po.requester_status === "terminated") {
     flags.push({ check_code: "po_requester_terminated", category: "po", severity: "warning", message: `${po.po_id} was requested by ${po.requester_user_id}, who no longer works here.` });

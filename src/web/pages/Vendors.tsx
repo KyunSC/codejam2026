@@ -5,37 +5,49 @@ import { money } from "@/lib/format";
 import type { getVendor, listBankChanges, listVendors } from "@/services/vendor.service";
 import type { InvoiceRow } from "@/services/read.service";
 import { del, get, patch, post, qs, useLoad } from "../api";
+import { useListFilter } from "../useListFilter";
 import { org, useUser } from "../session";
 import { ApiForm, numOrNull, str } from "../components/ApiForm";
-import { A, Badge, Card, Field, NotFound, OptionalFields, PAGE_SIZE, PageTitle, Pager, Show, Status, Table, Td, btn, btnDanger, btnLight, date, input, pageParam } from "../components/ui";
+import { A, Badge, Card, Field, NotFound, OptionalFields, PAGE_SIZE, PageTitle, Pager, Show, Status, Table, Td, btn, btnDanger, btnLight, date, input, pageParam, withParams } from "../components/ui";
 
 type VendorRow = Awaited<ReturnType<typeof listVendors>>[number];
 
 export function Vendors() {
   const user = useUser();
-  const [sp] = useSearchParams();
+  const { sp, search, draft, setDraft, term } = useListFilter();
   const status = sp.get("status") ?? "all";
   const page = pageParam(sp.get("page"));
-  const load = useLoad(() => get<VendorRow[]>(org(user, `/vendors${qs({ status: status === "all" ? null : status, page, size: PAGE_SIZE })}`)), `${status}:${page}`);
+  const path = org(user, `/vendors${qs({ q: search, status: status === "all" ? null : status, page, size: PAGE_SIZE })}`);
+  const load = useLoad(() => get<VendorRow[]>(path), path);
+  // The rows stay on screen, dimmed, while a typed filter waits to apply or the next page loads.
+  const busy = term !== search || !!load.stale;
   if (!can(user, "vendor.view")) return <NotFound />;
   return (
     <div className="space-y-5">
       <PageTitle sub="New vendors wait for finance manager approval. A change of bank details is a request that must be verified by callback.">Vendors</PageTitle>
       <Card
-        title={`${load.data?.[0]?.total_count ?? 0} vendors`}
+        title={busy || !load.data ? "Vendors" : `${load.data[0]?.total_count ?? 0} vendors`}
         actions={
           <>
+            <input
+              className="input mr-1 w-60 max-w-full"
+              type="search"
+              aria-label="Filter vendors"
+              placeholder="Vendor ID or name"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+            />
             {["all", "active", "pending_review", "on_hold"].map((s) => (
-              <Link key={s} to={s === "all" ? "/vendors" : `/vendors?status=${s}`} className="chip" aria-current={s === status}>{s.replace("_", " ")}</Link>
+              <Link key={s} to={withParams(sp, { status: s === "all" ? null : s, q: term || null, page: null })} className="chip" aria-current={s === status}>{s.replace("_", " ")}</Link>
             ))}
             {can(user, "vendor.onboard") && <Link to="/vendors/new" className={btn}>Onboard vendor</Link>}
           </>
         }
       >
-        <Show load={load}>
+        <div aria-busy={busy} className={busy ? "opacity-60 transition-opacity" : "transition-opacity"}><Show load={load}>
           {(vendors) => (
             <>
-              <Table head={["Vendor", "Category", "Location", "GST/HST", "Pays by", "Invoices", "Status", "Warnings"]}>
+              <Table head={["Vendor", "Category", "Location", "GST/HST", "Pays by", "Invoices", "Status", "Warnings"]} empty={search ? "No vendors match your filter." : "No vendors."}>
               {vendors.map((v) => (
                 <tr key={v.vendor_id}>
                   <Td><A href={`/vendors/${v.vendor_id}`}>{v.legal_name}</A> <span className="text-xs muted">{v.vendor_id}</span></Td>
@@ -55,7 +67,7 @@ export function Vendors() {
               <Pager param="page" page={page} total={vendors[0]?.total_count ?? 0} />
             </>
           )}
-        </Show>
+        </Show></div>
       </Card>
     </div>
   );
