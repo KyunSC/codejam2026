@@ -48,12 +48,13 @@ export function App() {
         <Route path="/vendors" element={<Vendors />} />
         <Route path="/vendors/new" element={<NewVendor />} />
         <Route path="/vendors/:id" element={<Vendor />} />
-        <Route path="/settings" element={<SettingsLayout />}>
-          <Route index element={<SettingsHome />} />
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route index element={<AdminHome />} />
           <Route path="users" element={<UsersSettings />} />
           <Route path="policies" element={<PoliciesSettings />} />
-          <Route path="audit" element={<Audit />} />
         </Route>
+        <Route path="/audit" element={<AuditPage />} />
+        <Route path="/settings/*" element={<SettingsRedirect />} />
         <Route path="*" element={<NotFound />} />
       </Route>
       <Route path="/account" element={<AccountLayout />}>
@@ -127,7 +128,8 @@ function WorkspaceLayout() {
     { href: "/contracts", label: "Contracts", match: "/contracts" },
     ...(can(user, "payment.view") ? [{ href: "/payments", label: "Payments", match: "/payments" }] : []),
     ...(can(user, "vendor.view") ? [{ href: "/vendors", label: "Vendors", match: "/vendors", right: true }] : []),
-    ...(settingsTabs(user).length ? [{ href: "/settings", label: "Settings", match: "/settings", right: true }] : []),
+    ...(can(user, "audit.view") ? [{ href: "/audit", label: "Audit", match: "/audit", right: true }] : []),
+    ...(adminTabs(user).length ? [{ href: "/admin", label: "Admin", match: "/admin", right: true }] : []),
   ];
   return (
     <div className="flex min-h-screen flex-col">
@@ -155,28 +157,45 @@ function WorkspaceLayout() {
   );
 }
 
-// The settings pages the user's role may open.
-const settingsTabs = (user: User) => [
-  ...(can(user, "users.manage") ? [{ href: "/settings/users", label: "Users", match: "/settings/users" }] : []),
-  ...(can(user, "policies.manage") ? [{ href: "/settings/policies", label: "Approval policies", match: "/settings/policies" }] : []),
-  ...(can(user, "audit.view") ? [{ href: "/settings/audit", label: "Audit", match: "/settings/audit" }] : []),
+// The admin pages the user's role may open: running the organization's AP (its people and its approval rules).
+// The audit log is its own tab, so the auditor, who changes nothing, never sees an Admin tab.
+const adminTabs = (user: User) => [
+  ...(can(user, "users.manage") ? [{ href: "/admin/users", label: "Users", match: "/admin/users" }] : []),
+  ...(can(user, "policies.manage") ? [{ href: "/admin/policies", label: "Approval policies", match: "/admin/policies" }] : []),
 ];
 
-function SettingsLayout() {
+function AdminLayout() {
   const user = useUser();
+  if (!adminTabs(user).length) return <NotFound />;
   return (
     <div>
-      <PageTitle>Settings</PageTitle>
-      <SubTabs items={settingsTabs(user)} />
+      <PageTitle sub="The people who use accounts payable, and the rules that decide who approves and who releases payments.">Admin</PageTitle>
+      <SubTabs items={adminTabs(user)} />
       <Outlet />
     </div>
   );
 }
 
-// /settings opens the first settings page the user may see.
-function SettingsHome() {
-  const first = settingsTabs(useUser())[0];
+// /admin opens the first admin page the user may see.
+function AdminHome() {
+  const first = adminTabs(useUser())[0];
   return first ? <Navigate to={first.href} replace /> : <NotFound />;
+}
+
+function AuditPage() {
+  return (
+    <div>
+      <PageTitle sub="Every action, who took it and when. Entries are never changed or deleted.">Audit log</PageTitle>
+      <Audit />
+    </div>
+  );
+}
+
+// The old /settings addresses, kept so bookmarks still open the right page.
+function SettingsRedirect() {
+  const { pathname, search } = useLocation();
+  const to = pathname.startsWith("/settings/audit") ? "/audit" : pathname.replace(/^\/settings/, "/admin");
+  return <Navigate to={`${to}${search}`} replace />;
 }
 
 // The account page sits in the header of whichever side the user signs in to.

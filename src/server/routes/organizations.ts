@@ -5,7 +5,7 @@ import {
 } from "@/services/organization.service";
 import { createRecord, deleteRecord, getRecord, listRecords, updateRecord, type RecordKind } from "@/services/records.service";
 import { departmentSpend } from "@/services/read.service";
-import { pagingOf, route } from "../http";
+import { pagingOf, param, route } from "../http";
 
 // /api/organizations: the organization list for Brim employees.
 export const organizations = Router();
@@ -25,7 +25,10 @@ organization.patch("/", route(async ({ user, params, body }) => {
 // Invoice spend in CAD by department and month, for the three months up to today.
 organization.get("/department-spend", route(async ({ user, params }) => departmentSpend(user, params.orgId)));
 
-organization.get("/users", route(async ({ user, params, query }) => listUsers(user, params.orgId, pagingOf(query))));
+// ?q= (name, email, title or id), ?role=, ?status=
+organization.get("/users", route(async ({ user, params, query }) => (
+  listUsers(user, params.orgId, { q: param(query, "q"), role: param(query, "role"), status: param(query, "status"), ...pagingOf(query) })
+)));
 // Everyone's name, role and status, for picking a person.
 organization.get("/user-choices", route(async ({ user, params }) => listUserChoices(user, params.orgId)));
 organization.post("/users", route(async ({ user, params, body }) => ({ id: await createUser(user, params.orgId, body) }), { gate: "users.manage" }));
