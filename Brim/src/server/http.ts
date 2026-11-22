@@ -35,11 +35,15 @@ export function route(fn: (a: Args) => Promise<unknown>, g: Gate = {}): RequestH
   };
 }
 
-// Errors become their HTTP status with { error }; anything unexpected is a logged 500.
+// Errors become their HTTP status with { error }. Intentional 4xx errors (the services' AppErrors, and
+// Express/multer request errors such as a bad JSON body or an oversized upload) keep their message;
+// anything else is logged here and answered with a generic 500, so database and library details stay server-side.
 export const errors: ErrorRequestHandler = (e, _req, res, _next) => {
-  const status = e instanceof AppError ? e.status : e?.type === "entity.parse.failed" ? 400 : 500;
-  if (status === 500) console.error(e);
-  res.status(status).json({ error: status === 400 && e?.type === "entity.parse.failed" ? "Send a JSON body" : e instanceof Error ? e.message : String(e) });
+  if (e?.type === "entity.parse.failed") return void res.status(400).json({ error: "Send a JSON body" });
+  const status = e instanceof AppError ? e.status : e?.name === "MulterError" ? 400 : Number(e?.status ?? e?.statusCode);
+  if (Number.isInteger(status) && status >= 400 && status < 500) return void res.status(status).json({ error: e instanceof Error ? e.message : String(e) });
+  console.error(e);
+  res.status(500).json({ error: "Something went wrong. Try again, or check the server log." });
 };
 
 export const param = (q: URLSearchParams, k: string) => q.get(k) || undefined;
