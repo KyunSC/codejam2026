@@ -14,6 +14,7 @@ import { Invoices } from "./pages/Invoices";
 import { InvoiceForm, InvoiceUpload } from "./pages/InvoiceIntake";
 import { Invoice } from "./pages/Invoice";
 import { PurchaseOrder, PurchaseOrders } from "./pages/PurchaseOrders";
+import { Contract, Contracts } from "./pages/Contracts";
 import { Payment, Payments } from "./pages/Payments";
 import { NewVendor, Vendor, Vendors } from "./pages/Vendors";
 import { PoliciesSettings, UsersSettings } from "./pages/Settings";
@@ -40,6 +41,8 @@ export function App() {
         <Route path="/invoices/:id" element={<Invoice />} />
         <Route path="/purchase-orders" element={<PurchaseOrders />} />
         <Route path="/purchase-orders/:id" element={<PurchaseOrder />} />
+        <Route path="/contracts" element={<Contracts />} />
+        <Route path="/contracts/:id" element={<Contract />} />
         <Route path="/payments" element={<Payments />} />
         <Route path="/payments/:id" element={<Payment />} />
         <Route path="/vendors" element={<Vendors />} />
@@ -121,6 +124,7 @@ function WorkspaceLayout() {
     { href: "/dashboard", label: "Dashboard", match: "/dashboard" },
     { href: "/invoices", label: "Invoices", match: "/invoices" },
     { href: "/purchase-orders", label: "Purchase orders", match: "/purchase-orders" },
+    { href: "/contracts", label: "Contracts", match: "/contracts" },
     ...(can(user, "payment.view") ? [{ href: "/payments", label: "Payments", match: "/payments" }] : []),
     ...(can(user, "vendor.view") ? [{ href: "/vendors", label: "Vendors", match: "/vendors", right: true }] : []),
     ...(settingsTabs(user).length ? [{ href: "/settings", label: "Settings", match: "/settings", right: true }] : []),

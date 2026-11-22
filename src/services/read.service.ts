@@ -150,7 +150,7 @@ export type InvoiceRow = {
 };
 
 // Invoices the user may see; those waiting on the user's approval come first.
-export async function listInvoices(user: User | null, organizationId: string, f: Paging & { status?: string | null; vendor_id?: string | null; q?: string | null; type?: string | null; po_id?: string | null } = {}) {
+export async function listInvoices(user: User | null, organizationId: string, f: Paging & { status?: string | null; vendor_id?: string | null; q?: string | null; type?: string | null; po_id?: string | null; contract_id?: string | null } = {}) {
   assertMember(user, organizationId);
   const { limit, offset } = window(f);
   const s = invoiceScope(user);
@@ -162,13 +162,13 @@ export async function listInvoices(user: User | null, organizationId: string, f:
             EXISTS (SELECT 1 FROM approvals a LEFT JOIN users au ON au.user_id=a.assigned_user_id WHERE a.invoice_id=i.invoice_id AND ${pendingForUserSql(`$${n + 1}`)}) AS mine
        FROM invoices i LEFT JOIN vendors v ON v.vendor_id=i.vendor_id LEFT JOIN departments d ON d.department_id=i.department_id
       WHERE ${s.sql} AND ($${n + 2}::text IS NULL OR i.status=$${n + 2}) AND ($${n + 3}::text IS NULL OR i.vendor_id=$${n + 3})
-        AND ($${n + 4}::text IS NULL OR i.type=$${n + 4}) AND ($${n + 5}::text IS NULL OR i.po_id=$${n + 5})
+        AND ($${n + 4}::text IS NULL OR i.type=$${n + 4}) AND ($${n + 5}::text IS NULL OR i.po_id=$${n + 5}) AND ($${n + 7}::text IS NULL OR i.contract_id=$${n + 7})
         AND ($${n + 6}::text IS NULL
              OR strpos(lower(i.invoice_id), lower($${n + 6})) > 0
              OR strpos(lower(i.vendor_invoice_number), lower($${n + 6})) > 0
              OR strpos(lower(v.legal_name), lower($${n + 6})) > 0)
       ORDER BY mine DESC, i.invoice_date DESC, i.invoice_id DESC LIMIT ${limit} OFFSET ${offset}`,
-    [...s.params, user.user_id, f.status || null, f.vendor_id || null, f.type || null, f.po_id || null, f.q?.trim() || null],
+    [...s.params, user.user_id, f.status || null, f.vendor_id || null, f.type || null, f.po_id || null, f.q?.trim() || null, f.contract_id || null],
   );
 }
 
@@ -189,7 +189,7 @@ export type PaymentRow = {
   total_count: number; payment_id: string; invoice_id: string; vendor_id: string; vendor: string; method: string; amount: number; currency: string; amount_cad: number;
   fx_rate_to_cad: number; scheduled_date: string | null; paid_date: string | null; status: string; preparer: string | null; releaser: string | null; released_at: string | null;
   snapshot_institution: string | null; snapshot_transit: string | null; snapshot_account: string | null; bank_reference: string | null; card_reference: string | null; discount_taken: number;
-  cheque_number: number | null;
+  cheque_number: number | null; failure_reason: string | null;
   // for a scheduled payment: whether the signed-in user may release it, and if not, why
   can_release?: boolean; release_blocked?: string | null;
   // a cancelled payment: who stopped it, when and why; for a scheduled one, whether the signed-in user may cancel it

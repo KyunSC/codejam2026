@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { ValidationError } from "@/lib/errors";
 import { getPaymentRecord, listPayments } from "@/services/read.service";
-import { cancelPayment, preparePayment, releasePayment } from "@/services/payment.service";
+import { cancelPayment, failPayment, preparePayment, releasePayment } from "@/services/payment.service";
 import { pagingOf, param, route } from "../http";
 
 // /api/organizations/:orgId: payments.
@@ -24,3 +24,9 @@ payments.post("/payments/:id/cancel", route(async ({ user, params, body }) => {
   await cancelPayment(user, params.orgId, params.id, String(body.reason ?? ""));
   return getPaymentRecord(user, params.orgId, params.id);
 }, { gate: "payment.cancel" }));
+
+// Marks a released or outstanding payment failed, with the reason; its invoice can then be paid again.
+payments.post("/payments/:id/failure", route(async ({ user, params, body }) => {
+  await failPayment(user, params.orgId, params.id, String(body.reason ?? ""));
+  return getPaymentRecord(user, params.orgId, params.id);
+}, { gate: "payment.release" }));

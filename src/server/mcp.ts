@@ -161,7 +161,7 @@ function serverFor(user: User) {
     });
   tool("request_bank_change", "bank_change.request", "Requests a change of a vendor's bank details; the finance manager approves it after calling the vendor.", {
     vendor_id: z.string(), institution: z.string(), transit: z.string(), account: z.string(),
-    channel: z.enum(["email_request", "phone_callback_verified", "vendor_portal"]).describe("how the vendor asked"),
+    channel: z.enum(["email_request", "phone", "vendor_portal"]).describe("how the vendor asked"),
   }, true, async (a) => ({ change_id: await requestBankChange(user, org, a.vendor_id, { institution: a.institution, transit: a.transit, account: a.account, channel: a.channel }) }));
 
   return server;

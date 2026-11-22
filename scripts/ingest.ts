@@ -106,10 +106,10 @@ async function setup() {
     }
     for (const k of csv("contracts")) {
       await query(
-        `INSERT INTO contracts (contract_id, vendor_id, description, billing_type, monthly_fee, currency, hourly_rate_cap, fuel_surcharge_cap_pct, not_to_exceed_monthly,
+        `INSERT INTO contracts (contract_id, vendor_id, description, monthly_fee, currency, hourly_rate_cap, fuel_surcharge_cap_pct, not_to_exceed_monthly,
            start_date, end_date, status)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-        [k.contract_id, k.vendor_id, orNull(k.description), k.billing_type, num(k.monthly_fee), k.currency, num(k.hourly_rate_cap), num(k.fuel_surcharge_cap_pct),
+        [k.contract_id, k.vendor_id, orNull(k.description), num(k.monthly_fee), k.currency, num(k.hourly_rate_cap), num(k.fuel_surcharge_cap_pct),
           num(k.not_to_exceed_monthly), orNull(k.start_date), orNull(k.end_date), k.status],
         c,
       );

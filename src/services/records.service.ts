@@ -22,7 +22,7 @@ type Spec = {
   names?: string;
   // what is wrong with a row as it would be saved, or null
   problem?: (row: Record<string, unknown>) => string | null;
-  // text the list's q filter matches, case-insensitively and anywhere in it, as SQL on alias r
+  // what the search text (q) is looked for in
   search?: string[];
 };
 
@@ -38,25 +38,21 @@ export const SPECS = {
   },
   contracts: {
     table: "contracts", key: "contract_id", idPrefix: "C",
-    columns: ["vendor_id", "description", "billing_type", "monthly_fee", "currency", "hourly_rate_cap", "fuel_surcharge_cap_pct", "not_to_exceed_monthly", "start_date", "end_date", "status"],
+    columns: ["vendor_id", "description", "monthly_fee", "currency", "hourly_rate_cap", "fuel_surcharge_cap_pct", "not_to_exceed_monthly", "start_date", "end_date", "status"],
     scope: "vendor", write: "contract.manage", remove: { kind: "set", column: "status", value: "expired" },
+    names: "(SELECT v.legal_name FROM vendors v WHERE v.vendor_id = r.vendor_id) AS vendor_name",
   },
   purchase_orders: {
     table: "purchase_orders", key: "po_id", idPrefix: "PO",
     columns: ["vendor_id", "department_id", "requester_user_id", "issue_date", "description", "total_amount", "currency", "status", "approved_by"],
     scope: "vendor", write: "po.manage", remove: { kind: "set", column: "status", value: "closed" },
+    search: ["r.po_id", "r.description", "(SELECT v.legal_name FROM vendors v WHERE v.vendor_id = r.vendor_id)"],
     // billed: the subtotal of the invoices against the order that are not rejected or void, as the purchase order check counts it
     names: `(SELECT v.legal_name FROM vendors v WHERE v.vendor_id = r.vendor_id) AS vendor_name,
       (SELECT d.name FROM departments d WHERE d.department_id = r.department_id) AS department,
       (SELECT u.full_name FROM users u WHERE u.user_id = r.requester_user_id) AS requester,
       (SELECT u.full_name FROM users u WHERE u.user_id = r.approved_by) AS approver,
       (SELECT COALESCE(SUM(i.subtotal), 0)::float FROM invoices i WHERE i.po_id = r.po_id AND i.status NOT IN ('rejected','void')) AS billed`,
-    search: [
-      "r.po_id",
-      "r.description",
-      "(SELECT v.legal_name FROM vendors v WHERE v.vendor_id = r.vendor_id)",
-      "(SELECT d.name FROM departments d WHERE d.department_id = r.department_id)",
-    ],
   },
   approval_policies: {
     table: "approval_policies", key: "rule_id", idPrefix: "P", columns: ["rule_type", "field", "operator", "value", "required", "is_active"],
@@ -84,10 +80,9 @@ export async function listRecords<T = Record<string, unknown>>(user: User | null
     params.push(v);
     where.push(`r.${k} = $${params.length}`);
   }
-  const q = filter.q?.trim();
-  if (q && s.search) {
-    params.push(q);
-    where.push(`(${s.search.map((expr) => `strpos(lower(${expr}), lower($${params.length})) > 0`).join(" OR ")})`);
+  if (filter.q?.trim() && s.search) {
+    params.push(filter.q.trim());
+    where.push(`(${s.search.map((e) => `strpos(lower(${e}), lower($${params.length})) > 0`).join(" OR ")})`);
   }
   const paged = filter.page || filter.size;
   const { limit, offset } = window({ page: Number(filter.page) || undefined, size: Number(filter.size) || undefined });
