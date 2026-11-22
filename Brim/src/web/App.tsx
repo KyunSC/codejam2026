@@ -17,6 +17,8 @@ import { NewVendor, Vendor, Vendors } from "./pages/Vendors";
 import { PoliciesSettings, UsersSettings } from "./pages/Settings";
 import { Audit } from "./pages/Audit";
 import { Organization as OrganizationPage, Organizations } from "./pages/Organizations";
+import { CustomizeButton, EditModeProvider } from "./customize/EditMode";
+import { EditBar } from "./customize/EditBar";
 
 export function App() {
   const { pathname } = useLocation();
@@ -84,6 +86,7 @@ function WorkspaceLayout() {
     ...(can(user, "users.manage") ? [{ href: "/settings/users", label: "Settings", match: "/settings" }] : []),
   ];
   return (
+    <EditModeProvider>
     <div className="flex min-h-screen flex-col">
       <header className="z-10 border-b-2 border-border bg-bg sm:sticky sm:top-0">
         <div className="mx-auto flex max-w-[1240px] flex-wrap items-center gap-x-6 gap-y-2 px-4 pt-3 sm:px-5">
@@ -94,17 +97,20 @@ function WorkspaceLayout() {
           <div className="ml-auto flex flex-wrap items-center gap-3 text-sm">
             <span className="font-bold">{user.full_name}</span>
             <span className="chip chip--gray">{user.role.replace(/_/g, " ")}</span>
+            <CustomizeButton />
             <LogoutButton />
           </div>
           <div className="basis-full">
             <NavTabs items={tabs} />
           </div>
         </div>
+        <EditBar workspace />
       </header>
       <main className="mx-auto w-full max-w-[1240px] flex-1 px-4 py-8 sm:px-5">
         <Outlet />
       </main>
     </div>
+    </EditModeProvider>
   );
 }
 
@@ -130,6 +136,7 @@ function BrimLayout() {
   if (!user) return <Navigate to="/employee-login" replace />;
   if (user.role !== "brim_employee") return <Navigate to="/dashboard" replace />;
   return (
+    <EditModeProvider>
     <div className="flex min-h-screen flex-col">
       <header className="z-10 border-b border-rule bg-bg sm:sticky sm:top-0">
         <div className="mx-auto flex max-w-[1240px] flex-wrap items-center gap-x-8 gap-y-3 px-4 py-3.5 sm:px-5">
@@ -140,13 +147,16 @@ function BrimLayout() {
           <nav className="text-sm font-bold"><Link to="/organizations" className="no-underline">Organizations</Link></nav>
           <div className="ml-auto flex items-center gap-3 text-sm">
             <span className="font-bold">{user.full_name}</span>
+            <CustomizeButton />
             <LogoutButton />
           </div>
         </div>
+        <EditBar workspace={false} />
       </header>
       <main className="mx-auto w-full max-w-[1240px] flex-1 px-4 py-8 sm:px-5">
         <Outlet />
       </main>
     </div>
+    </EditModeProvider>
   );
 }
