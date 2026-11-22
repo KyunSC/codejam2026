@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { can } from "@/lib/authz";
 import { money } from "@/lib/format";
@@ -5,9 +6,31 @@ import type { getInvoiceRecord, InvoiceRow, PaymentRow } from "@/services/read.s
 import { get, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { ApiForm } from "../components/ApiForm";
-import { A, Card, NotFound, PAGE_SIZE, PageTitle, Pager, Show, Status, Table, Td, btn, date, dateTime, pageParam, withParams } from "../components/ui";
+import { A, Card, NotFound, PAGE_SIZE, PageTitle, Pager, Show, Status, Table, Td, btn, btnDanger, btnLight, date, dateTime, input, pageParam, withParams } from "../components/ui";
 
-const TABS = ["scheduled", "released", "outstanding", "settled", "all"];
+const TABS = ["scheduled", "released", "outstanding", "settled", "failed", "all"];
+
+// A released or outstanding payment that will not settle is marked failed, with the reason; its invoice can then be paid again.
+function FailPayment({ p, onFailed }: { p: { payment_id: string; status: string; amount: number; currency: string; vendor: string }; onFailed: () => void }) {
+  const user = useUser();
+  const [open, setOpen] = useState(false);
+  if ((p.status !== "released" && p.status !== "outstanding") || !can(user, "payment.release")) return null;
+  if (!open) return <button type="button" className={btnDanger} onClick={() => setOpen(true)}>Mark failed</button>;
+  const fail = async (fd: FormData) => {
+    await post(org(user, `/payments/${p.payment_id}/failure`), { reason: String(fd.get("reason") ?? "") });
+    setOpen(false);
+    onFailed();
+  };
+  return (
+    <ApiForm submit={fail} className="flex flex-col gap-2" confirm={`Mark ${p.payment_id} (${money(p.amount, p.currency)} to ${p.vendor}) failed? Its invoice goes back to approved, to be paid again.`}>
+      <input name="reason" placeholder="Why it failed" className={`${input} min-w-[12rem]`} required autoFocus />
+      <span className="flex gap-2">
+        <button className={btnDanger}>Mark failed</button>
+        <button type="button" className={btnLight} onClick={() => setOpen(false)}>Cancel</button>
+      </span>
+    </ApiForm>
+  );
+}
 
 export function Payments() {
   const user = useUser();
@@ -86,6 +109,7 @@ export function Payments() {
                     <Td>
                       {p.can_release && <ApiForm submit={release(p.payment_id)} confirm={`Release ${money(p.amount, p.currency)} to ${p.vendor}?`}><button className={btn}>Release</button></ApiForm>}
                       {p.release_blocked && <span className="text-xs muted">{p.release_blocked}</span>}
+                      <FailPayment p={p} onFailed={() => rows.reload()} />
                     </Td>
                   </tr>
                 ))}
@@ -125,7 +149,12 @@ export function Payment() {
           <div className="space-y-5">
             <PageTitle sub={<Status value={p.status} />}>{p.payment_id} · {p.vendor} · {money(p.amount, p.currency)}</PageTitle>
             <div className="grid gap-5 lg:grid-cols-2">
-              <Card title="Payment" actions={p.can_release ? <ApiForm inline submit={release} confirm={`Release ${money(p.amount, p.currency)} to ${p.vendor}?`}><button className={btn}>Release</button></ApiForm> : p.release_blocked && <span className="text-xs muted">{p.release_blocked}</span>}>
+              <Card
+                title="Payment"
+                actions={p.can_release
+                  ? <ApiForm inline submit={release} confirm={`Release ${money(p.amount, p.currency)} to ${p.vendor}?`}><button className={btn}>Release</button></ApiForm>
+                  : p.release_blocked ? <span className="text-xs muted">{p.release_blocked}</span> : <FailPayment p={p} onFailed={() => load.reload()} />}
+              >
                 <dl className="grid grid-cols-2 gap-2 text-sm">
                   <dt className="muted">Method</dt><dd>{p.method}</dd>
                   <dt className="muted">Amount</dt><dd>{money(p.amount, p.currency)}{p.currency !== "CAD" && ` = ${money(p.amount_cad)} at ${p.fx_rate_to_cad}`}</dd>
@@ -136,6 +165,7 @@ export function Payment() {
                   <dt className="muted">Bank account paid</dt><dd>{p.snapshot_account ? `${p.snapshot_institution}-${p.snapshot_transit}-${p.snapshot_account}` : "—"}</dd>
                   <dt className="muted">Reference</dt><dd className="font-mono text-xs">{p.bank_reference ?? p.card_reference ?? "—"}</dd>
                   {p.cheque_number && <><dt className="muted">Cheque</dt><dd>{p.cheque_number}</dd></>}
+                  {p.failure_reason && <><dt className="muted">Failed</dt><dd>{p.failure_reason}</dd></>}
                   <dt className="muted">Statement line</dt>
                   <dd>{p.statement ? <>{date(p.statement.posted_date)} · <span className="font-mono text-xs">{p.statement.description}</span> · {money(p.statement.amount)}</> : "—"}</dd>
                 </dl>

@@ -4,7 +4,6 @@ import { type CheckContext, type Flag } from "./types";
 
 type Contract = {
   contract_id: string;
-  billing_type: string;
   monthly_fee: number | null;
   currency: string;
   hourly_rate_cap: number | null;
@@ -27,7 +26,7 @@ export async function contractChecks(ctx: CheckContext): Promise<Flag[]> {
     flags.push({ check_code: "contract_expired", category: "contract", severity: "warning", message: `Contract ${c.contract_id} ended ${c.end_date}; invoice dated ${d.invoice_date}.` });
   }
 
-  if (c.billing_type === "fixed_monthly" && c.monthly_fee != null && d.subtotal != null && Math.abs(d.subtotal - c.monthly_fee) > 0.005) {
+  if (c.monthly_fee != null && d.subtotal != null && Math.abs(d.subtotal - c.monthly_fee) > 0.005) {
     flags.push({
       check_code: "contract_fee_mismatch",
       category: "contract",
@@ -36,7 +35,7 @@ export async function contractChecks(ctx: CheckContext): Promise<Flag[]> {
       evidence: { expected: c.monthly_fee, found: d.subtotal },
     });
   }
-  if (c.billing_type === "fixed_monthly" && month) {
+  if (c.monthly_fee != null && month) {
     const same = await one<{ invoice_id: string }>(
       "SELECT invoice_id FROM invoices WHERE contract_id=$1 AND to_char(invoice_date,'YYYY-MM')=$2 AND status NOT IN ('rejected','void') LIMIT 1",
       [c.contract_id, month],

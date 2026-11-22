@@ -122,7 +122,6 @@ CREATE TABLE contracts (
   contract_id            text PRIMARY KEY,
   vendor_id              text NOT NULL REFERENCES vendors,
   description            text,
-  billing_type           text NOT NULL CHECK (billing_type IN ('fixed_monthly','rate_card','retainer','blanket')),
   monthly_fee            numeric(14,2),
   currency               text NOT NULL DEFAULT 'CAD',
   hourly_rate_cap        numeric(14,2),

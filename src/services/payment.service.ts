@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "fs";
 import path from "path";
 import { randomInt } from "crypto";
-import { ConflictError, ForbiddenError, NotFoundError } from "@/lib/errors";
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
 import { tx, query, one, nextId, pool, type Db } from "@/lib/db";
 import { matches, RELEASE_RANK, REQUIREMENTS, type Policy } from "@/lib/policies";
 import { activePolicies } from "./policy.service";
@@ -32,6 +32,28 @@ export async function preparePayment(actor: User | null, organizationId: string,
     await query("UPDATE invoices SET status='scheduled' WHERE invoice_id=$1", [invoiceId], c);
     await writeAudit(c, { organizationId: inv.organization_id, actor, action: "payment.prepare", entityType: "payment", entityId: id, invoiceId, paymentId: id, vendorId: inv.vendor_id });
     return id;
+  });
+}
+
+// A released or outstanding payment that will not settle (a lost or uncashed cheque, a transfer the bank returned) is marked
+// failed with the reason, by whoever may release payments. The invoice goes back to approved, so a new payment can be prepared.
+export async function failPayment(actor: User | null, organizationId: string, paymentId: string, reason: string) {
+  assertCan(actor, "payment.release");
+  if (!reason?.trim()) throw new ValidationError("Give the reason the payment failed.");
+  await tx(async (c) => {
+    assertMember(actor, organizationId);
+    const pay = await one<{ invoice_id: string; vendor_id: string; status: string }>(
+      "SELECT invoice_id, vendor_id, status FROM payments WHERE payment_id=$1 AND organization_id=$2 FOR UPDATE",
+      [paymentId, organizationId],
+      c,
+    );
+    if (!pay) throw new NotFoundError("No such payment");
+    if (pay.status !== "released" && pay.status !== "outstanding") throw new ConflictError("Only a released or outstanding payment can fail.");
+    await query("UPDATE payments SET status='failed', failure_reason=$2 WHERE payment_id=$1", [paymentId, reason.trim()], c);
+    await query("UPDATE invoices SET status='approved' WHERE invoice_id=$1", [pay.invoice_id], c);
+    await writeAudit(c, {
+      organizationId, actor, action: "payment.failed", entityType: "payment", entityId: paymentId, invoiceId: pay.invoice_id, paymentId, vendorId: pay.vendor_id, note: reason.trim(),
+    });
   });
 }
 
