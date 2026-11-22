@@ -35,6 +35,14 @@ CREATE TABLE users (
 
 ALTER TABLE departments ADD FOREIGN KEY (manager_user_id) REFERENCES users DEFERRABLE INITIALLY DEFERRED;
 
+-- Each user's dashboard preferences: only the settings they changed, merged over the defaults in code (src/lib/preferences.ts).
+CREATE TABLE user_preferences (
+  user_id    text PRIMARY KEY REFERENCES users ON DELETE CASCADE,
+  prefs      jsonb NOT NULL DEFAULT '{}'::jsonb,
+  version    integer NOT NULL DEFAULT 1,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 -- Kept apart from users so that no read of users, nor the audit log of a user change, can carry a password hash.
 CREATE TABLE user_passwords (
   user_id       text PRIMARY KEY REFERENCES users,

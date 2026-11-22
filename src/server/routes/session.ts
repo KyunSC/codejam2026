@@ -3,6 +3,7 @@ import { SESSION_COOKIE, sessionValue } from "@/lib/auth";
 import { UnauthorizedError, ValidationError } from "@/lib/errors";
 import { changeOwnPassword, createToken, listDemoAccounts, listTokens, revokeToken, signIn } from "@/services/auth.service";
 import { setDelegate } from "@/services/approval.service";
+import { getPreferences, resetPreferences, savePreferences } from "@/services/preferences.service";
 import { route } from "../http";
 
 export const session = Router();
@@ -55,3 +56,22 @@ session.put("/me/delegation", route(async ({ user, body }) => {
 session.delete("/me/delegation", route(async ({ user }) => {
   await setDelegate(user, false, null);
 }, { gate: "delegate.set" }));
+
+// The signed-in user's dashboard preferences: what they changed (stored) and the full set for their role (resolved).
+// Always their own, never another user's.
+session.get("/me/preferences", route(async ({ user }) => {
+  if (!user) throw new UnauthorizedError("Sign in");
+  return getPreferences(user);
+}));
+
+// Replace them with the document sent (only the settings that differ from the defaults).
+session.put("/me/preferences", route(async ({ user, req }) => {
+  if (!user) throw new UnauthorizedError("Sign in");
+  return savePreferences(user, req.body);
+}));
+
+// Back to the defaults.
+session.delete("/me/preferences", route(async ({ user }) => {
+  if (!user) throw new UnauthorizedError("Sign in");
+  return resetPreferences(user);
+}));
