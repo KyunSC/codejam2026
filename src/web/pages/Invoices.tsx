@@ -29,6 +29,12 @@ export function Invoices() {
     () => get<InvoiceRow[]>(org(user, `/invoices${qs({ status: status === "all" ? null : status, page: invPage, size: PAGE_SIZE })}`)),
     `${status}:${invPage}`,
   );
+  // the clerk runs the checks again on a parsed invoice from its row too
+  const review = can(user, "parsed.review");
+  const runChecks = (id: string) => async () => {
+    await post(org(user, `/parsed-invoices/${id}/checks`));
+    parsed.reload();
+  };
   // while something is being read, look again every few seconds
   const readingNow = (raw.data ?? []).some((r) => r.status === "new");
   useEffect(() => {
@@ -109,7 +115,7 @@ export function Invoices() {
         <Show load={parsed}>
           {(rows) => (
             <>
-              <Table head={[ap ? "Parsed" : "Reference", "Vendor", "Invoice #", "Date", "Total", "Flags"]} empty="Nothing waiting for review.">
+              <Table head={[ap ? "Parsed" : "Reference", "Vendor", "Invoice #", "Date", "Total", "Flags", ...(review ? [""] : [])]} empty="Nothing waiting for review.">
                 {rows.map((p) => (
                   <tr key={p.parsed_invoice_id}>
                     <Td className="font-mono text-xs"><A href={`/invoices/${p.parsed_invoice_id}`}>{p.parsed_invoice_id}</A></Td>
@@ -122,6 +128,11 @@ export function Invoices() {
                       {p.warnings > 0 && <Badge tone="gold">{p.warnings} warning{p.warnings > 1 ? "s" : ""}</Badge>}
                       {!p.blocking && !p.warnings && <Badge tone="green">clear</Badge>}
                     </Td>
+                    {review && (
+                      <Td className="text-right">
+                        <ApiForm inline submit={runChecks(p.parsed_invoice_id)}><button className={btnLight}>Run checks again</button></ApiForm>
+                      </Td>
+                    )}
                   </tr>
                 ))}
               </Table>

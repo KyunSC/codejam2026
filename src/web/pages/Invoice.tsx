@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { actionName } from "@/lib/auditActions";
 import { can } from "@/lib/authz";
@@ -6,10 +7,11 @@ import type { InvoiceLine, User } from "@/lib/types";
 import type { RawItem } from "@/services/rawIntake.service";
 import type { getInvoiceRecord, getParsedInvoiceRecord } from "@/services/read.service";
 import type { TrailEvent } from "@/services/audit.service";
-import type { ReviewEdit } from "@/services/parsedInvoiceReview.service";
-import { ApiError, get, patch, post, useLoad } from "../api";
+import type { PurchaseOrderChoice } from "@/services/purchaseOrderLink.service";
+import { ApiError, call, get, patch, post, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { ApiForm, str } from "../components/ApiForm";
+import { InvoiceEntry, type EnteredInvoice } from "./InvoiceIntake";
 import { A, Badge, Card, Field, PageTitle, Show, Status, Table, Td, btn, btnDanger, btnLight, date, dateTime, input } from "../components/ui";
 
 type InvoiceRecord = Awaited<ReturnType<typeof getInvoiceRecord>>;
@@ -61,6 +63,8 @@ export function Invoice() {
     load.reload();
     return msg;
   };
+  // the clerk's edit: the invoice as on the invoice form, with its coding, opened only on Edit
+  const [editing, setEditing] = useState(false);
 
   return (
     <Show load={load}>
@@ -80,19 +84,18 @@ export function Invoice() {
             : `${raw!.raw_item_id} · ${raw!.kind === "form" ? `form ${raw!.form_json?.vendor_invoice_number ?? ""}` : raw!.kind === "pdf" ? raw!.files[0]?.file_name ?? "upload" : raw!.subject ?? "email"}`;
         const mySteps = steps.filter((s) => s.can_act);
 
-        const saveReview = async (fd: FormData) => {
-          const header: ReviewEdit["header"] = {};
-          for (const k of ["vendor_id", "vendor_invoice_number", "invoice_date", "due_date", "department_id", "requester_user_id", "po_id", "ship_to_province"] as const) {
-            if (fd.has(k)) header[k] = str(fd, k);
-          }
-          const lines = d!.lines.map((l) => ({
-            line_no: l.line_no,
-            gl_account: str(fd, `gl_${l.line_no}`),
-            department_id: str(fd, `dept_${l.line_no}`),
-            line_type: (str(fd, `type_${l.line_no}`) ?? "services") as "goods" | "services",
-          }));
-          await patch(org(user, `/parsed-invoices/${parsed!.parsed_invoice_id}`), { header, lines });
-          return after("Saved; checks ran again.");
+        const enter = async (entry: EnteredInvoice) => {
+          await call("PUT", org(user, `/parsed-invoices/${parsed!.parsed_invoice_id}/entry`), entry);
+          setEditing(false);
+          return after("Saved. Run the checks again to see what changed.");
+        };
+        const readAgain = async () => {
+          const r = await post<{ id: string }>(org(user, `/parsed-invoices/${parsed!.parsed_invoice_id}/read-again`));
+          navigate(`/invoices/${r.id}`);
+        };
+        const runChecks = async () => {
+          await post(org(user, `/parsed-invoices/${parsed!.parsed_invoice_id}/checks`));
+          return after("Checks ran again.");
         };
         const resolveFlag = (flagId: string) => async (fd: FormData) => {
           await patch(org(user, `/flags/${flagId}`), { status: str(fd, "status") ?? "resolved", note: str(fd, "note") ?? "" });
@@ -144,7 +147,7 @@ export function Invoice() {
             {!parsed && raw?.status === "new" && <p className="text-sm muted">Being read; the invoice appears here when it is done.</p>}
             {!parsed && raw?.status === "failed" && <p className="form-error">Could not be read: {raw.failure_reason}</p>}
 
-            <div className={`grid gap-5 ${showRaw ? "xl:grid-cols-2" : ""}`}>
+            <div className={`grid gap-5 ${showRaw ? (editing && reviewing ? "xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]" : "xl:grid-cols-2") : ""}`}>
               {showRaw && (
                 <Card title="As received">
                   <RawView raw={raw} file={parsed?.file_name ?? null} />
@@ -153,49 +156,28 @@ export function Invoice() {
 
               <div className="space-y-5">
                 {d && (
-                  <Card title={invoice ? "Invoice" : "Parsed invoice"} actions={parsed?.extraction_model && <span className="text-xs muted">read by {parsed.extraction_model}{parsed.extraction_language === "fr" ? " · French" : ""}</span>}>
-                    {reviewing ? (
-                      <ApiForm submit={saveReview} className="space-y-4">
-                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                          <Field label="Vendor">
-                            <select name="vendor_id" defaultValue={d.vendor_id ?? ""} className={input}>
-                              <option value="">— not in vendor master ({d.vendor_name}) —</option>
-                              {vendors.map((v) => <option key={v.vendor_id} value={v.vendor_id}>{v.legal_name} ({v.vendor_id}){v.status !== "active" ? ` · ${v.status}` : ""}</option>)}
-                            </select>
-                          </Field>
-                          <Field label="Invoice number"><input name="vendor_invoice_number" defaultValue={d.vendor_invoice_number ?? ""} className={input} /></Field>
-                          <Field label="Invoice date"><input type="date" name="invoice_date" defaultValue={d.invoice_date ?? ""} className={input} /></Field>
-                          <Field label="Due date"><input type="date" name="due_date" defaultValue={d.due_date ?? ""} className={input} /></Field>
-                          <Field label="Department">
-                            <select name="department_id" defaultValue={d.department_id ?? ""} className={input}>
-                              <option value="">—</option>
-                              {depts.map((x) => <option key={x.department_id} value={x.department_id}>{x.name}</option>)}
-                            </select>
-                          </Field>
-                          <Field label="Requester">
-                            <select name="requester_user_id" defaultValue={d.requester_user_id ?? ""} className={input}>
-                              <option value="">— none (route by department) —</option>
-                              {people.map((p) => <option key={p.user_id} value={p.user_id}>{p.full_name}</option>)}
-                            </select>
-                          </Field>
-                          <Field label="Purchase order">
-                            <select name="po_id" defaultValue={d.po_id ?? ""} className={input}>
-                              <option value="">— none —</option>
-                              {[...new Set([...(d.po_id ? [d.po_id] : []), ...(d.po_candidates ?? [])])].map((p) => <option key={p}>{p}</option>)}
-                            </select>
-                          </Field>
-                          <Field label="Delivered to (province)">
-                            <select name="ship_to_province" defaultValue={d.ship_to_province ?? ""} className={input}>
-                              <option value="">—</option>
-                              {["ON", "BC", "AB", "QC", "MB", "SK"].map((p) => <option key={p}>{p}</option>)}
-                            </select>
-                          </Field>
-                          <Field label="Total"><div className="py-1 text-sm">{money(d.total, d.currency)}{d.currency !== "CAD" && <span className="muted"> = {money(d.total_cad)} at {d.fx_rate_to_cad}</span>}</div></Field>
-                        </div>
-                        <LinesTable lines={d.lines} gls={gls} depts={depts} editable currency={d.currency} />
-                        <Taxes d={d} />
-                        <button className={btn}>Save changes</button>
-                      </ApiForm>
+                  <Card
+                    title={invoice ? "Invoice" : "Parsed invoice"}
+                    actions={
+                      <span className="flex flex-wrap items-center gap-2">
+                        {parsed?.extraction_model && <span className="text-xs muted">read by {parsed.extraction_model}{parsed.extraction_language === "fr" ? " · French" : ""}</span>}
+                        {reviewing && !editing && <button type="button" className={btnLight} onClick={() => setEditing(true)}>Edit</button>}
+                        {parsed && parsed.status !== "approved" && parsed.file_name && can(user, "raw.extract") && (
+                          <ApiForm inline submit={readAgain} confirm={`Read ${parsed.file_name} again? ${parsed.parsed_invoice_id}, with its edits and flags, is deleted and replaced by the new reading.`}>
+                            <button className={btnLight}>Read again</button>
+                          </ApiForm>
+                        )}
+                      </span>
+                    }
+                  >
+                    {reviewing && editing ? (
+                      <InvoiceEntry
+                        start={{ ...d, lines: d.lines, taxes: d.taxes }}
+                        submitLabel="Save changes"
+                        onSubmit={enter}
+                        cancel={<button type="button" className={btnLight} onClick={() => setEditing(false)}>Cancel</button>}
+                        coding={{ depts, gls, people }}
+                      />
                     ) : (
                       <div className="space-y-4">
                         <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
@@ -205,7 +187,9 @@ export function Invoice() {
                           <Item k="Due date">{date(d.due_date)}</Item>
                           <Item k="Department">{depts.find((x) => x.department_id === d.department_id)?.name ?? "—"}</Item>
                           <Item k="Requester">{people.find((p) => p.user_id === d.requester_user_id)?.full_name ?? "—"}</Item>
-                          <Item k="Purchase order">{d.po_id ? <A href={`/purchase-orders/${d.po_id}`}>{d.po_id}</A> : "—"}</Item>
+                          <Item k="Purchase order">
+                            <PurchaseOrderField parsedId={parsed && parsed.status !== "rejected" && can(user, "po.manage") ? parsed.parsed_invoice_id : null} current={d.po_id ?? null} onLinked={() => load.reload()} />
+                          </Item>
                           <Item k="Contract">{d.contract_id ?? "—"}</Item>
                           <Item k="Delivered to">{d.ship_to_province ?? "—"}</Item>
                           <Item k="Total">{money(d.total, d.currency)}{d.currency !== "CAD" && ` (${money(d.total_cad)})`}</Item>
@@ -220,7 +204,10 @@ export function Invoice() {
                 )}
 
                 {parsed && (
-                  <Card title={`Flags (${flags.filter((f) => f.status === "open").length} open)`}>
+                  <Card
+                    title={`Flags (${flags.filter((f) => f.status === "open").length} open)`}
+                    actions={reviewing && <ApiForm inline submit={runChecks}><button className={btnLight}>Run checks again</button></ApiForm>}
+                  >
                     {flags.length === 0 && <p className="text-sm text-green">No problems found.</p>}
                     <ul className="space-y-3">
                       {flags.map((f) => (
@@ -232,7 +219,10 @@ export function Invoice() {
                               {f.resolution_note && <p className="mt-1 text-xs muted">{f.resolver}: {f.resolution_note}</p>}
                             </div>
                           </div>
-                          {reviewing && f.status === "open" && (
+                          {f.status === "open" && parsed?.status === "pending" && f.category === "fraud" && !can(user, "flag.resolve_fraud") && (
+                            <p className="mt-2 text-xs muted">A fraud flag is closed by a finance manager or the controller.</p>
+                          )}
+                          {f.status === "open" && parsed?.status === "pending" && (f.category === "fraud" ? can(user, "flag.resolve_fraud") : reviewing) && (
                             <ApiForm submit={resolveFlag(f.flag_id)} className="mt-2 flex gap-2" confirm={(fd) => (fd.get("status") === "overridden" ? `Override this ${f.severity} flag? The invoice goes ahead despite it.` : null)}>
                               <input name="note" placeholder="What you checked or decided" className={input} required />
                               <select name="status" className="input w-36"><option value="resolved">Resolved</option><option value="overridden">Override</option></select>
@@ -326,6 +316,53 @@ export function Invoice() {
         );
       }}
     </Show>
+  );
+}
+
+// The invoice's purchase order; whoever may link one changes it after pressing Change.
+function PurchaseOrderField({ parsedId, current, onLinked }: { parsedId: string | null; current: string | null; onLinked: () => void }) {
+  const [open, setOpen] = useState(false);
+  if (parsedId && open) return <PurchaseOrderPicker parsedId={parsedId} current={current} onLinked={() => { setOpen(false); onLinked(); }} onCancel={() => setOpen(false)} />;
+  return (
+    <span className="flex flex-wrap items-center gap-2">
+      {current ? <A href={`/purchase-orders/${current}`}>{current}</A> : "—"}
+      {parsedId && <button type="button" className={btnLight} onClick={() => setOpen(true)}>Change</button>}
+    </span>
+  );
+}
+
+// Links the invoice to one of its vendor's purchase orders, listed closest match first, at any stage of the invoice.
+function PurchaseOrderPicker({ parsedId, current, onLinked, onCancel }: { parsedId: string; current: string | null; onLinked: () => void; onCancel: () => void }) {
+  const user = useUser();
+  const choices = useLoad(() => get<PurchaseOrderChoice[]>(org(user, `/parsed-invoices/${parsedId}/purchase-order-choices`)), `${parsedId}:${current}`);
+  const [picked, setPicked] = useState(current ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const link = async () => {
+    setError(null);
+    try {
+      await call("PUT", org(user, `/parsed-invoices/${parsedId}/purchase-order`), { po_id: picked || null });
+      onLinked();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  if (choices.data && !choices.data.length && !current) {
+    return <span className="flex items-center gap-2"><span className="muted">— (no open purchase order)</span><button type="button" className={btnLight} onClick={onCancel}>Cancel</button></span>;
+  }
+  return (
+    <span className="flex flex-wrap items-center gap-2">
+      <select value={picked} onChange={(e) => setPicked(e.target.value)} className={`${input} max-w-md`}>
+        <option value="">— none —</option>
+        {(choices.data ?? []).map((o) => (
+          <option key={o.po_id} value={o.po_id}>
+            {o.po_id} · {o.same_vendor ? "" : `${o.vendor_name} (other vendor) · `}{money(o.remaining, o.currency)} left of {money(o.total_amount, o.currency)}{o.fits ? "" : " · too little left"}{o.description ? ` · ${o.description}` : ""}
+          </option>
+        ))}
+      </select>
+      <button type="button" className={btnLight} disabled={picked === (current ?? "")} onClick={link}>{!picked && current ? "Unlink" : "Link"}</button>
+      <button type="button" className={btnLight} onClick={onCancel}>Cancel</button>
+      {error && <span className="form-error">{error}</span>}
+    </span>
   );
 }
 

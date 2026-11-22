@@ -76,6 +76,22 @@ function LogoutButton() {
   return <button className="btn btn--ghost btn--sm" onClick={logout}>Log out</button>;
 }
 
+// Signing out is in the footer of every signed-in page.
+function SignedInFooter() {
+  return (
+    <footer className="border-t-2 border-border">
+      <div className="mx-auto flex max-w-[1240px] justify-end px-4 py-5 sm:px-5">
+        <LogoutButton />
+      </div>
+    </footer>
+  );
+}
+
+// The signed-in person's name opens their account page.
+function AccountButton({ name }: { name: string }) {
+  return <Link to="/account" className="btn btn--ghost btn--sm">{name}</Link>;
+}
+
 // An organization user's workspace: organization name, the user, and the tabs their role may open.
 // Scrolls to the section a link points to (#id), waiting for the page to load it.
 function ScrollToSection() {
@@ -106,9 +122,8 @@ function WorkspaceLayout() {
     { href: "/invoices", label: "Invoices", match: "/invoices" },
     { href: "/purchase-orders", label: "Purchase orders", match: "/purchase-orders" },
     ...(can(user, "payment.view") ? [{ href: "/payments", label: "Payments", match: "/payments" }] : []),
-    ...(can(user, "vendor.view") ? [{ href: "/vendors", label: "Vendors", match: "/vendors" }] : []),
-    { href: "/account", label: "Account", match: "/account" },
-    ...(settingsTabs(user).length ? [{ href: "/settings", label: "Settings", match: "/settings" }] : []),
+    ...(can(user, "vendor.view") ? [{ href: "/vendors", label: "Vendors", match: "/vendors", right: true }] : []),
+    ...(settingsTabs(user).length ? [{ href: "/settings", label: "Settings", match: "/settings", right: true }] : []),
   ];
   return (
     <div className="flex min-h-screen flex-col">
@@ -119,9 +134,8 @@ function WorkspaceLayout() {
             <span className="muted text-sm">Accounts payable</span>
           </Link>
           <div className="ml-auto flex flex-wrap items-center gap-3 text-sm">
-            <span className="font-bold">{user.full_name}</span>
             <span className="chip chip--gray">{user.role.replace(/_/g, " ")}</span>
-            <LogoutButton />
+            <AccountButton name={user.full_name} />
           </div>
           <div className="basis-full">
             <NavTabs items={tabs} />
@@ -132,6 +146,7 @@ function WorkspaceLayout() {
         <ScrollToSection />
         <Outlet />
       </main>
+      <SignedInFooter />
     </div>
   );
 }
@@ -184,17 +199,16 @@ function BrimLayout() {
           </Link>
           <nav className="flex gap-4 text-sm font-bold">
             <Link to="/organizations" className="no-underline">Organizations</Link>
-            <Link to="/account" className="no-underline">Account</Link>
           </nav>
           <div className="ml-auto flex items-center gap-3 text-sm">
-            <span className="font-bold">{user.full_name}</span>
-            <LogoutButton />
+            <AccountButton name={user.full_name} />
           </div>
         </div>
       </header>
       <main className="mx-auto w-full max-w-[1240px] flex-1 px-4 py-8 sm:px-5">
         <Outlet />
       </main>
+      <SignedInFooter />
     </div>
   );
 }

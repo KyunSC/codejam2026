@@ -1,6 +1,6 @@
 import { Db, query, one } from "@/lib/db";
 import { codeForLabel, isGstHst } from "@/lib/taxCodes";
-import { descriptionKey, provinceFromAddress, round2, similarity, taxNumber, vendorName } from "@/lib/normalize";
+import { allowedEdits, descriptionKey, levenshtein, nameKey, provinceFromAddress, round2, similarity, taxNumber } from "@/lib/normalize";
 import { usdToCad } from "./fxFeed.service";
 import type { InvoiceData, InvoiceLine } from "@/lib/types";
 import type { RawItem } from "./rawIntake.service";
@@ -10,17 +10,27 @@ type PastInvoice = { invoice_id: string; vendor_id: string; department_id: strin
 
 const isManual = (d: InvoiceData, field: string) => (d.manual ?? []).includes(field);
 
+// The vendor a read name means: the one with the same name, else the one closest to it within a few letters. Two equally close: none.
+function vendorByName<V extends { vendor_id: string; legal_name: string }>(vendors: V[], name: string | null | undefined) {
+  const key = nameKey(name);
+  if (!key) return null;
+  const near = vendors
+    .map((v) => ({ v, d: levenshtein(nameKey(v.legal_name), key) }))
+    .filter((x) => x.d <= allowedEdits(nameKey(x.v.legal_name), key))
+    .sort((a, b) => a.d - b.d);
+  return near.length && (near.length === 1 || near[0].d < near[1].d) ? near[0].v.vendor_id : null;
+}
+
 // Step 3: link the parsed invoice to the organization's records and suggest coding for each line.
 export async function resolve(db: Db, organizationId: string, input: InvoiceData, raw: RawItem): Promise<InvoiceData> {
   const d: InvoiceData = structuredClone(input);
   const vendors = await query<VendorRow>("SELECT vendor_id, legal_name, gst_hst_number, default_gl_account FROM vendors WHERE organization_id=$1", [organizationId], db);
 
-  // Vendor: GST/HST number, then legal name.
+  // Vendor: GST/HST number, then legal name: the same name, else the one name closest to it within a few letters (Levenshtein).
   if (!isManual(d, "vendor_id")) {
     const num = taxNumber(d.vendor_gst_hst_number);
     const byNumber = num ? vendors.find((v) => taxNumber(v.gst_hst_number) === num) : undefined;
-    const byName = vendors.filter((v) => vendorName(v.legal_name) === vendorName(d.vendor_name));
-    d.vendor_id = byNumber?.vendor_id ?? (num ? null : byName.length === 1 ? byName[0].vendor_id : null) ?? d.vendor_id ?? null;
+    d.vendor_id = byNumber?.vendor_id ?? (num ? null : vendorByName(vendors, d.vendor_name)) ?? d.vendor_id ?? null;
   }
   const vendor = vendors.find((v) => v.vendor_id === d.vendor_id) ?? null;
 

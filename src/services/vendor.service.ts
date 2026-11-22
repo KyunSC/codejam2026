@@ -4,7 +4,7 @@ import { tx, query, one, nextId } from "@/lib/db";
 import { assertMember, authorize } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 import { blankToNull } from "@/lib/values";
-import { vendorName } from "@/lib/normalize";
+import { sameName } from "@/lib/normalize";
 import type { User } from "@/lib/types";
 import { window, type Paging } from "@/lib/paging";
 
@@ -20,13 +20,11 @@ export type Vendor = {
   status: string; gst_hst_number: string | null; bank_institution: string | null; bank_transit: string | null; bank_account: string | null;
 } & Record<string, string | number | boolean | null>;
 
-// A name with case, punctuation and the company suffix taken off: two vendors with the same key look alike.
-const nameKey = (s: string) => vendorName(s).replace(/ (inc|ltd|llp)$/, "");
 
 // The organization's other vendors whose names look like this one.
 async function lookalikesOf(organizationId: string, vendorId: string | null, legalName: string) {
   const all = await query<{ vendor_id: string; legal_name: string }>("SELECT vendor_id, legal_name FROM vendors WHERE organization_id=$1", [organizationId]);
-  return all.filter((o) => o.vendor_id !== vendorId && nameKey(o.legal_name) === nameKey(legalName));
+  return all.filter((o) => o.vendor_id !== vendorId && sameName(o.legal_name, legalName));
 }
 
 // Vendors with their number of invoices, whether a bank change is pending or unverified,
@@ -41,7 +39,7 @@ export async function listVendors(actor: User | null, organizationId: string, f:
      FROM vendors v WHERE v.organization_id=$1 AND ($2::text IS NULL OR v.status=$2) ORDER BY v.legal_name LIMIT ${limit} OFFSET ${offset}`,
     [organizationId, f.status || null],
   );
-  return rows.map((v) => ({ ...v, lookalike_of: all.filter((o) => o.vendor_id !== v.vendor_id && nameKey(o.legal_name) === nameKey(v.legal_name)) }));
+  return rows.map((v) => ({ ...v, lookalike_of: all.filter((o) => o.vendor_id !== v.vendor_id && sameName(o.legal_name, v.legal_name)) }));
 }
 
 export async function getVendor(actor: User | null, organizationId: string, vendorId: string) {

@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { invoiceNumberCore } from "@/lib/normalize";
+import { invoiceNumberCore, invoiceNumberKey } from "@/lib/normalize";
 import { cardChargesFor } from "./cardFeed.service";
 import { money } from "@/lib/format";
 import { type CheckContext, type Flag } from "./checks/types";
@@ -8,7 +8,7 @@ type Candidate = { ref: string; is_invoice: boolean; vendor_id: string | null; n
 
 // Step 5: five layers, searched across the invoices and the other parsed invoices.
 export async function detectDuplicates(ctx: CheckContext): Promise<Flag[]> {
-  const { data: d, db } = ctx;
+  const { data: d, vendor, db } = ctx;
   const flags: Flag[] = [];
   const candidates = await query<Candidate>(
     `SELECT i.invoice_id AS ref, true AS is_invoice, i.vendor_id, i.vendor_invoice_number AS number, i.total, i.invoice_date::text, p.sha256, i.status
@@ -34,22 +34,26 @@ export async function detectDuplicates(ctx: CheckContext): Promise<Flag[]> {
 
   for (const c of candidates) if (ctx.sha256 && c.sha256 === ctx.sha256) add(c, "duplicate_file", `Same file as ${label(c)}.`);
   if (d.vendor_id) {
-    for (const c of candidates) {
-      if (c.vendor_id !== d.vendor_id) continue;
-      if (d.vendor_invoice_number && c.number === d.vendor_invoice_number) add(c, "duplicate_number", `Same vendor and invoice number ${c.number} as ${label(c)}.`);
-    }
+    // Same number: the numbers are the same without case, punctuation or leading zeros, whatever the totals;
+    // or they are the same without the leading letters and one trailing letter too, and the totals are the same.
+    const key = invoiceNumberKey(d.vendor_invoice_number);
     const core = invoiceNumberCore(d.vendor_invoice_number);
     for (const c of candidates) {
-      if (c.vendor_id !== d.vendor_id || !sameTotal(c) || !core) continue;
-      if (invoiceNumberCore(c.number) === core) add(c, "duplicate_near_number", `Invoice ${d.vendor_invoice_number} matches ${c.number} on ${label(c)}, same vendor and total ${money(d.total)}.`);
+      if (c.vendor_id !== d.vendor_id) continue;
+      if (key && invoiceNumberKey(c.number) === key) {
+        add(c, "duplicate_number", `Same vendor and invoice number as ${label(c)}: ${d.vendor_invoice_number} and ${c.number}, without case, punctuation or leading zeros.`);
+      } else if (core && sameTotal(c) && invoiceNumberCore(c.number) === core) {
+        add(c, "duplicate_number", `Same vendor, total ${money(d.total)} and invoice number as ${label(c)}: ${d.vendor_invoice_number} and ${c.number}, without case, punctuation, leading zeros, leading letters or a trailing letter.`);
+      }
     }
     for (const c of candidates) {
       if (c.vendor_id !== d.vendor_id || !sameTotal(c)) continue;
       if (d.invoice_date && c.invoice_date === d.invoice_date) add(c, "duplicate_content", `Same vendor, date ${d.invoice_date} and total ${money(d.total)} as ${label(c)}, under number ${c.number}.`);
     }
   }
-  if (d.vendor_name && d.total && d.invoice_date) {
-    for (const t of cardChargesFor(d.vendor_name, d.total, d.invoice_date)) {
+  // a card charge carries only the merchant text the card network sends, so it is matched to the invoice's vendor by name
+  if (vendor && d.total && d.invoice_date) {
+    for (const t of cardChargesFor(vendor.legal_name, d.total, d.invoice_date)) {
       flags.push({
         check_code: "paid_by_card",
         category: "duplicate",

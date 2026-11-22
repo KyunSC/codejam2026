@@ -7,8 +7,10 @@ import {
 import { invoiceTrail, parsedInvoiceTrail } from "@/services/audit.service";
 import { readStoredFile } from "@/services/rawIntake.service";
 import { pollAndRead, submitInvoiceForm, uploadInvoice } from "@/services/intake.service";
-import { approve, reject, resolveFlag, saveEdits, type ReviewEdit } from "@/services/parsedInvoiceReview.service";
+import { approve, editParsedInvoice, reject, resolveFlag, runChecksAgain, saveEdits, type ReviewEdit } from "@/services/parsedInvoiceReview.service";
+import { readParsedAgain } from "@/services/pipeline.service";
 import { decide } from "@/services/approval.service";
+import { linkPurchaseOrder, purchaseOrderChoices } from "@/services/purchaseOrderLink.service";
 import { pagingOf, param, route } from "../http";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -53,12 +55,30 @@ invoices.get("/raw-items/:id/files/:name", route(async ({ res, user, params }) =
 // --- parsed invoices ---
 invoices.get("/parsed-invoices", route(async ({ user, params, query }) => listParsedInvoices(user, params.orgId, { status: param(query, "status"), ...pagingOf(query) })));
 invoices.get("/parsed-invoices/:id", route(async ({ user, params }) => getParsedInvoiceRecord(user, params.orgId, params.id)));
-// Clerk edits: header fields and line coding. Resolution, checks and duplicate detection run again.
+// Clerk edits: header fields and line coding. Resolution runs again; the checks run again only when asked (below).
 invoices.patch("/parsed-invoices/:id", route(async ({ user, params, body }) => {
   const edit = body as Partial<ReviewEdit>;
   await saveEdits(user, params.orgId, params.id, { header: edit.header ?? {}, lines: edit.lines ?? [] });
   return getParsedInvoiceRecord(user, params.orgId, params.id);
 }, { gate: "parsed.review" }));
+// The clerk's edit, made as on the invoice form, in place of what was read.
+invoices.put("/parsed-invoices/:id/entry", route(async ({ user, params, body }) => {
+  await editParsedInvoice(user, params.orgId, params.id, body as Record<string, unknown>);
+  return getParsedInvoiceRecord(user, params.orgId, params.id);
+}, { gate: "parsed.review" }));
+// Reads the parsed invoice's file again; the old parsed invoice is deleted and the new one has a new id.
+invoices.post("/parsed-invoices/:id/read-again", route(async ({ user, params }) => ({ id: await readParsedAgain(user, params.orgId, params.id) }), { gate: "raw.extract" }));
+// Runs the checks and duplicate detection again on the invoice under review.
+invoices.post("/parsed-invoices/:id/checks", route(async ({ user, params }) => {
+  await runChecksAgain(user, params.orgId, params.id);
+  return getParsedInvoiceRecord(user, params.orgId, params.id);
+}, { gate: "parsed.review" }));
+// The vendor's purchase orders for the invoice, closest match first; linking one works at any stage.
+invoices.get("/parsed-invoices/:id/purchase-order-choices", route(async ({ user, params }) => purchaseOrderChoices(user, params.orgId, params.id), { gate: "po.manage" }));
+invoices.put("/parsed-invoices/:id/purchase-order", route(async ({ user, params, body }) => {
+  await linkPurchaseOrder(user, params.orgId, params.id, ((body as { po_id?: string | null }).po_id || null));
+  return getParsedInvoiceRecord(user, params.orgId, params.id);
+}, { gate: "po.manage" }));
 // Adds the parsed invoice to the invoices and starts its approval chain.
 invoices.post("/parsed-invoices/:id/approve", route(async ({ user, params }) => {
   return { id: await approve(user, params.orgId, params.id) };
@@ -70,7 +90,7 @@ invoices.post("/parsed-invoices/:id/reject", route(async ({ user, params, body }
 invoices.patch("/flags/:id", route(async ({ user, params, body }) => {
   if (body.status !== "resolved" && body.status !== "overridden") throw new ValidationError("status is resolved or overridden");
   await resolveFlag(user, params.orgId, params.id, body.status, String(body.note ?? ""));
-}, { gate: "parsed.review" }));
+}));
 
 // --- invoices ---
 invoices.get("/invoices", route(async ({ user, params, query }) => (

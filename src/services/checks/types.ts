@@ -14,13 +14,16 @@ export type Vendor = {
   bank_account: string | null;
   ap_contact_email: string | null;
   requires_po: boolean;
+  address: string | null;
+  payment_terms_days: number | null;
+  accepts_card_payment: boolean | null;
   status: "active" | "pending_review" | "on_hold";
 };
 
 export type CheckContext = {
   db: Db;
   organizationId: string;
-  org: { legal_name: string; gst_hst_number: string | null };
+  org: { legal_name: string; gst_hst_number: string | null; base_currency: string | null };
   data: InvoiceData;
   parsedInvoiceId: string;
   sha256: string | null;

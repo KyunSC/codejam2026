@@ -17,7 +17,7 @@ import { getOrganization } from "@/services/organization.service";
 import { listRecords } from "@/services/records.service";
 import { getVendor, listBankChanges, listVendorChoices, listVendors, requestBankChange } from "@/services/vendor.service";
 import { pollAndRead, submitInvoiceForm } from "@/services/intake.service";
-import { approve, reject, resolveFlag, saveEdits } from "@/services/parsedInvoiceReview.service";
+import { approve, reject, resolveFlag, runChecksAgain, saveEdits } from "@/services/parsedInvoiceReview.service";
 import { decide } from "@/services/approval.service";
 import { preparePayment, releasePayment } from "@/services/payment.service";
 
@@ -121,7 +121,7 @@ function serverFor(user: User) {
     });
   });
   tool("poll_inbox", "raw.poll", "Reads the AP inbox and stores each new email as a raw item; new and earlier unread items are then read in the background into parsed invoices.", {}, true, () => pollAndRead(user));
-  tool("edit_parsed_invoice", "parsed.review", "The clerk's corrections on a pending parsed invoice: header fields and line coding. The checks run again.", {
+  tool("edit_parsed_invoice", "parsed.review", "The clerk's corrections on a pending parsed invoice: header fields and line coding. The checks do not run again until run_checks_again.", {
     parsed_invoice_id: z.string(),
     header: z.object({
       vendor_id: z.string().nullable(), vendor_invoice_number: z.string().nullable(), invoice_date: z.string().nullable(), due_date: z.string().nullable(),
@@ -132,6 +132,11 @@ function serverFor(user: User) {
     await saveEdits(user, org, a.parsed_invoice_id, { header: a.header, lines: a.lines });
     return getParsedInvoiceRecord(user, org, a.parsed_invoice_id);
   });
+  tool("run_checks_again", "parsed.review", "Runs the checks and duplicate detection again on a pending parsed invoice, as it is now, and gives back its flags.",
+    { parsed_invoice_id: z.string() }, true, async (a) => {
+      await runChecksAgain(user, org, a.parsed_invoice_id);
+      return getParsedInvoiceRecord(user, org, a.parsed_invoice_id);
+    });
   tool("resolve_flag", "parsed.review", "Closes a flag on a pending parsed invoice, with a note of what was checked: resolved, or overridden.",
     { flag_id: z.string(), status: z.enum(["resolved", "overridden"]), note: z.string().min(1) }, true,
     (a) => resolveFlag(user, org, a.flag_id, a.status, a.note));

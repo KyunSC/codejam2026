@@ -37,8 +37,18 @@ export async function listRawItems(user: User | null, organizationId: string, f:
 export async function getRawItemRecord(user: User | null, organizationId: string, id: string): Promise<RawItem> {
   assertMember(user, organizationId);
   const r = await getRawItem(user, organizationId, id);
-  if (!r || !(can(user, "parsed.review") || r.submitted_by === user.user_id || (await seesInvoiceFrom(user, id)))) throw new NotFoundError("No such raw item");
+  if (!r || !(can(user, "parsed.review") || r.submitted_by === user.user_id || (await seesInvoiceFrom(user, id)) || (can(user, "flag.resolve_fraud") && (await hasOpenFraud(id))))) {
+    throw new NotFoundError("No such raw item");
+  }
   return r;
+}
+
+// A parsed invoice from the raw item has an open fraud flag: the finance manager and the controller, who close those, see it.
+async function hasOpenFraud(rawItemId: string) {
+  return !!(await one(
+    "SELECT 1 FROM parsed_invoices p JOIN invoice_flags f ON f.parsed_invoice_id=p.parsed_invoice_id WHERE p.raw_item_id=$1 AND f.category='fraud' AND f.status='open'",
+    [rawItemId],
+  ));
 }
 
 async function seesInvoiceFrom(user: User, rawItemId: string) {
@@ -67,9 +77,10 @@ export async function listParsedInvoices(user: User | null, organizationId: stri
             count(*) OVER ()::int AS total_count
        FROM parsed_invoices p LEFT JOIN vendors v ON v.vendor_id = p.invoice_json->>'vendor_id'
       WHERE p.organization_id=$1 AND p.status=COALESCE($2, 'pending')
-        AND ($3::text IS NULL OR EXISTS (SELECT 1 FROM raw_items r WHERE r.raw_item_id=p.raw_item_id AND r.submitted_by=$3))
+        AND ($3::text IS NULL OR EXISTS (SELECT 1 FROM raw_items r WHERE r.raw_item_id=p.raw_item_id AND r.submitted_by=$3)
+             OR ($4 AND EXISTS (SELECT 1 FROM invoice_flags f WHERE f.parsed_invoice_id=p.parsed_invoice_id AND f.category='fraud' AND f.status='open')))
       ORDER BY p.parsed_invoice_id LIMIT ${limit} OFFSET ${offset}`,
-    [organizationId, f.status || null, can(user, "parsed.review") ? null : user.user_id],
+    [organizationId, f.status || null, can(user, "parsed.review") ? null : user.user_id, can(user, "flag.resolve_fraud")],
   );
 }
 

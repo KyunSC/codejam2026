@@ -16,7 +16,7 @@ import { conditionText, matches } from "@/lib/policies";
 import { activePolicies, invoiceFacts } from "./policy.service";
 
 export async function buildContext(db: Db, organizationId: string, parsedInvoiceId: string, sha256: string | null, data: InvoiceData, raw: RawItem): Promise<CheckContext> {
-  const org = (await one<{ legal_name: string; gst_hst_number: string | null }>("SELECT legal_name, gst_hst_number FROM organizations WHERE organization_id=$1", [organizationId], db))!;
+  const org = (await one<{ legal_name: string; gst_hst_number: string | null; base_currency: string | null }>("SELECT legal_name, gst_hst_number, base_currency FROM organizations WHERE organization_id=$1", [organizationId], db))!;
   const vendor = data.vendor_id ? await one<Vendor>("SELECT * FROM vendors WHERE vendor_id=$1", [data.vendor_id], db) : null;
   return { db, organizationId, org, data, parsedInvoiceId, sha256, raw, vendor, asOf: today() };
 }
@@ -38,6 +38,12 @@ export async function runChecks(ctx: CheckContext, extra: Flag[] = []): Promise<
   }
   const flags = [...extra, ...groups.flat()];
   flags.push(...(await policyHolds(ctx, flags)));
+  await saveFlags(ctx, flags);
+  return flags;
+}
+
+// Stores the flags, replacing the invoice's earlier ones. Flags the clerk already resolved stay resolved when the same problem comes back.
+async function saveFlags(ctx: CheckContext, flags: Flag[]) {
   const previous = await query<{ check_code: string; message: string; status: string; resolved_by: string; resolved_at: string; resolution_note: string }>(
     "SELECT check_code, message, status, resolved_by, resolved_at, resolution_note FROM invoice_flags WHERE parsed_invoice_id=$1 AND status<>'open'",
     [ctx.parsedInvoiceId],
@@ -58,5 +64,4 @@ export async function runChecks(ctx: CheckContext, extra: Flag[] = []): Promise<
       ctx.db,
     );
   }
-  return flags;
 }

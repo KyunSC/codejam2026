@@ -1,8 +1,8 @@
+import { daysBetween } from "@/lib/dates";
 import type { CheckContext, Flag } from "./types";
 
 const STALE_DAYS = 60;
 
-const daysBetween = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / 86_400_000);
 
 export async function dateChecks(ctx: CheckContext): Promise<Flag[]> {
   const { data: d, asOf } = ctx;
