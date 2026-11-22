@@ -10,7 +10,7 @@ if (existsSync(envFile)) process.loadEnvFile(envFile);
 const REQUIRED = ["DATABASE_URL", "SESSION_SECRET", "FEEDS_DIR", "STORAGE_DIR", "BANK_DIR", "AS_OF_DATE"];
 const missing = REQUIRED.filter((k) => !process.env[k]);
 if (missing.length) {
-  console.error(`Missing required settings: ${missing.join(", ")}. Set them in .env.local.`);
+  console.error(`Missing required settings: ${missing.join(", ")}. Copy .env.example to .env.local and fill them in.`);
   process.exit(1);
 }
 // Feed, storage and bank paths are relative to the repo root, whatever directory the server starts from.
