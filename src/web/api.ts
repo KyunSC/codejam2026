@@ -33,7 +33,7 @@ export const qs = (v: Record<string, string | number | null | undefined>) => {
 export type Loaded<T> = { data?: T; error?: Error; reload: () => void };
 
 // Data for a screen: loads when `key` changes and again on reload(). The previous data stays shown while the next arrives.
-export function useLoad<T>(load: () => Promise<T>, key: string): Loaded<T> {
+export function useLoad<T>(load: () => Promise<T>, key: string, { keepPrevious = true } = {}): Loaded<T> {
   const [state, setState] = useState<{ data?: T; error?: Error; key?: string }>({});
   const [n, setN] = useState(0);
   useEffect(() => {
@@ -48,5 +48,6 @@ export function useLoad<T>(load: () => Promise<T>, key: string): Loaded<T> {
     // `key` stands for everything `load` reads
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, n]);
-  return { data: state.data, error: state.error, reload: () => setN((x) => x + 1) };
+  const current = keepPrevious || state.key === key ? state : {};
+  return { data: current.data, error: current.error, reload: () => setN((x) => x + 1) };
 }

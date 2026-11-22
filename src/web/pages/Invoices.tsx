@@ -1,9 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { useEffect } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { can } from "@/lib/authz";
 import { money } from "@/lib/format";
 import type { InvoiceRow, ParsedRow, RawItemRow } from "@/services/read.service";
 import { get, post, qs, useLoad } from "../api";
+import { useListFilter } from "../useListFilter";
 import { org, useUser } from "../session";
 import { ApiForm } from "../components/ApiForm";
 import { A, Badge, Card, PageTitle, Pager, Show, Status, Table, Td, btn, btnLight, date, PAGE_SIZE, pageParam, withParams } from "../components/ui";
@@ -13,8 +14,7 @@ const KINDS = ["email", "pdf", "form"];
 
 export function Invoices() {
   const user = useUser();
-  const [sp, setParams] = useSearchParams();
-  const search = sp.get("q") ?? "";
+  const { sp, search, draft, setDraft, term } = useListFilter();
   const notice = (useLocation().state as { notice?: string } | null)?.notice;
   // AP sees the whole pipeline; someone who only submits sees their submissions and what happened to them
   const ap = can(user, "raw.extract") || can(user, "parsed.review");
@@ -26,22 +26,6 @@ export function Invoices() {
 
   const raw = useLoad(() => get<RawItemRow[]>(org(user, `/raw-items${qs({ kind: rawKind, page: rawPage, size: PAGE_SIZE })}`)), `${rawKind}:${rawPage}`);
   const parsed = useLoad(() => get<ParsedRow[]>(org(user, `/parsed-invoices${qs({ page: parsedPage, size: PAGE_SIZE })}`)), `${parsedPage}`);
-  const [draft, setDraft] = useState(search);
-  const pendingSearch = useRef<string | null>(null);
-  useLayoutEffect(() => {
-    // A URL update from our timer can arrive after the next keystroke.
-    if (pendingSearch.current !== search) setDraft(search);
-    pendingSearch.current = null;
-  }, [search]);
-  const term = draft.trim();
-  useEffect(() => {
-    if (term === search) return;
-    const timer = setTimeout(() => {
-      pendingSearch.current = term;
-      setParams(withParams(sp, { q: term || null, page: null }), { replace: true });
-    }, term ? 200 : 0);
-    return () => clearTimeout(timer);
-  }, [term, search, sp, setParams]);
   // while something is being read, look again every few seconds
   const readingNow = (raw.data ?? []).some((r) => r.status === "new");
   useEffect(() => {
