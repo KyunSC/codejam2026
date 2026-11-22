@@ -90,19 +90,32 @@ export type ParsedRow = {
   invoice_json: InvoiceData; vendor_name: string | null; blocking: number; warnings: number;
 };
 
-export async function listParsedInvoices(user: User | null, organizationId: string, f: Paging & { status?: string | null } = {}) {
+export const PARSED_FLAG_FILTERS = ["blocking", "warning", "clear"] as const;
+
+// q matches the parsed id, vendor (in the master or as read) or invoice #. `flags` sorts each parsed invoice into exactly one
+// bucket: any open blocking flag, else any open warning, else clear.
+export async function listParsedInvoices(user: User | null, organizationId: string, f: Paging & { status?: string | null; q?: string | null; flags?: string | null } = {}) {
   assertMember(user, organizationId);
   const { limit, offset } = window(f);
+  const flags = PARSED_FLAG_FILTERS.find((x) => x === f.flags) ?? null;
   return query<ParsedRow>(
-    `SELECT p.parsed_invoice_id, p.raw_item_id, p.file_name, p.status, p.invoice_id, p.invoice_json, v.legal_name AS vendor_name,
+    `SELECT x.*, count(*) OVER ()::int AS total_count FROM (
+     SELECT p.parsed_invoice_id, p.raw_item_id, p.file_name, p.status, p.invoice_id, p.invoice_json, v.legal_name AS vendor_name,
             (SELECT count(*)::int FROM invoice_flags f WHERE f.parsed_invoice_id=p.parsed_invoice_id AND f.status='open' AND f.severity='blocking') AS blocking,
-            (SELECT count(*)::int FROM invoice_flags f WHERE f.parsed_invoice_id=p.parsed_invoice_id AND f.status='open' AND f.severity='warning') AS warnings,
-            count(*) OVER ()::int AS total_count
+            (SELECT count(*)::int FROM invoice_flags f WHERE f.parsed_invoice_id=p.parsed_invoice_id AND f.status='open' AND f.severity='warning') AS warnings
        FROM parsed_invoices p LEFT JOIN vendors v ON v.vendor_id = p.invoice_json->>'vendor_id'
       WHERE p.organization_id=$1 AND p.status=COALESCE($2, 'pending')
         AND ($3::text IS NULL OR EXISTS (SELECT 1 FROM raw_items r WHERE r.raw_item_id=p.raw_item_id AND r.submitted_by=$3))
-      ORDER BY p.parsed_invoice_id LIMIT ${limit} OFFSET ${offset}`,
-    [organizationId, f.status || null, can(user, "parsed.review") ? null : user.user_id],
+        AND ($4::text IS NULL
+             OR strpos(lower(p.parsed_invoice_id), lower($4)) > 0
+             OR strpos(lower(v.legal_name), lower($4)) > 0
+             OR strpos(lower(p.invoice_json->>'vendor_name'), lower($4)) > 0
+             OR strpos(lower(p.invoice_json->>'vendor_invoice_number'), lower($4)) > 0)
+     ) x
+      WHERE CASE $5::text WHEN 'blocking' THEN x.blocking > 0 WHEN 'warning' THEN x.blocking = 0 AND x.warnings > 0
+                          WHEN 'clear' THEN x.blocking = 0 AND x.warnings = 0 ELSE true END
+      ORDER BY x.parsed_invoice_id LIMIT ${limit} OFFSET ${offset}`,
+    [organizationId, f.status || null, can(user, "parsed.review") ? null : user.user_id, f.q?.trim() || null, flags],
   );
 }
 

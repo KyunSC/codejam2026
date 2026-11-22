@@ -15,10 +15,18 @@ const KINDS = ["email", "pdf", "form"];
 // The raw list's views. "todo" (what still needs someone) is the clerk's default; "open" is everything not settled
 // (to do + waiting on sender); "all" is the archive.
 const RAW_VIEWS = ["open", "todo", "needs", "waiting", "handled", "all"];
+const FLAG_FILTERS = [[null, "All"], ["blocking", "Blocking"], ["warning", "Warning"], ["clear", "Clear"]] as const;
+
+// The typed search box in a list's header; it filters as you type.
+function SearchBox({ label, placeholder, value, onChange }: { label: string; placeholder: string; value: string; onChange: (v: string) => void }) {
+  return <input className="input mr-1 w-60 max-w-full" type="search" aria-label={label} placeholder={placeholder} value={value} onChange={(event) => onChange(event.target.value)} />;
+}
+const dim = (busy: boolean) => (busy ? "opacity-60 transition-opacity" : "transition-opacity");
 
 export function Invoices() {
   const user = useUser();
   const { sp, search, draft, setDraft, term } = useListFilter();
+  const parsedFilter = useListFilter("parsedQ", "parsedPage");
   // the raw list's own search (rawQ, rawFrom, rawTo) sets the URL directly
   const [, setSp] = useSearchParams();
   const notice = (useLocation().state as { notice?: string } | null)?.notice;
@@ -36,6 +44,7 @@ export function Invoices() {
   const rawSearching = !!(rawQ || rawFrom || rawTo);
   const rawPage = pageParam(sp.get("rawPage"));
   const parsedPage = pageParam(sp.get("parsedPage"));
+  const parsedFlags = FLAG_FILTERS.find(([k]) => k && k === sp.get("parsedFlags"))?.[0] ?? null;
   const invPage = pageParam(sp.get("page"));
 
   const raw = useLoad(
@@ -62,7 +71,10 @@ export function Invoices() {
     if (handles && (next.get("rawQ") || next.get("rawFrom") || next.get("rawTo")) && rawView === "todo") next.set("raw", "all");
     setSp(next);
   };
-  const parsed = useLoad(() => get<ParsedRow[]>(org(user, `/parsed-invoices${qs({ page: parsedPage, size: PAGE_SIZE })}`)), `${parsedPage}`);
+  const parsedPath = org(user, `/parsed-invoices${qs({ q: parsedFilter.search || null, flags: parsedFlags, page: parsedPage, size: PAGE_SIZE })}`);
+  const parsed = useLoad(() => get<ParsedRow[]>(parsedPath), parsedPath);
+  const parsedFiltering = !!(parsedFilter.search || parsedFlags);
+  const parsedBusy = parsedFilter.term !== parsedFilter.search || !!parsed.stale;
   // the clerk runs the checks again on a parsed invoice from its row too
   const review = can(user, "parsed.review");
   const runChecks = (id: string) => async () => {
@@ -212,11 +224,23 @@ export function Invoices() {
         </Show>
       </Card>
 
-      <Card id="parsed" title={`${ap ? "2. Parsed — pending approval" : "Confirm data"} (${parsed.data?.[0]?.total_count ?? 0})`}>
+      <Card
+        id="parsed"
+        title={`${ap ? "2. Parsed — pending approval" : "Confirm data"}${parsedFiltering ? "" : ` (${parsed.data?.[0]?.total_count ?? 0})`}`}
+        actions={
+          <div className="flex flex-wrap items-center gap-1 text-xs">
+            <SearchBox label="Filter parsed invoices" placeholder="Parsed ID, vendor, or invoice #" value={parsedFilter.draft} onChange={parsedFilter.setDraft} />
+            {FLAG_FILTERS.map(([k, label]) => (
+              <Link key={label} to={withParams(sp, { parsedFlags: k, parsedQ: parsedFilter.term || null, parsedPage: null })} className="chip" aria-current={parsedFlags === k}>{label}</Link>
+            ))}
+          </div>
+        }
+      >
+        <div aria-busy={parsedBusy} className={dim(parsedBusy)}>
         <Show load={parsed}>
           {(rows) => (
             <>
-              <Table head={[ap ? "Parsed" : "Reference", "Vendor", "Invoice #", "Date", "Total", "Flags", ...(review ? [""] : [])]} empty="Nothing waiting for review.">
+              <Table head={[ap ? "Parsed" : "Reference", "Vendor", "Invoice #", "Date", "Total", "Flags", ...(review ? [""] : [])]} empty={parsedFiltering ? "No parsed invoices match your filter." : "Nothing waiting for review."}>
                 {rows.map((p) => (
                   <tr key={p.parsed_invoice_id}>
                     <Td className="font-mono text-xs"><A href={`/invoices/${p.parsed_invoice_id}`}>{p.parsed_invoice_id}</A></Td>
@@ -241,6 +265,7 @@ export function Invoices() {
             </>
           )}
         </Show>
+        </div>
       </Card>
 
       <Card
@@ -248,14 +273,7 @@ export function Invoices() {
         title={ap ? "3. Invoices" : "Invoices"}
         actions={
           <div className="flex flex-wrap items-center gap-1 text-xs">
-            <input
-              className="input mr-1 w-60 max-w-full"
-              type="search"
-              aria-label="Filter invoices"
-              placeholder="Invoice ID, number, or vendor"
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-            />
+            <SearchBox label="Filter invoices" placeholder="Invoice ID, number, or vendor" value={draft} onChange={setDraft} />
             {STATUSES.map((s) => (
               <Link key={s} to={withParams(sp, { status: s === "all" ? null : s, q: term || null, page: null })} className="chip" aria-current={s === status}>
                 {s.replace(/_/g, " ")}
@@ -277,7 +295,7 @@ function InvoiceResults({ search, status, page, filtering }: { search: string; s
   const invoices = useLoad(() => get<InvoiceRow[]>(path), path);
   const busy = filtering || !!invoices.stale;
   return (
-    <div aria-busy={busy} className={busy ? "opacity-60 transition-opacity" : "transition-opacity"}>
+    <div aria-busy={busy} className={dim(busy)}>
     <Show load={invoices}>
       {(rows) => (
         <>
