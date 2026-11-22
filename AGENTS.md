@@ -1,23 +1,37 @@
-# codejam2026
+# Brim AP
 
-CodeJam 16 (McGill) hackathon repo. The app is `Brim/`: accounts payable automation for a fictional company, Harborline Logistics, from inbox to simulated payment.
+An Express API (`src/server`) and a React app built with Vite (`src/web`) over Postgres. The schema is `db/schema.sql`, queried with `pg` (no ORM). Read `README.md` first for layout and setup. `docs/PLAN.md` and `docs/BUILD_PLAN.md` were written for the earlier Next.js/Prisma version: their business rules still apply, their file paths and tooling do not. Code freeze is **Sunday 2026-11-22, 12:00pm**: working end to end beats a refactor.
 
-## Layout
+## Sealed invoices: do not open
 
-| Path | What |
-| -- | -- |
-| `Brim/` | The app: an Express API and a React/Vite frontend over Postgres (`db/schema.sql`). Read `Brim/AGENTS.md` and `Brim/README.md` before working in it |
-| `Brim/PLAN.md` | What to build and why (written for the earlier Next.js version; business rules still apply) |
-| `Brim/BUILD_PLAN.md` | Exact rules, contracts and build order (same caveat) |
-| `Brim/loops/` | Overnight agent loop prompts (obsolete for the current stack) |
-| `Brim/brim_ap_dataset/` | The Harborline dataset (CSVs, inbox emails, incoming invoice PDFs/scans) |
-| `*.pdf` (root) | Hackathon brief and opening ceremony slides |
+`brim_ap_dataset/sealed_invoices.txt` lists 15 incoming files held back as a stand-in for the judges' hidden batch. Never open, read, extract or print those files, or the emails in `brim_ap_dataset/inbox/emails.json` that carry them, until the team runs the sealed drill. Develop against the other 41 files only. Reading the list itself is fine.
 
-**Never open the files listed in `Brim/brim_ap_dataset/sealed_invoices.txt`, or the emails that carry them.** They stand in for the judges' hidden batch. See `Brim/AGENTS.md`.
+## Design rules
+
+- The LLM only reads documents (extraction). Rules code makes every decision.
+- For "today" in a rule, use `AS_OF_DATE` (the dataset's as-of date, 2026-11-02), never `new Date()`.
+- Every mutation writes its audit row in the same DB transaction (`writeAudit` inside `tx`). Audit rows are never updated or deleted.
+- The React app reaches the server only through `/api`. Routes check the role, then call a service; business rules and permissions live in `src/services`.
+
+## Settings and database
+
+- Settings come from `.env.local` (copy `.env.example`). The server exits at startup if a required one is missing.
+- Use a local Postgres. `./scripts/reset-db.sh` drops and recreates the database named in `DATABASE_URL` from `db/schema.sql` and empties `storage/`. Never point it, or destructive SQL, at a shared database.
+- Never commit `.env.local` or other secrets.
+
+## Before calling work done
+
+Report failures as they are (there are no automated tests yet):
+
+```bash
+npm run typecheck
+npm run lint
+npm run build
+```
 
 ## Git
 
 - **Never push without asking first.** Make the changes, show what changed, and wait for an explicit go-ahead. Approval for push does not carry over to the next.
 - Never force-push, rewrite history, or delete branches without asking.
-- Never commit `.env`, `.env.local` or other secrets. `Brim/.env.example` is the template; copy it to `Brim/.env.local`.
+- Never commit `.env`, `.env.local` or other secrets. `.env.example` is the template; copy it to `.env.local`.
 - If on `main`, create a branch before committing.

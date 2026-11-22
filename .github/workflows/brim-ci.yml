@@ -15,9 +15,6 @@ jobs:
     name: Brim schema, types, lint, and build
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: Brim
     services:
       postgres:
         image: postgres:16
@@ -39,9 +36,9 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v6
         with:
-          node-version: '24' # Brim/mise.toml pins 24.22.2
+          node-version: '24' # mise.toml pins 24.22.2
           cache: npm
-          cache-dependency-path: Brim/package-lock.json
+          cache-dependency-path: package-lock.json
       - run: npm ci
       - name: Load db/schema.sql
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema.sql

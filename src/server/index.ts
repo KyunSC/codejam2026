@@ -13,7 +13,7 @@ if (missing.length) {
   console.error(`Missing required settings: ${missing.join(", ")}. Copy .env.example to .env.local and fill them in.`);
   process.exit(1);
 }
-// Feed, storage and bank paths are relative to Brim/, whatever directory the server starts from.
+// Feed, storage and bank paths are relative to the repo root, whatever directory the server starts from.
 for (const k of ["FEEDS_DIR", "STORAGE_DIR", "BANK_DIR"]) process.env[k] = path.resolve(ROOT, process.env[k]!);
 
 // Loaded after the environment, since the database pool reads it when imported.
