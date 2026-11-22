@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "fs";
 import path from "path";
 import { randomInt } from "crypto";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
-import { tx, query, one, nextId, pool } from "@/lib/db";
+import { tx, query, one, nextId, pool, type Db } from "@/lib/db";
 import { matches, RELEASE_RANK, REQUIREMENTS, type Policy } from "@/lib/policies";
 import { activePolicies } from "./policy.service";
 import { assertCan, assertMember, can } from "@/lib/authz";
@@ -20,6 +20,7 @@ export async function preparePayment(actor: User | null, organizationId: string,
     if (!inv) throw new NotFoundError("No such invoice");
     if (inv.status !== "approved") throw new ConflictError("Only approved invoices can be paid");
     if (inv.type === "credit_note") throw new ConflictError("A credit note is not paid");
+    if (await openFraud(invoiceId, c)) throw new ConflictError("A fraud flag on the invoice is open; the finance manager or the controller closes it first.");
     const vendor = (await one<{ preferred_payment_method: "EFT" | "CHEQUE" | "CARD" }>("SELECT preferred_payment_method FROM vendors WHERE vendor_id=$1", [inv.vendor_id], c))!;
     const id = await nextId("PAY", c);
     await query(
@@ -32,6 +33,15 @@ export async function preparePayment(actor: User | null, organizationId: string,
     await writeAudit(c, { organizationId: inv.organization_id, actor, action: "payment.prepare", entityType: "payment", entityId: id, invoiceId, paymentId: id, vendorId: inv.vendor_id });
     return id;
   });
+}
+
+// An open fraud flag on the invoice holds its payment: it is neither prepared nor released.
+async function openFraud(invoiceId: string, db?: Db) {
+  return !!(await one(
+    "SELECT 1 FROM invoices i JOIN invoice_flags f ON f.parsed_invoice_id=i.parsed_invoice_id WHERE i.invoice_id=$1 AND f.category='fraud' AND f.status='open'",
+    [invoiceId],
+    db,
+  ));
 }
 
 const reference = (kind: string) => `BRIM-${kind}-${String(randomInt(10_000_000, 99_999_999))}`;
@@ -51,6 +61,7 @@ export async function releasePayment(actor: User | null, organizationId: string,
     assertMember(actor, organizationId, { brim: true });
     if (!pay) throw new NotFoundError("No such payment");
     if (pay.status !== "scheduled") throw new ConflictError("Payment is not waiting for release");
+    if (await openFraud(pay.invoice_id, c)) throw new ConflictError("A fraud flag on the invoice is open; the finance manager or the controller closes it first.");
 
     const approved = !!(await one("SELECT 1 FROM approvals WHERE invoice_id=$1 AND (acted_by=$2 OR on_behalf_of_user_id=$2) AND status='approved'", [pay.invoice_id, actor.user_id], c));
     const problem = releaseProblem(actor, await activePolicies(c, pay.organization_id, "payment"), Math.abs(pay.amount_cad), approved);
@@ -143,10 +154,15 @@ export async function releaseBlocks(actor: User, orgId: string, rows: { payment_
     `SELECT DISTINCT ON (vendor_id) vendor_id, verified_by_callback, status FROM vendor_bank_changes WHERE vendor_id = ANY($1) ORDER BY vendor_id, requested_at DESC`,
     [scheduled.map((r) => r.vendor_id)],
   )).filter((c) => !(c as unknown as { verified_by_callback: boolean }).verified_by_callback || (c as unknown as { status: string }).status === "pending").map((c) => c.vendor_id));
+  const fraud = new Set((await query<{ invoice_id: string }>(
+    "SELECT DISTINCT i.invoice_id FROM invoices i JOIN invoice_flags f ON f.parsed_invoice_id=i.parsed_invoice_id WHERE i.invoice_id = ANY($1) AND f.category='fraud' AND f.status='open'",
+    [scheduled.map((r) => r.invoice_id)],
+  )).map((r) => r.invoice_id));
   for (const r of scheduled) {
     out.set(r.payment_id,
       releaseProblem(actor, policies, Math.abs(r.amount_cad), approvedByMe.has(r.invoice_id))
-        ?? (unverified.has(r.vendor_id) ? "The vendor's bank change is not verified." : null));
+        ?? (unverified.has(r.vendor_id) ? "The vendor's bank change is not verified." : null)
+        ?? (fraud.has(r.invoice_id) ? "A fraud flag on the invoice is open." : null));
   }
   return out;
 }

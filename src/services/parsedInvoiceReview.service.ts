@@ -124,7 +124,7 @@ export async function resolveFlag(actor: User | null, organizationId: string, fl
     assertCan(actor, f?.category === "fraud" ? "flag.resolve_fraud" : "parsed.review");
     const p = f ? await getParsed(actor, organizationId, f.parsed_invoice_id, c) : null;
     if (!f || !p) throw new NotFoundError("No such flag");
-    if (p.status !== "pending") throw new ConflictError("Not pending");
+    if (f!.category === "fraud" ? p.status === "rejected" : p.status !== "pending") throw new ConflictError("This flag can no longer be closed.");
     if (!note.trim()) throw new ValidationError("A note is required");
     await query("UPDATE invoice_flags SET status=$2, resolved_by=$3, resolved_at=now(), resolution_note=$4 WHERE flag_id=$1", [flagId, status, actor.user_id, note], c);
     await writeAudit(c, { organizationId: p.organization_id, actor, action: `flag.${status}`, entityType: "invoice_flag", entityId: flagId, note });
@@ -159,7 +159,8 @@ export async function approve(actor: User | null, organizationId: string, parsed
     const p = await getParsed(actor, organizationId, parsedInvoiceId, c);
     if (!p) throw new NotFoundError("No such parsed invoice");
     if (p.status !== "pending") throw new ConflictError("Not pending");
-    const open = await query<{ message: string }>("SELECT message FROM invoice_flags WHERE parsed_invoice_id=$1 AND severity='blocking' AND status='open'", [parsedInvoiceId], c);
+    // fraud flags are not the clerk's to close: they carry onto the invoice, where the finance manager or the controller closes them
+    const open = await query<{ message: string }>("SELECT message FROM invoice_flags WHERE parsed_invoice_id=$1 AND severity='blocking' AND status='open' AND category<>'fraud'", [parsedInvoiceId], c);
     if (open.length) throw new ConflictError(`Resolve the blocking flags first: ${open.map((f) => f.message).join(" | ")}`);
     const d = p.invoice_json;
     if (!d.vendor_id) throw new ValidationError("Pick a vendor first");

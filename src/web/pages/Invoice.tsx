@@ -69,7 +69,8 @@ export function Invoice() {
   return (
     <Show load={load}>
       {({ invoice, parsed, raw, audit, vendors, depts, gls, people }) => {
-        const flags = parsed?.flags ?? [];
+        // a created invoice shows its flags except those about reading the document; before that, all the parsed invoice's flags
+        const flags = invoice ? invoice.flags : parsed?.flags ?? [];
         const steps = invoice?.approvals ?? [];
         const payments = invoice?.payments ?? [];
         const reviewing = parsed?.status === "pending" && can(user, "parsed.review");
@@ -203,7 +204,7 @@ export function Invoice() {
                   </Card>
                 )}
 
-                {parsed && (
+                {(invoice ? flags.length > 0 : !!parsed) && (
                   <Card
                     title={`Flags (${flags.filter((f) => f.status === "open").length} open)`}
                     actions={reviewing && <ApiForm inline submit={runChecks}><button className={btnLight}>Run checks again</button></ApiForm>}
@@ -219,10 +220,10 @@ export function Invoice() {
                               {f.resolution_note && <p className="mt-1 text-xs muted">{f.resolver}: {f.resolution_note}</p>}
                             </div>
                           </div>
-                          {f.status === "open" && parsed?.status === "pending" && f.category === "fraud" && !can(user, "flag.resolve_fraud") && (
+                          {f.status === "open" && f.category === "fraud" && !can(user, "flag.resolve_fraud") && (parsed?.status === "pending" || !!invoice) && (
                             <p className="mt-2 text-xs muted">A fraud flag is closed by a finance manager or the controller.</p>
                           )}
-                          {f.status === "open" && parsed?.status === "pending" && (f.category === "fraud" ? can(user, "flag.resolve_fraud") : reviewing) && (
+                          {f.status === "open" && (f.category === "fraud" ? can(user, "flag.resolve_fraud") && (parsed?.status === "pending" || !!invoice) : reviewing) && (
                             <ApiForm submit={resolveFlag(f.flag_id)} className="mt-2 flex gap-2" confirm={(fd) => (fd.get("status") === "overridden" ? `Override this ${f.severity} flag? The invoice goes ahead despite it.` : null)}>
                               <input name="note" placeholder="What you checked or decided" className={input} required />
                               <select name="status" className="input w-36"><option value="resolved">Resolved</option><option value="overridden">Override</option></select>
@@ -243,7 +244,7 @@ export function Invoice() {
                         </ApiForm>
                       </div>
                     )}
-                    {parsed.status === "rejected" && <p className="mt-3 text-sm text-flag">Rejected: {parsed.rejection_reason}</p>}
+                    {parsed?.status === "rejected" && <p className="mt-3 text-sm text-flag">Rejected: {parsed.rejection_reason}</p>}
                   </Card>
                 )}
 
