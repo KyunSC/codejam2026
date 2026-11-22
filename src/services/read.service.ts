@@ -301,7 +301,7 @@ export async function listWaitingApprovals(user: User | null, organizationId: st
 
 // --- spend ---
 
-// Approved invoice spend in CAD by department and month, for the last three months.
+// Approved invoice spend in CAD by department and month, for the last two full months (the current month is left out).
 // Those who see all invoices get every department; department approvers get their own.
 export async function departmentSpend(user: User | null, organizationId: string) {
   assertMember(user, organizationId);
@@ -311,9 +311,9 @@ export async function departmentSpend(user: User | null, organizationId: string)
     `WITH s AS (
        SELECT d.name department, to_char(i.invoice_date,'YYYY-MM') AS month, sum(i.total_cad)::float AS total FROM invoices i JOIN departments d USING (department_id)
         WHERE i.organization_id=$1 AND i.status IN ('approved','scheduled','paid') AND ($2::text IS NULL OR i.department_id=$2)
-          AND i.invoice_date >= date_trunc('month', $3::date) - interval '2 months'
+          AND i.invoice_date >= date_trunc('month', $3::date) - interval '2 months' AND i.invoice_date < date_trunc('month', $3::date)
         GROUP BY 1,2),
-     m AS (SELECT to_char(g,'YYYY-MM') AS month FROM generate_series(date_trunc('month', $3::date) - interval '2 months', date_trunc('month', $3::date), interval '1 month') g)
+     m AS (SELECT to_char(g,'YYYY-MM') AS month FROM generate_series(date_trunc('month', $3::date) - interval '2 months', date_trunc('month', $3::date) - interval '1 month', interval '1 month') g)
      SELECT d.department, m.month, coalesce(s.total, 0)::float AS total
        FROM (SELECT DISTINCT department FROM s) d CROSS JOIN m LEFT JOIN s USING (department, month)
       ORDER BY 1,2`,

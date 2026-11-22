@@ -80,7 +80,7 @@ function DashboardPage() {
           },
           // shown only when there is spend to show, as before
           spend: spend.length > 0 ? {
-            title: "Spend by department (CAD, last three months)",
+            title: "Spend by department (CAD, last two months)",
             body: (
               <Table head={["Department", ...months]}>
                 {depts.map((dname) => (
