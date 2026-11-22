@@ -7,34 +7,37 @@ import type { InvoiceData } from "@/lib/types";
 export const EXTRACTION_MODEL = "claude-haiku-5-5";
 
 const money = z.number().nullable();
+// Text the document may not print: an empty string then. Plain strings, not nullable ones, because structured output allows
+// at most 16 nullable or union-typed fields in a schema; toInvoiceData turns "" back into null.
+const text = z.string();
 
 const ExtractedDocument = z.object({
   is_invoice: z.boolean().describe("true for an invoice or credit note"),
-  not_invoice_reason: z.string().nullable(),
+  not_invoice_reason: text.describe("why it is not an invoice; empty for an invoice"),
   language: z.enum(["en", "fr"]),
   document_type: z.enum(["invoice", "credit_note"]),
-  vendor_name: z.string().nullable(),
-  vendor_address: z.string().nullable(),
-  vendor_gst_hst_number: z.string().nullable(),
-  vendor_qst_number: z.string().nullable(),
-  vendor_invoice_number: z.string().nullable(),
-  invoice_date: z.string().nullable().describe("YYYY-MM-DD"),
-  due_date: z.string().nullable().describe("YYYY-MM-DD"),
-  payment_terms: z.string().nullable(),
-  po_reference: z.string().nullable(),
-  credit_note_reference: z.string().nullable().describe("the invoice a credit note refers to"),
-  bill_to_name: z.string().nullable(),
-  bill_to_address: z.string().nullable(),
-  bill_to_tax_number: z.string().nullable(),
+  vendor_name: text.describe("empty when not printed"),
+  vendor_address: text.describe("empty when not printed"),
+  vendor_gst_hst_number: text.describe("empty when not printed"),
+  vendor_qst_number: text.describe("empty when not printed"),
+  vendor_invoice_number: text.describe("empty when not printed"),
+  invoice_date: text.describe("YYYY-MM-DD; empty when not printed"),
+  due_date: text.describe("YYYY-MM-DD; empty when not printed"),
+  payment_terms: text.describe("empty when not printed"),
+  po_reference: text.describe("empty when not printed"),
+  credit_note_reference: text.describe("the invoice a credit note refers to; empty when not printed"),
+  bill_to_name: text.describe("empty when not printed"),
+  bill_to_address: text.describe("empty when not printed"),
+  bill_to_tax_number: text.describe("empty when not printed"),
   currency: z.string().describe("ISO code, e.g. CAD or USD"),
   lines: z.array(z.object({ description: z.string(), quantity: z.number(), unit_price: z.number(), amount: z.number() })),
   subtotal: money,
   taxes: z.array(z.object({ label: z.string(), rate: z.number().nullable().describe("as a fraction, e.g. 0.05"), amount: z.number() })),
   total: money,
-  remit_institution: z.string().nullable(),
-  remit_transit: z.string().nullable(),
-  remit_account: z.string().nullable(),
-  remit_note: z.string().nullable(),
+  remit_institution: text.describe("empty when not printed"),
+  remit_transit: text.describe("empty when not printed"),
+  remit_account: text.describe("empty when not printed"),
+  remit_note: text.describe("empty when not printed"),
 });
 
 export type Extracted = z.infer<typeof ExtractedDocument>;
@@ -97,30 +100,34 @@ export async function classifyEmail(subject: string, body: string): Promise<{ ca
   return response.parsed_output ?? { category: "other", reason: "No attachment" };
 }
 
+// An empty string from the reading is a field the document doesn't print.
+// (The stand-in reader, scripts/reader.ts, still answers null for these.)
+const orNull = (v: string | null) => (v?.trim() ? v : null);
+
 export function toInvoiceData(e: Extracted): InvoiceData {
   return {
     document_type: e.document_type,
-    vendor_name: e.vendor_name,
-    vendor_address: e.vendor_address,
-    vendor_gst_hst_number: e.vendor_gst_hst_number,
-    vendor_qst_number: e.vendor_qst_number,
-    vendor_invoice_number: e.vendor_invoice_number,
-    invoice_date: e.invoice_date,
-    due_date: e.due_date,
-    payment_terms: e.payment_terms,
-    po_reference: e.po_reference || null,
-    credit_note_reference: e.credit_note_reference,
-    bill_to_name: e.bill_to_name,
-    bill_to_address: e.bill_to_address,
-    bill_to_tax_number: e.bill_to_tax_number,
+    vendor_name: orNull(e.vendor_name),
+    vendor_address: orNull(e.vendor_address),
+    vendor_gst_hst_number: orNull(e.vendor_gst_hst_number),
+    vendor_qst_number: orNull(e.vendor_qst_number),
+    vendor_invoice_number: orNull(e.vendor_invoice_number),
+    invoice_date: orNull(e.invoice_date),
+    due_date: orNull(e.due_date),
+    payment_terms: orNull(e.payment_terms),
+    po_reference: orNull(e.po_reference),
+    credit_note_reference: orNull(e.credit_note_reference),
+    bill_to_name: orNull(e.bill_to_name),
+    bill_to_address: orNull(e.bill_to_address),
+    bill_to_tax_number: orNull(e.bill_to_tax_number),
     currency: (e.currency || "CAD").toUpperCase(),
     subtotal: e.subtotal,
     taxes: e.taxes,
     total: e.total,
-    remit_institution: e.remit_institution,
-    remit_transit: e.remit_transit,
-    remit_account: e.remit_account,
-    remit_note: e.remit_note,
+    remit_institution: orNull(e.remit_institution),
+    remit_transit: orNull(e.remit_transit),
+    remit_account: orNull(e.remit_account),
+    remit_note: orNull(e.remit_note),
     lines: e.lines.map((l, i) => ({ line_no: i + 1, ...l })),
   };
 }

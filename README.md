@@ -18,6 +18,8 @@ Express serves the API and, in development, the React app through Vite on http:/
 
 Every loaded account, and the Brim employee `ops@brim.example`, gets the password in `DEMO_PASSWORD` in `.env.local`.
 
+Invoices are read by Claude: put your Anthropic API key in `ANTHROPIC_API_KEY` in `.env.local` and start (or restart) the server. Emails, uploads and scans are then read as they arrive, and anything left unread is read at startup. Without a key, `scripts/reader.ts` stands in for the API with readings of the dataset's own documents; `.env.example` says how to point the app at it.
+
 Load Harborline's existing records, then poll the AP inbox (the last step needs the server running):
 
 ```bash

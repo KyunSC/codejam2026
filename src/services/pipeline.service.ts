@@ -79,7 +79,7 @@ async function readFile(raw: RawItem, f: StoredFile): Promise<Found | { notInvoi
   }
   const email = raw.kind === "email" ? { from: [raw.from_name, raw.from_address && `<${raw.from_address}>`].filter(Boolean).join(" "), subject: raw.subject, body: raw.body } : undefined;
   const e = await extractDocument(ins.kind, ins.bytes, email);
-  if (!e.is_invoice) return { notInvoice: e.not_invoice_reason ?? "not an invoice" };
+  if (!e.is_invoice) return { notInvoice: e.not_invoice_reason || "not an invoice" };
   return { file_name: f.file_name, sha256: f.sha256, data: toInvoiceData(e), language: e.language, model: EXTRACTION_MODEL, extra: [] };
 }
 
