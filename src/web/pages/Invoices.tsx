@@ -148,7 +148,15 @@ export function Invoices() {
         id="invoices"
         title={ap ? "3. Invoices" : "Invoices"}
         actions={
-          <div className="flex gap-1 text-xs">
+          <div className="flex flex-wrap items-center gap-1 text-xs">
+            <input
+              className="input mr-1 w-60 max-w-full"
+              type="search"
+              aria-label="Filter invoices"
+              placeholder="Invoice ID, number, or vendor"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+            />
             {STATUSES.map((s) => (
               <Link key={s} to={withParams(sp, { status: s === "all" ? null : s, q: term || null, page: null })} className="chip" aria-current={s === status}>
                 {s.replace(/_/g, " ")}
@@ -157,11 +165,6 @@ export function Invoices() {
           </div>
         }
       >
-        <label className="mb-4 grid w-fit gap-1">
-          Filter invoices
-          <input className="input" type="search" value={draft} placeholder="Invoice ID, number, or vendor"
-            onChange={(event) => setDraft(event.target.value)} />
-        </label>
         {term !== search
           ? <p role="status" className="muted">Filtering invoices…</p>
           : <InvoiceResults key={JSON.stringify([term, status, invPage])} term={term} status={status} page={invPage} />}
