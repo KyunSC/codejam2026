@@ -1,10 +1,12 @@
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { actionName } from "@/lib/auditActions";
 import { can } from "@/lib/authz";
 import { money } from "@/lib/format";
 import type { InvoiceLine, User } from "@/lib/types";
 import type { RawItem } from "@/services/rawIntake.service";
-import type { getInvoiceRecord, getParsedInvoiceRecord } from "@/services/read.service";
+import type { getInvoiceRecord, getParsedInvoiceRecord, getRawItemRecord } from "@/services/read.service";
+import { HANDLING_HINTS, HANDLING_OUTCOMES, type HandlingOutcome } from "@/lib/handling";
 import type { TrailEvent } from "@/services/audit.service";
 import type { ReviewEdit } from "@/services/parsedInvoiceReview.service";
 import { ApiError, get, patch, post, useLoad } from "../api";
@@ -13,6 +15,7 @@ import { ApiForm, str } from "../components/ApiForm";
 import { A, Badge, Card, Field, PageTitle, Show, Status, Table, Td, btn, btnDanger, btnLight, date, dateTime, input } from "../components/ui";
 
 type InvoiceRecord = Awaited<ReturnType<typeof getInvoiceRecord>>;
+type RawRecord = Awaited<ReturnType<typeof getRawItemRecord>>;
 type ParsedRecord = Awaited<ReturnType<typeof getParsedInvoiceRecord>>;
 
 // A record the user may not see (404) is left out of the screen.
@@ -33,11 +36,14 @@ export function Invoice() {
     let parsed: ParsedRecord | null = null;
     // a submission not yet read: the raw item on its own
     if (id.startsWith("RAW-")) {
-      const [raw, vendors] = await Promise.all([
-        get<RawItem>(org(user, `/raw-items/${id}`)),
+      const [raw, vendors, users] = await Promise.all([
+        get<RawRecord>(org(user, `/raw-items/${id}`)),
         get<{ vendor_id: string; legal_name: string; status: string }[]>(org(user, "/vendor-choices")),
+        // who an email with no invoice can be forwarded to
+        can(user, "parsed.review") ? get<User[]>(org(user, "/user-choices")) : Promise.resolve([] as User[]),
       ]);
-      return { invoice, parsed, raw, audit: [] as TrailEvent[], vendors, depts: [], gls: [], people: [] as User[] };
+      const people = users.filter((u) => u.status !== "terminated");
+      return { invoice, parsed, raw, audit: [] as TrailEvent[], vendors, depts: [], gls: [], people };
     }
     if (id.startsWith("PRS-")) {
       parsed = await get<ParsedRecord>(org(user, `/parsed-invoices/${id}`));
@@ -47,7 +53,7 @@ export function Invoice() {
       if (invoice.parsed_invoice_id) parsed = await unlessHidden(get<ParsedRecord>(org(user, `/parsed-invoices/${invoice.parsed_invoice_id}`)));
     }
     const [raw, audit, vendors, depts, gls, users] = await Promise.all([
-      parsed ? unlessHidden(get<RawItem>(org(user, `/raw-items/${parsed.raw_item_id}`))) : null,
+      parsed ? unlessHidden(get<RawRecord>(org(user, `/raw-items/${parsed.raw_item_id}`))) : null,
       get<TrailEvent[]>(org(user, invoice ? `/invoices/${invoice.invoice_id}/audit-events` : `/parsed-invoices/${parsed!.parsed_invoice_id}/audit-events`)),
       get<{ vendor_id: string; legal_name: string; status: string }[]>(org(user, "/vendor-choices")),
       get<{ department_id: string; name: string }[]>(org(user, "/departments")),
@@ -143,6 +149,21 @@ export function Invoice() {
             {!parsed && raw?.no_invoice_reason && <p className="text-sm muted">No invoice found: {raw.no_invoice_reason}</p>}
             {!parsed && raw?.status === "new" && <p className="text-sm muted">Being read; the invoice appears here when it is done.</p>}
             {!parsed && raw?.status === "failed" && <p className="form-error">Could not be read: {raw.failure_reason}</p>}
+            {!parsed && raw && (raw.status === "no_invoice" || raw.status === "failed") && (
+              <HandlingCard
+                raw={raw}
+                people={people}
+                canHandle={can(user, "parsed.review")}
+                submit={async (fd) => {
+                  await post(org(user, `/raw-items/${raw.raw_item_id}/handle`), {
+                    outcome: str(fd, "outcome"),
+                    note: str(fd, "note"),
+                    forwardedTo: str(fd, "forwardedTo"),
+                  });
+                  return after("Recorded.");
+                }}
+              />
+            )}
 
             <div className={`grid gap-5 ${showRaw ? "xl:grid-cols-2" : ""}`}>
               {showRaw && (
@@ -335,6 +356,87 @@ function Item({ k, children }: { k: string; children: React.ReactNode }) {
       <dt className="text-xs muted">{k}</dt>
       <dd>{children}</dd>
     </div>
+  );
+}
+
+// An item with no invoice, or one not readable: what has been done about it, and, for the AP clerk, a way to deal with it.
+function HandlingCard({
+  raw,
+  people,
+  canHandle,
+  submit,
+}: {
+  raw: RawRecord;
+  people: User[];
+  canHandle: boolean;
+  submit: (fd: FormData) => Promise<string | void>;
+}) {
+  const latest = raw.handling.at(-1);
+  const [outcome, setOutcome] = useState<HandlingOutcome>(latest ? "reviewed" : raw.status === "failed" || /missing attachment/i.test(raw.no_invoice_reason ?? "") ? "requested" : "reviewed");
+  const open = !latest || latest.outcome === "requested";
+  return (
+    <Card
+      title="Deal with this email"
+      actions={
+        !latest ? <Badge tone="red">needs attention</Badge>
+          : latest.outcome === "requested" ? <Badge tone="gold">waiting on sender</Badge>
+          : <Badge tone="green">handled</Badge>
+      }
+    >
+      <div className="space-y-4">
+        {raw.handling.length > 0 && (
+          <ul className="m-0 list-none space-y-2 p-0 text-sm">
+            {raw.handling.map((h) => (
+              <li key={h.handling_id}>
+                <span className="font-medium">{HANDLING_OUTCOMES[h.outcome]}</span>
+                {h.forwarded_to_name && <> to {h.forwarded_to_name}</>}
+                <span className="muted"> · {h.handled_by_name}, {dateTime(h.handled_at)}</span>
+                <div className="muted">{h.note}</div>
+              </li>
+            ))}
+          </ul>
+        )}
+        {!canHandle ? (
+          !latest && <p className="m-0 text-sm muted">An AP clerk deals with emails that hold no invoice.</p>
+        ) : (
+          <ApiForm submit={submit} reset className="space-y-3">
+            <p className="m-0 text-sm muted">
+              {open
+                ? "This email holds no invoice to pay. Say what you did about it, so it leaves Needs attention."
+                : "Already dealt with. Add another step if something changed, e.g. the sender answered."}
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="What you did">
+                <select name="outcome" className={input} value={outcome} onChange={(e) => setOutcome(e.target.value as HandlingOutcome)}>
+                  {(Object.keys(HANDLING_OUTCOMES) as HandlingOutcome[]).map((k) => (
+                    <option key={k} value={k}>{HANDLING_OUTCOMES[k]}</option>
+                  ))}
+                </select>
+              </Field>
+              {outcome === "forwarded" && (
+                <Field label="Forwarded to">
+                  <select name="forwardedTo" className={input} required defaultValue="">
+                    <option value="" disabled>Choose a person</option>
+                    {people.map((p) => <option key={p.user_id} value={p.user_id}>{p.full_name}</option>)}
+                  </select>
+                </Field>
+              )}
+            </div>
+            <p className="m-0 text-xs muted">{HANDLING_HINTS[outcome]}</p>
+            <Field label="Note">
+              <input
+                name="note"
+                className={input}
+                required
+                minLength={3}
+                placeholder={outcome === "requested" ? "e.g. Emailed ar@polarfreight to resend the October statement" : "What you did, in a sentence"}
+              />
+            </Field>
+            <button className={btn}>Record</button>
+          </ApiForm>
+        )}
+      </div>
+    </Card>
   );
 }
 

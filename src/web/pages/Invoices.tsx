@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { can } from "@/lib/authz";
 import { money } from "@/lib/format";
+import { HANDLING_OUTCOMES } from "@/lib/handling";
 import type { InvoiceRow, ParsedRow, RawItemRow } from "@/services/read.service";
 import { get, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
@@ -10,6 +11,7 @@ import { A, Badge, Card, PageTitle, Pager, Show, Status, Table, Td, btn, btnLigh
 
 const STATUSES = ["all", "pending_approval", "approved", "scheduled", "paid", "rejected"];
 const KINDS = ["email", "pdf", "form"];
+const ATTENTION = ["needs", "waiting", "handled"];
 
 export function Invoices() {
   const user = useUser();
@@ -19,11 +21,21 @@ export function Invoices() {
   const ap = can(user, "raw.extract") || can(user, "parsed.review");
   const status = STATUSES.includes(sp.get("status") ?? "") ? sp.get("status")! : "all";
   const rawKind = KINDS.includes(sp.get("rawKind") ?? "") ? sp.get("rawKind") : null;
+  const attention = ATTENTION.includes(sp.get("attention") ?? "") ? sp.get("attention") : null;
   const rawPage = pageParam(sp.get("rawPage"));
   const parsedPage = pageParam(sp.get("parsedPage"));
   const invPage = pageParam(sp.get("page"));
 
-  const raw = useLoad(() => get<RawItemRow[]>(org(user, `/raw-items${qs({ kind: rawKind, page: rawPage, size: PAGE_SIZE })}`)), `${rawKind}:${rawPage}`);
+  const raw = useLoad(
+    () => get<RawItemRow[]>(org(user, `/raw-items${qs({ kind: rawKind, attention, page: rawPage, size: PAGE_SIZE })}`)),
+    `${rawKind}:${attention}:${rawPage}`,
+  );
+  // items with no invoice that nobody has dealt with yet, and those waiting on their sender
+  const handles = can(user, "parsed.review");
+  const counts = useLoad(
+    () => (handles ? get<{ needs: number; waiting: number }>(org(user, "/raw-items/attention")) : Promise.resolve({ needs: 0, waiting: 0 })),
+    `${attention}:${rawPage}`,
+  );
   const parsed = useLoad(() => get<ParsedRow[]>(org(user, `/parsed-invoices${qs({ page: parsedPage, size: PAGE_SIZE })}`)), `${parsedPage}`);
   const invoices = useLoad(
     () => get<InvoiceRow[]>(org(user, `/invoices${qs({ status: status === "all" ? null : status, page: invPage, size: PAGE_SIZE })}`)),
@@ -65,6 +77,23 @@ export function Invoices() {
                 <Link key={label} to={withParams(sp, { rawKind: k, rawPage: null })} className="chip" aria-current={rawKind === k}>{label}</Link>
               ))}
             </span>}
+            {handles && <span className="flex gap-1 normal-case">
+              {([
+                ["needs", `Needs attention (${counts.data?.needs ?? 0})`],
+                ["waiting", `Waiting on sender (${counts.data?.waiting ?? 0})`],
+                ["handled", "Handled"],
+              ] as const).map(([k, label]) => (
+                <Link
+                  key={k}
+                  to={withParams(sp, { attention: attention === k ? null : k, rawPage: null })}
+                  className={`chip ${k === "needs" && (counts.data?.needs ?? 0) > 0 ? "chip--red" : ""}`}
+                  aria-current={attention === k}
+                  title={attention === k ? "Show all raw items" : undefined}
+                >
+                  {label}
+                </Link>
+              ))}
+            </span>}
           </span>
         }
         actions={
@@ -92,10 +121,25 @@ export function Invoices() {
                         {r.kind === "email" && r.files.length === 0 && "no attachment"}
                       </div>
                       {r.no_invoice_reason && <div className="text-xs muted">{r.no_invoice_reason}</div>}
+                      {r.handling_outcome && (
+                        <div className="text-xs">
+                          <span className="font-medium">{HANDLING_OUTCOMES[r.handling_outcome]}</span>
+                          <span className="muted"> by {r.handled_by_name}, {date(r.handled_at)}: {r.handling_note}</span>
+                        </div>
+                      )}
                       {r.status === "failed" && r.failure_reason && <div className="text-xs text-flag">{r.failure_reason}{ap && " It is tried again at the next poll."}</div>}
                     </Td>
                     <Td className="whitespace-nowrap">{date(r.received_at)}</Td>
-                    <Td>{r.status === "new" ? <Badge tone="blue">reading</Badge> : r.status === "failed" ? <Badge tone="red">not read</Badge> : r.status === "extracted" ? <Badge tone="green">{r.kind === "form" ? "submitted" : "read"}</Badge> : <Status value={r.status} />}</Td>
+                    <Td className="space-y-1">
+                      {r.status === "new" ? <Badge tone="blue">reading</Badge> : r.status === "failed" ? <Badge tone="red">not read</Badge> : r.status === "extracted" ? <Badge tone="green">{r.kind === "form" ? "submitted" : "read"}</Badge> : <Status value={r.status} />}
+                      {handles && (r.status === "no_invoice" || r.status === "failed") && (
+                        <div>
+                          {!r.handling_outcome ? <Badge tone="red">needs attention</Badge>
+                            : r.handling_outcome === "requested" ? <Badge tone="gold">waiting on sender</Badge>
+                            : <Badge tone="green">handled</Badge>}
+                        </div>
+                      )}
+                    </Td>
                   </tr>
                 ))}
               </Table>

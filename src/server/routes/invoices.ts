@@ -6,6 +6,7 @@ import {
 } from "@/services/read.service";
 import { invoiceTrail, parsedInvoiceTrail } from "@/services/audit.service";
 import { readStoredFile } from "@/services/rawIntake.service";
+import { attentionCounts, handleRawItem } from "@/services/rawItemHandling.service";
 import { pollAndRead, submitInvoiceForm, uploadInvoice } from "@/services/intake.service";
 import { approve, reject, resolveFlag, saveEdits, type ReviewEdit } from "@/services/parsedInvoiceReview.service";
 import { decide } from "@/services/approval.service";
@@ -17,9 +18,12 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 
 export const invoices = Router({ mergeParams: true });
 
 // --- raw items ---
+// attention=needs|waiting|handled narrows to items with no invoice or not readable, by how they were dealt with.
 invoices.get("/raw-items", route(async ({ user, params, query }) => (
-  listRawItems(user, params.orgId, { kind: param(query, "kind"), status: param(query, "status"), ...pagingOf(query) })
+  listRawItems(user, params.orgId, { kind: param(query, "kind"), status: param(query, "status"), attention: param(query, "attention"), ...pagingOf(query) })
 )));
+// How many items with no invoice still need handling, and how many wait on their sender.
+invoices.get("/raw-items/attention", route(async ({ user, params }) => attentionCounts(user, params.orgId), { gate: "parsed.review" }));
 // Multipart body with the file in field "file". It is read in the background; its raw item shows the result.
 invoices.post("/raw-items/uploads", upload.single("file"), route(async ({ req, user }) => {
   if (!req.file || req.file.size === 0) throw new ValidationError("Send the file in a multipart field named file");
@@ -42,6 +46,11 @@ invoices.post("/raw-items/forms", upload.single("file"), route(async ({ req, use
 // Reads the AP inbox, stores each new email as a raw item, and starts reading everything not yet read.
 invoices.post("/raw-items/poll", route(async ({ user }) => pollAndRead(user), { gate: "raw.poll" }));
 invoices.get("/raw-items/:id", route(async ({ user, params }) => getRawItemRecord(user, params.orgId, params.id)));
+// Records how an item with no invoice, or one not readable, was dealt with: { outcome, note, forwardedTo? }.
+invoices.post("/raw-items/:id/handle", route(async ({ user, params, body }) => {
+  await handleRawItem(user, params.orgId, params.id, { outcome: body.outcome, note: body.note, forwardedTo: body.forwardedTo });
+  return getRawItemRecord(user, params.orgId, params.id);
+}, { gate: "parsed.review" }));
 // The stored attachment, as it arrived.
 invoices.get("/raw-items/:id/files/:name", route(async ({ res, user, params }) => {
   const raw = await getRawItemRecord(user, params.orgId, params.id);
