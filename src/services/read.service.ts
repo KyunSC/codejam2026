@@ -7,6 +7,7 @@ import type { InvoiceData, InvoiceLine, User } from "@/lib/types";
 import { canActOn, pendingForUserSql } from "./approval.service";
 import { getParsed } from "./pipeline.service";
 import { getRawItem, type RawItem } from "./rawIntake.service";
+import { HANDLEABLE, handlingHistory, type HandlingOutcome, type HandlingRow } from "./rawItemHandling.service";
 import { releaseBlocks } from "./payment.service";
 
 // Read side shared by the API and the pages: each list and record has one function, limited to what the user may see.
@@ -17,28 +18,60 @@ export type RawItemRow = {
   total_count: number; raw_item_id: string; kind: string; received_at: string; from_name: string | null; from_address: string | null; subject: string | null;
   files: { file_name: string }[]; form_json: InvoiceData | null; submitted_by: string | null; submitter: string | null; status: string; no_invoice_reason: string | null;
   failure_reason: string | null;
+  // the latest handling of an item with no invoice or not readable (rawItemHandling.service.ts); null when none yet
+  handling_outcome: HandlingOutcome | null; handled_at: string | null; handled_by_name: string | null; handling_note: string | null;
 };
 
+// "open": everything not settled yet, i.e. todo plus waiting; "todo": still needs someone, i.e. being read, or no invoice /
+// not readable and nobody has handled it (the clerk's everyday view); "needs": no invoice or not readable, and nobody has
+// handled it; "waiting": asked the sender to send it again; "handled": dealt with in another way.
+export const ATTENTION = ["open", "todo", "needs", "waiting", "handled"] as const;
+export type Attention = (typeof ATTENTION)[number];
+
 // Raw items not yet extracted come first. The AP clerk sees them all; everyone else sees only what they submitted.
-export async function listRawItems(user: User | null, organizationId: string, f: Paging & { kind?: string | null; status?: string | null } = {}) {
+// q matches the raw item id, sender, subject or a file name; from/to bound the day it was received (YYYY-MM-DD).
+export async function listRawItems(
+  user: User | null,
+  organizationId: string,
+  f: Paging & { kind?: string | null; status?: string | null; attention?: string | null; q?: string | null; from?: string | null; to?: string | null } = {},
+) {
   assertMember(user, organizationId);
   const { limit, offset } = window(f);
+  const attention = (ATTENTION as readonly string[]).includes(f.attention ?? "") ? (f.attention as Attention) : null;
+  const day = (v: string | null | undefined) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
+  const q = f.q?.trim() ? `%${f.q.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
   return query<RawItemRow>(
     `SELECT r.raw_item_id, r.kind, r.received_at, r.from_name, r.from_address, r.subject, r.files, r.form_json, r.submitted_by, u.full_name AS submitter,
-            r.status, r.no_invoice_reason, r.failure_reason, count(*) OVER ()::int AS total_count
+            r.status, r.no_invoice_reason, r.failure_reason,
+            h.outcome AS handling_outcome, h.handled_at, hu.full_name AS handled_by_name, h.note AS handling_note,
+            count(*) OVER ()::int AS total_count
        FROM raw_items r LEFT JOIN users u ON u.user_id=r.submitted_by
+       LEFT JOIN LATERAL (SELECT * FROM raw_item_handling WHERE raw_item_id=r.raw_item_id ORDER BY handling_id DESC LIMIT 1) h ON true
+       LEFT JOIN users hu ON hu.user_id=h.handled_by
       WHERE r.organization_id=$1 AND ($2::text IS NULL OR r.kind=$2) AND ($3::text IS NULL OR r.status=$3) AND ($4::text IS NULL OR r.submitted_by=$4)
+        AND ($5::text IS NULL
+              OR ($5 = 'open' AND (r.status = 'new' OR (r.status = ANY($6) AND (h.outcome IS NULL OR h.outcome = 'requested'))))
+              OR ($5 = 'todo' AND (r.status = 'new' OR (r.status = ANY($6) AND h.outcome IS NULL)))
+              OR ($5 NOT IN ('open', 'todo') AND r.status = ANY($6) AND CASE $5
+                    WHEN 'needs' THEN h.outcome IS NULL
+                    WHEN 'waiting' THEN h.outcome = 'requested'
+                    ELSE h.outcome IS NOT NULL AND h.outcome <> 'requested' END))
+        AND ($7::text IS NULL OR r.raw_item_id ILIKE $7 OR r.from_name ILIKE $7 OR r.from_address ILIKE $7 OR r.subject ILIKE $7
+              OR EXISTS (SELECT 1 FROM jsonb_array_elements(r.files) fl WHERE fl->>'file_name' ILIKE $7))
+        AND ($8::date IS NULL OR r.received_at >= $8::date)
+        AND ($9::date IS NULL OR r.received_at < $9::date + 1)
       ORDER BY (r.status='new') DESC, r.received_at DESC LIMIT ${limit} OFFSET ${offset}`,
-    [organizationId, f.kind || null, f.status || null, can(user, "parsed.review") ? null : user.user_id],
+    [organizationId, f.kind || null, f.status || null, can(user, "parsed.review") ? null : user.user_id, attention, HANDLEABLE, q, day(f.from), day(f.to)],
   );
 }
 
-// A raw item, for the AP clerk who reviews them all, its submitter, and anyone who may see the invoice made from it.
-export async function getRawItemRecord(user: User | null, organizationId: string, id: string): Promise<RawItem> {
+// A raw item, for the AP clerk who reviews them all, its submitter, and anyone who may see the invoice made from it,
+// with what has been done about it when it holds no invoice.
+export async function getRawItemRecord(user: User | null, organizationId: string, id: string): Promise<RawItem & { handling: HandlingRow[] }> {
   assertMember(user, organizationId);
   const r = await getRawItem(user, organizationId, id);
   if (!r || !(can(user, "parsed.review") || r.submitted_by === user.user_id || (await seesInvoiceFrom(user, id)))) throw new NotFoundError("No such raw item");
-  return r;
+  return { ...r, handling: await handlingHistory(organizationId, id) };
 }
 
 async function seesInvoiceFrom(user: User, rawItemId: string) {

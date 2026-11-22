@@ -1,7 +1,8 @@
 import { useEffect } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { can } from "@/lib/authz";
 import { money } from "@/lib/format";
+import { HANDLING_OUTCOMES } from "@/lib/handling";
 import type { InvoiceRow, ParsedRow, RawItemRow } from "@/services/read.service";
 import { get, post, qs, useLoad } from "../api";
 import { useListFilter } from "../useListFilter";
@@ -11,20 +12,56 @@ import { A, Badge, Card, PageTitle, Pager, Show, Status, Table, Td, btn, btnLigh
 
 const STATUSES = ["all", "pending_approval", "approved", "scheduled", "paid", "rejected"];
 const KINDS = ["email", "pdf", "form"];
+// The raw list's views. "todo" (what still needs someone) is the clerk's default; "open" is everything not settled
+// (to do + waiting on sender); "all" is the archive.
+const RAW_VIEWS = ["open", "todo", "needs", "waiting", "handled", "all"];
 
 export function Invoices() {
   const user = useUser();
   const { sp, search, draft, setDraft, term } = useListFilter();
+  // the raw list's own search (rawQ, rawFrom, rawTo) sets the URL directly
+  const [, setSp] = useSearchParams();
   const notice = (useLocation().state as { notice?: string } | null)?.notice;
   // AP sees the whole pipeline; someone who only submits sees their submissions and what happened to them
   const ap = can(user, "raw.extract") || can(user, "parsed.review");
   const status = STATUSES.includes(sp.get("status") ?? "") ? sp.get("status")! : "all";
   const rawKind = KINDS.includes(sp.get("rawKind") ?? "") ? sp.get("rawKind") : null;
+  // the clerk deals with raw items and sees their workload; a submitter sees all of their own submissions
+  const handles = can(user, "parsed.review");
+  const rawView = RAW_VIEWS.includes(sp.get("raw") ?? "") ? sp.get("raw")! : handles ? "todo" : "all";
+  const attention = handles && rawView !== "all" ? rawView : null;
+  const rawQ = sp.get("rawQ") ?? "";
+  const rawFrom = sp.get("rawFrom") ?? "";
+  const rawTo = sp.get("rawTo") ?? "";
+  const rawSearching = !!(rawQ || rawFrom || rawTo);
   const rawPage = pageParam(sp.get("rawPage"));
   const parsedPage = pageParam(sp.get("parsedPage"));
   const invPage = pageParam(sp.get("page"));
 
-  const raw = useLoad(() => get<RawItemRow[]>(org(user, `/raw-items${qs({ kind: rawKind, page: rawPage, size: PAGE_SIZE })}`)), `${rawKind}:${rawPage}`);
+  const raw = useLoad(
+    () => get<RawItemRow[]>(org(user, `/raw-items${qs({ kind: rawKind, attention, q: rawQ || null, from: rawFrom || null, to: rawTo || null, page: rawPage, size: PAGE_SIZE })}`)),
+    `${rawKind}:${attention}:${rawQ}:${rawFrom}:${rawTo}:${rawPage}`,
+  );
+  const counts = useLoad(
+    () => (handles
+      ? get<{ reading: number; needs: number; waiting: number; todo: number; open: number }>(org(user, "/raw-items/attention"))
+      : Promise.resolve({ reading: 0, needs: 0, waiting: 0, todo: 0, open: 0 })),
+    `${attention}:${rawPage}:${raw.data?.[0]?.raw_item_id ?? ""}`,
+  );
+  const searchRaw = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const next = new URLSearchParams(sp);
+    for (const k of ["rawQ", "rawFrom", "rawTo"]) {
+      const v = String(fd.get(k) ?? "").trim();
+      if (v) next.set(k, v);
+      else next.delete(k);
+    }
+    next.delete("rawPage");
+    // searching looks through the archive, not just today's to-do list
+    if (handles && (next.get("rawQ") || next.get("rawFrom") || next.get("rawTo")) && rawView === "todo") next.set("raw", "all");
+    setSp(next);
+  };
   const parsed = useLoad(() => get<ParsedRow[]>(org(user, `/parsed-invoices${qs({ page: parsedPage, size: PAGE_SIZE })}`)), `${parsedPage}`);
   // the clerk runs the checks again on a parsed invoice from its row too
   const review = can(user, "parsed.review");
@@ -68,6 +105,26 @@ export function Invoices() {
                 <Link key={label} to={withParams(sp, { rawKind: k, rawPage: null })} className="chip" aria-current={rawKind === k}>{label}</Link>
               ))}
             </span>}
+            {handles && <span className="flex gap-1 normal-case">
+              {([
+                ["open", `All (${counts.data?.open ?? 0})`, "Everything still to address: to do, needing attention and waiting on the sender"],
+                ["todo", `To do (${counts.data?.todo ?? 0})`, "Being read, or with no invoice and not dealt with yet"],
+                ["needs", `Needs attention (${counts.data?.needs ?? 0})`, "No invoice in it or not readable, and nobody has dealt with it"],
+                ["waiting", `Waiting on sender (${counts.data?.waiting ?? 0})`, "You asked the sender to send it again"],
+                ["handled", "Handled", "Fully dealt with: reviewed, answered, forwarded or dismissed. A request to the sender stays under Waiting on sender"],
+                ["all", "Archive", "Everything ever received"],
+              ] as const).map(([k, label, hint]) => (
+                <Link
+                  key={k}
+                  to={withParams(sp, { raw: k === "todo" ? null : k, rawPage: null })}
+                  className={`chip ${k === "needs" && (counts.data?.needs ?? 0) > 0 ? "chip--red" : ""}`}
+                  aria-current={rawView === k}
+                  title={hint}
+                >
+                  {label}
+                </Link>
+              ))}
+            </span>}
           </span>
         }
         actions={
@@ -78,10 +135,42 @@ export function Invoices() {
           </>
         }
       >
+        {ap && (
+          <form onSubmit={searchRaw} className="mb-4 flex flex-wrap items-end gap-2" role="search" key={`${rawQ}:${rawFrom}:${rawTo}`}>
+            <label className="field min-w-[220px] flex-1">
+              <span>Search</span>
+              <input className="input" type="search" name="rawQ" defaultValue={rawQ} placeholder="Raw id, sender, subject or file name" />
+            </label>
+            <label className="field">
+              <span>Received from</span>
+              <input className="input" type="date" name="rawFrom" defaultValue={rawFrom} />
+            </label>
+            <label className="field">
+              <span>to</span>
+              <input className="input" type="date" name="rawTo" defaultValue={rawTo} />
+            </label>
+            <button className={btnLight}>Search</button>
+            {rawSearching && (
+              <Link to={withParams(sp, { rawQ: null, rawFrom: null, rawTo: null, rawPage: null })} className={btnLight}>Clear</Link>
+            )}
+          </form>
+        )}
         <Show load={raw}>
           {(rows) => (
             <>
-              <Table head={[ap ? "Raw item" : "Submission", "Kind", "From / file", "Received", "Status"]} empty={ap ? "No raw items yet." : "You have not submitted anything yet."}>
+              <Table
+                head={[ap ? "Raw item" : "Submission", "Kind", "From / file", "Received", "Status"]}
+                empty={
+                  !ap ? "You have not submitted anything yet."
+                    : rawSearching ? "Nothing received matches this search."
+                    : rawView === "open" ? "Nothing to address: every email and upload has been read or dealt with. See Archive for everything received."
+                    : rawView === "todo" ? "Nothing to do: every email and upload has been read or dealt with. See Archive for everything received."
+                    : rawView === "needs" ? "Nothing needs attention."
+                    : rawView === "waiting" ? "Nothing is waiting on a sender."
+                    : rawView === "handled" ? "Nothing handled yet."
+                    : "No raw items yet."
+                }
+              >
                 {rows.map((r) => (
                   <tr key={r.raw_item_id}>
                     <Td className="font-mono text-xs"><A href={`/invoices/${r.raw_item_id}`}>{r.raw_item_id}</A></Td>
@@ -95,10 +184,25 @@ export function Invoices() {
                         {r.kind === "email" && r.files.length === 0 && "no attachment"}
                       </div>
                       {r.no_invoice_reason && <div className="text-xs muted">{r.no_invoice_reason}</div>}
+                      {r.handling_outcome && (
+                        <div className="text-xs">
+                          <span className="font-medium">{HANDLING_OUTCOMES[r.handling_outcome]}</span>
+                          <span className="muted"> by {r.handled_by_name}, {date(r.handled_at)}: {r.handling_note}</span>
+                        </div>
+                      )}
                       {r.status === "failed" && r.failure_reason && <div className="text-xs text-flag">{r.failure_reason}{ap && " It is tried again at the next poll."}</div>}
                     </Td>
                     <Td className="whitespace-nowrap">{date(r.received_at)}</Td>
-                    <Td>{r.status === "new" ? <Badge tone="blue">reading</Badge> : r.status === "failed" ? <Badge tone="red">not read</Badge> : r.status === "extracted" ? <Badge tone="green">{r.kind === "form" ? "submitted" : "read"}</Badge> : <Status value={r.status} />}</Td>
+                    <Td className="space-y-1">
+                      {r.status === "new" ? <Badge tone="blue">reading</Badge> : r.status === "failed" ? <Badge tone="red">not read</Badge> : r.status === "extracted" ? <Badge tone="green">{r.kind === "form" ? "submitted" : "read"}</Badge> : <Status value={r.status} />}
+                      {handles && (r.status === "no_invoice" || r.status === "failed") && (
+                        <div>
+                          {!r.handling_outcome ? <Badge tone="red">needs attention</Badge>
+                            : r.handling_outcome === "requested" ? <Badge tone="gold">waiting on sender</Badge>
+                            : <Badge tone="green">handled</Badge>}
+                        </div>
+                      )}
+                    </Td>
                   </tr>
                 ))}
               </Table>
