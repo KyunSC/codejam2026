@@ -1,9 +1,9 @@
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { User } from "@/lib/types";
 import type { Organization as OrganizationRecord } from "@/services/organization.service";
 import { get, patch, post, useLoad } from "../api";
 import { ApiForm, numOrNull, str } from "../components/ApiForm";
-import { A, Card, Field, OptionalFields, PageTitle, Show, Status, Table, Td, btn, btnLight, date, input } from "../components/ui";
+import { A, Card, Field, OptionalFields, PageTitle, Pager, Show, Status, Table, Td, btn, btnLight, date, input, pageOf, pageParam } from "../components/ui";
 
 export function Organizations() {
   const navigate = useNavigate();
@@ -46,6 +46,8 @@ export function Organizations() {
 export function Organization() {
   const { id = "" } = useParams();
   const base = `/api/organizations/${id}`;
+  const [sp] = useSearchParams();
+  const userPage = pageParam(sp.get("userPage"));
   const load = useLoad(async () => {
     const [org, depts, users] = await Promise.all([
       get<OrganizationRecord>(base),
@@ -100,8 +102,9 @@ export function Organization() {
             </Card>
             <Card title={`Users (${users.length})`}>
               <Table head={["User", "Title", "Role", "Status"]}>
-                {users.map((u) => <tr key={u.user_id}><Td>{u.full_name}</Td><Td>{u.title}</Td><Td>{u.role.replace("_", " ")}</Td><Td><Status value={u.status} /></Td></tr>)}
+                {pageOf(users, userPage).map((u) => <tr key={u.user_id}><Td>{u.full_name}</Td><Td>{u.title}</Td><Td>{u.role.replace("_", " ")}</Td><Td><Status value={u.status} /></Td></tr>)}
               </Table>
+              <Pager param="userPage" page={userPage} total={users.length} />
               {/* remounts once the first admin exists, so the role picker's default moves on to employee */}
               <ApiForm key={users.some((u) => u.role === "controller_admin") ? "more" : "first"} reset submit={addUser} className="mt-4 grid grid-cols-2 gap-2 border-t border-line pt-4">
                 <Field label="Name"><input name="full_name" className={input} required /></Field>

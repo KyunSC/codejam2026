@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { post, get, useLoad } from "../api";
 import { useSession } from "../session";
@@ -25,12 +25,18 @@ export function Login() {
   const accounts = useLoad(() => get<{ email: string; full_name: string; role: string; title: string }[]>("/api/session/demo-accounts"), "");
   const users = accounts.data ?? [];
   const byRole = Object.keys(ROLE_LABEL).map((r) => [r, users.filter((u) => u.role === r)] as const);
-  const email = useRef<HTMLInputElement>(null);
-  const password = useRef<HTMLInputElement>(null);
-  // a demo account fills in its email; the password is still typed
-  const pick = (address: string) => {
-    if (email.current) email.current.value = address;
-    password.current?.focus();
+  const { refresh } = useSession();
+  const navigate = useNavigate();
+  const [error, setError] = useState<string | null>(null);
+  // clicking an account signs in as it
+  const pick = async (address: string) => {
+    try {
+      await post("/api/session/demo", { email: address });
+      await refresh();
+      navigate("/dashboard");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   };
   return (
     <div className="mx-auto max-w-3xl px-6 py-12">
@@ -38,12 +44,13 @@ export function Login() {
       <h1 className="mt-4 text-2xl font-semibold">Log in</h1>
       <ApiForm submit={login} className="mt-6 max-w-xl">
         <div className="flex flex-wrap gap-2 sm:flex-nowrap">
-          <input ref={email} name="email" type="email" required placeholder="you@company.com" autoComplete="username" className={input} />
-          <input ref={password} name="password" type="password" required placeholder="Password" autoComplete="current-password" className={input} />
+          <input name="email" type="email" required placeholder="you@company.com" autoComplete="username" className={input} />
+          <input name="password" type="password" required placeholder="Password" autoComplete="current-password" className={input} />
           <button className={btn}>Log in</button>
         </div>
       </ApiForm>
       <p className="mt-8 text-sm muted">Demo accounts:</p>
+      {error && <p className="form-error mt-2">{error}</p>}
       <div className="mt-3 grid gap-4 sm:grid-cols-2">
         {byRole.map(([role, list]) => list.length > 0 && (
           <div key={role} className="card p-4">

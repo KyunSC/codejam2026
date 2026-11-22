@@ -77,6 +77,24 @@ function LogoutButton() {
 }
 
 // An organization user's workspace: organization name, the user, and the tabs their role may open.
+// Scrolls to the section a link points to (#id), waiting for the page to load it.
+function ScrollToSection() {
+  const { pathname, search, hash } = useLocation();
+  useEffect(() => {
+    if (!hash) return;
+    let tries = 0;
+    const timer = setInterval(() => {
+      const el = document.getElementById(hash.slice(1));
+      if (el || ++tries > 40) {
+        clearInterval(timer);
+        el?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }, 100);
+    return () => clearInterval(timer);
+  }, [pathname, search, hash]);
+  return null;
+}
+
 function WorkspaceLayout() {
   const { user, loading } = useSession();
   const orgLoad = useLoad(() => (user ? get<Organization>(org(user)) : Promise.resolve(null)), user?.user_id ?? "");
@@ -111,6 +129,7 @@ function WorkspaceLayout() {
         </div>
       </header>
       <main className="mx-auto w-full max-w-[1240px] flex-1 px-4 py-8 sm:px-5">
+        <ScrollToSection />
         <Outlet />
       </main>
     </div>

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { actionName } from "@/lib/auditActions";
 import { useSearchParams } from "react-router-dom";
 import { API_PAGE_SIZE } from "@/lib/paging";
 import { get } from "../api";
@@ -26,7 +27,7 @@ export function AuditFilters({ organizationId, invoices, people, actions }: { or
     <div className="flex flex-wrap items-end gap-3">
       <InvoicePicker organizationId={organizationId} first={invoices} value={sp.get("invoice") ?? ""} onChange={(v) => set("invoice", v)} />
       {select("actor", "Person", people.map((p) => [p.user_id, p.full_name]))}
-      {select("action", "Action", actions.map((a) => [a, a]))}
+      {select("action", "Action", actions.map((a) => [a, actionName(a)]))}
     </div>
   );
 }

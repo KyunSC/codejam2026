@@ -46,7 +46,7 @@ export function Payments() {
     <div className="space-y-5">
       <PageTitle sub="The AP clerk prepares payments for approved invoices; the payment policies say who may release them; a payment settles when the bank statement shows it.">Payments</PageTitle>
       {can(user, "payment.prepare") && (ready.data?.length ?? 0) > 0 && (
-        <Card title={`${ready.data![0].total_count} ready to pay`}>
+        <Card id="ready" title={`${ready.data![0].total_count} ready to pay`}>
           <Table head={["Invoice", "Vendor", "Invoice #", "Due", "Total", ""]}>
             {ready.data!.map((i) => (
               <tr key={i.invoice_id}>
@@ -63,6 +63,7 @@ export function Payments() {
         </Card>
       )}
       <Card
+        id="payments"
         title={`${rows.data?.[0]?.total_count ?? 0} payments`}
         actions={
           <>

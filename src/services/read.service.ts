@@ -19,7 +19,7 @@ export type RawItemRow = {
   failure_reason: string | null;
 };
 
-// Raw items not yet extracted come first. Those who do not see all invoices see only what they submitted.
+// Raw items not yet extracted come first. The AP clerk sees them all; everyone else sees only what they submitted.
 export async function listRawItems(user: User | null, organizationId: string, f: Paging & { kind?: string | null; status?: string | null } = {}) {
   assertMember(user, organizationId);
   const { limit, offset } = window(f);
@@ -29,15 +29,15 @@ export async function listRawItems(user: User | null, organizationId: string, f:
        FROM raw_items r LEFT JOIN users u ON u.user_id=r.submitted_by
       WHERE r.organization_id=$1 AND ($2::text IS NULL OR r.kind=$2) AND ($3::text IS NULL OR r.status=$3) AND ($4::text IS NULL OR r.submitted_by=$4)
       ORDER BY (r.status='new') DESC, r.received_at DESC LIMIT ${limit} OFFSET ${offset}`,
-    [organizationId, f.kind || null, f.status || null, can(user, "invoice.view_all") ? null : user.user_id],
+    [organizationId, f.kind || null, f.status || null, can(user, "parsed.review") ? null : user.user_id],
   );
 }
 
-// A raw item, for those who see all invoices, its submitter, and anyone who may see the invoice made from it.
+// A raw item, for the AP clerk who reviews them all, its submitter, and anyone who may see the invoice made from it.
 export async function getRawItemRecord(user: User | null, organizationId: string, id: string): Promise<RawItem> {
   assertMember(user, organizationId);
   const r = await getRawItem(user, organizationId, id);
-  if (!r || !(can(user, "invoice.view_all") || r.submitted_by === user.user_id || (await seesInvoiceFrom(user, id)))) throw new NotFoundError("No such raw item");
+  if (!r || !(can(user, "parsed.review") || r.submitted_by === user.user_id || (await seesInvoiceFrom(user, id)))) throw new NotFoundError("No such raw item");
   return r;
 }
 
@@ -69,7 +69,7 @@ export async function listParsedInvoices(user: User | null, organizationId: stri
       WHERE p.organization_id=$1 AND p.status=COALESCE($2, 'pending')
         AND ($3::text IS NULL OR EXISTS (SELECT 1 FROM raw_items r WHERE r.raw_item_id=p.raw_item_id AND r.submitted_by=$3))
       ORDER BY p.parsed_invoice_id LIMIT ${limit} OFFSET ${offset}`,
-    [organizationId, f.status || null, can(user, "invoice.view_all") ? null : user.user_id],
+    [organizationId, f.status || null, can(user, "parsed.review") ? null : user.user_id],
   );
 }
 

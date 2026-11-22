@@ -1,4 +1,5 @@
 import { useNavigate, useParams } from "react-router-dom";
+import { actionName } from "@/lib/auditActions";
 import { can } from "@/lib/authz";
 import { money } from "@/lib/format";
 import type { InvoiceLine, User } from "@/lib/types";
@@ -313,7 +314,7 @@ export function Invoice() {
                     <tr key={e.event_id}>
                       <Td className="whitespace-nowrap text-xs">{dateTime(e.occurred_at)}</Td>
                       <Td>{e.actor ?? "system"}{e.actor_role && <span className="ml-1 text-xs muted">{e.actor_role.replace(/_/g, " ")}</span>}{e.on_behalf && <div className="text-xs muted">on behalf of {e.on_behalf}</div>}</Td>
-                      <Td className="font-mono text-xs">{e.action}{e.channel === "agent" && <Badge tone="purple">agent</Badge>}</Td>
+                      <Td className="text-xs">{actionName(e.action)}{e.channel === "agent" && <Badge tone="purple">agent</Badge>}</Td>
                       <Td className="font-mono text-xs">{e.entity_id}</Td>
                       <Td className="text-xs">{e.note}</Td>
                     </tr>

@@ -80,8 +80,9 @@ export async function readRawItem(organizationId: string, rawItemId: string): Pr
   });
 }
 
-// Steps 3–5 on one parsed invoice.
-export async function resolveAndCheck(db: Db, parsedInvoiceId: string, raw: RawItem, data: InvoiceData, extra: Flag[] = []) {
+// Steps 3–5 on one parsed invoice. When it turns out to be part of a split, the other pending invoices of the split are checked again,
+// so each of them is flagged too, not only the last one read.
+export async function resolveAndCheck(db: Db, parsedInvoiceId: string, raw: RawItem, data: InvoiceData, extra: Flag[] = [], recheckSplit = true) {
   const p = await one<{ sha256: string | null }>("SELECT sha256 FROM parsed_invoices WHERE parsed_invoice_id=$1", [parsedInvoiceId], db);
   const resolved = await resolve(db, raw.organization_id, data, raw);
   await query("UPDATE parsed_invoices SET invoice_json=$2 WHERE parsed_invoice_id=$1", [parsedInvoiceId, JSON.stringify(resolved)], db);
@@ -89,7 +90,13 @@ export async function resolveAndCheck(db: Db, parsedInvoiceId: string, raw: RawI
   const keepExtraction = extra.length
     ? extra
     : (await query<Flag & { evidence_json: unknown }>("SELECT check_code, category, severity, message FROM invoice_flags WHERE parsed_invoice_id=$1 AND category='extraction'", [parsedInvoiceId], db));
-  await runChecks(ctx, keepExtraction);
+  const flags = await runChecks(ctx, keepExtraction);
+  const partners = recheckSplit ? ((flags.find((f) => f.check_code === "split_invoice")?.evidence?.related ?? []) as string[]).filter((r) => r.startsWith("PRS-")) : [];
+  for (const id of partners) {
+    const p = await one<{ invoice_json: InvoiceData; raw_item_id: string }>("SELECT invoice_json, raw_item_id FROM parsed_invoices WHERE parsed_invoice_id=$1 AND status='pending'", [id], db);
+    const pRaw = p && (await one<RawItem>("SELECT * FROM raw_items WHERE raw_item_id=$1", [p.raw_item_id], db));
+    if (p && pRaw) await resolveAndCheck(db, id, pRaw, p.invoice_json, [], false);
+  }
   return resolved;
 }
 

@@ -56,9 +56,10 @@ export function Invoices() {
       {notice && <p className="form-ok">{notice}</p>}
 
       <Card
+        id="raw"
         title={
           <span className="flex flex-wrap items-center gap-3">
-            {ap ? "1. Raw" : can(user, "invoice.view_all") ? "Received" : "Your submissions"}
+            {ap ? "1. Raw" : "Your submissions"}
             {ap && <span className="flex gap-1 normal-case">
               {([[null, "All"], ["email", "Emails"], ["pdf", "Uploads"], ["form", "Forms"]] as const).map(([k, label]) => (
                 <Link key={label} to={withParams(sp, { rawKind: k, rawPage: null })} className="chip" aria-current={rawKind === k}>{label}</Link>
@@ -104,11 +105,11 @@ export function Invoices() {
         </Show>
       </Card>
 
-      <Card title={`${ap ? "2. Parsed — pending approval" : "Confirm data"} (${parsed.data?.[0]?.total_count ?? 0})`}>
+      <Card id="parsed" title={`${ap ? "2. Parsed — pending approval" : "Confirm data"} (${parsed.data?.[0]?.total_count ?? 0})`}>
         <Show load={parsed}>
           {(rows) => (
             <>
-              <Table head={[ap ? "Parsed" : "Reference", "Vendor", "Invoice #", "Date", "Total", "Flags", ""]} empty="Nothing waiting for review.">
+              <Table head={[ap ? "Parsed" : "Reference", "Vendor", "Invoice #", "Date", "Total", "Flags"]} empty="Nothing waiting for review.">
                 {rows.map((p) => (
                   <tr key={p.parsed_invoice_id}>
                     <Td className="font-mono text-xs"><A href={`/invoices/${p.parsed_invoice_id}`}>{p.parsed_invoice_id}</A></Td>
@@ -121,7 +122,6 @@ export function Invoices() {
                       {p.warnings > 0 && <Badge tone="gold">{p.warnings} warning{p.warnings > 1 ? "s" : ""}</Badge>}
                       {!p.blocking && !p.warnings && <Badge tone="green">clear</Badge>}
                     </Td>
-                    <Td><A href={`/invoices/${p.parsed_invoice_id}`}>Review</A></Td>
                   </tr>
                 ))}
               </Table>
@@ -132,6 +132,7 @@ export function Invoices() {
       </Card>
 
       <Card
+        id="invoices"
         title={ap ? "3. Invoices" : "Invoices"}
         actions={
           <div className="flex gap-1 text-xs">

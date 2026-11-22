@@ -64,13 +64,13 @@ export function PurchaseOrders() {
 export function PurchaseOrder() {
   const user = useUser();
   const { id } = useParams();
-  const load = useLoad(async () => {
-    const [po, invoices] = await Promise.all([get<PurchaseOrderRow>(org(user, `/purchase-orders/${id}`)), get<InvoiceRow[]>(org(user, `/invoices${qs({ po_id: id, size: 300 })}`))]);
-    return { po, invoices };
-  }, id ?? "");
+  const [sp] = useSearchParams();
+  const invPage = pageParam(sp.get("invPage"));
+  const load = useLoad(() => get<PurchaseOrderRow>(org(user, `/purchase-orders/${id}`)), id ?? "");
+  const invoices = useLoad(() => get<InvoiceRow[]>(org(user, `/invoices${qs({ po_id: id, page: invPage, size: PAGE_SIZE })}`)), `${id}:${invPage}`);
   return (
     <Show load={load}>
-      {({ po: p, invoices }) => (
+      {(p) => (
         <div className="space-y-5">
           <PageTitle sub={<Status value={p.status} />}>{p.po_id} · {p.vendor_name}</PageTitle>
           <div className="grid gap-5 lg:grid-cols-2">
@@ -87,9 +87,12 @@ export function PurchaseOrder() {
                 <dt className="muted">Remaining</dt><dd><Remaining value={p.total_amount - p.billed} /></dd>
               </dl>
             </Card>
-            <Card title={`Invoices (${invoices.length})`}>
+            <Card title={`Invoices (${invoices.data?.[0]?.total_count ?? 0})`}>
+              <Show load={invoices}>
+                {(list) => (
+                  <>
               <Table head={["Invoice", "Number", "Date", "Total", "Status"]} empty="No invoices.">
-                {invoices.map((i) => (
+                {list.map((i) => (
                   <tr key={i.invoice_id}>
                     <Td><A href={`/invoices/${i.invoice_id}`}>{i.invoice_id}</A></Td>
                     <Td>{i.vendor_invoice_number}</Td>
@@ -99,6 +102,10 @@ export function PurchaseOrder() {
                   </tr>
                 ))}
               </Table>
+              <Pager param="invPage" page={invPage} total={list[0]?.total_count ?? 0} />
+                  </>
+                )}
+              </Show>
             </Card>
           </div>
         </div>

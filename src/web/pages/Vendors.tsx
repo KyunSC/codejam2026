@@ -63,7 +63,7 @@ export function Vendors() {
 
 type Contract = { contract_id: string; description: string; billing_type: string; monthly_fee: number | null; hourly_rate_cap: number | null; fuel_surcharge_cap_pct: number | null; not_to_exceed_monthly: number | null; end_date: string | null; status: string; currency: string };
 type Po = { po_id: string; description: string; total_amount: number; status: string; issue_date: string };
-type VendorView = { v: Awaited<ReturnType<typeof getVendor>>; changes: Awaited<ReturnType<typeof listBankChanges>>; contracts: Contract[]; pos: Po[]; invoices: InvoiceRow[]; depts: { department_id: string; name: string }[] };
+type VendorView = { v: Awaited<ReturnType<typeof getVendor>>; changes: Awaited<ReturnType<typeof listBankChanges>>; contracts: Contract[]; pos: Po[]; depts: { department_id: string; name: string }[] };
 
 // The vendor fields a clerk edits on the vendor page; a vendor needs at least a name, a country and a way to be paid.
 const ESSENTIAL_DETAILS = ["legal_name", "country", "preferred_payment_method"];
@@ -81,16 +81,18 @@ export function Vendor() {
   const navigate = useNavigate();
   // Edit turns the details into inputs where they stand
   const [editing, setEditing] = useState(false);
+  const [sp] = useSearchParams();
+  const invPage = pageParam(sp.get("invPage"));
+  const invoices = useLoad(() => get<InvoiceRow[]>(org(user, `/invoices${qs({ vendor_id: id, page: invPage, size: PAGE_SIZE })}`)), `${id}:${invPage}`);
   const load = useLoad(async (): Promise<VendorView> => {
-    const [v, changes, contracts, pos, invoices, depts] = await Promise.all([
+    const [v, changes, contracts, pos, depts] = await Promise.all([
       get<VendorView["v"]>(org(user, `/vendors/${id}`)),
       get<VendorView["changes"]>(org(user, `/vendors/${id}/bank-changes`)),
       get<Contract[]>(org(user, `/contracts${qs({ vendor_id: id })}`)),
       get<Po[]>(org(user, `/purchase-orders${qs({ vendor_id: id })}`)),
-      get<InvoiceRow[]>(org(user, `/invoices${qs({ vendor_id: id, size: 50 })}`)),
       get<{ department_id: string; name: string }[]>(org(user, "/departments")),
     ]);
-    return { v, changes, contracts, pos, invoices, depts };
+    return { v, changes, contracts, pos, depts };
   }, id);
   if (!can(user, "vendor.view")) return <NotFound />;
 
@@ -148,7 +150,7 @@ export function Vendor() {
 
   return (
     <Show load={load}>
-      {({ v, changes, contracts, pos, invoices, depts }) => {
+      {({ v, changes, contracts, pos, depts }) => {
         const shown = (k: string) => (v[k] === true ? "yes" : v[k] === false ? "no" : String(v[k] ?? "—"));
         // a detail as text, or while editing as its input
         const field = (k: string) => {
@@ -304,12 +306,19 @@ export function Vendor() {
                 )}
               </Card>
 
-              <Card title="Invoices" className="lg:col-span-2">
-                <Table head={["Invoice", "Number", "Date", "Total", "Status"]} empty="No invoices.">
-                  {invoices.map((i) => (
-                    <tr key={i.invoice_id}><Td><A href={`/invoices/${i.invoice_id}`}>{i.invoice_id}</A></Td><Td>{i.vendor_invoice_number}</Td><Td>{date(i.invoice_date)}</Td><Td>{money(i.total, i.currency)}</Td><Td><Status value={i.status} /></Td></tr>
-                  ))}
-                </Table>
+              <Card title={`Invoices (${invoices.data?.[0]?.total_count ?? 0})`} className="lg:col-span-2">
+                <Show load={invoices}>
+                  {(list) => (
+                    <>
+                      <Table head={["Invoice", "Number", "Date", "Total", "Status"]} empty="No invoices.">
+                        {list.map((i) => (
+                          <tr key={i.invoice_id}><Td><A href={`/invoices/${i.invoice_id}`}>{i.invoice_id}</A></Td><Td>{i.vendor_invoice_number}</Td><Td>{date(i.invoice_date)}</Td><Td>{money(i.total, i.currency)}</Td><Td><Status value={i.status} /></Td></tr>
+                        ))}
+                      </Table>
+                      <Pager param="invPage" page={invPage} total={list[0]?.total_count ?? 0} />
+                    </>
+                  )}
+                </Show>
               </Card>
             </div>
             {can(user, "vendor.onboard") && (
