@@ -65,7 +65,9 @@ Checks for every commit (from `Brim/`): `npm run typecheck`, `npm run lint -- --
 - [x] 8d. Payments table.
   - Payments list uses `DataTable table="payments"` with module-level `PAYMENT_COLUMNS`; Release is the `trailing` column (still only for `scheduled` and `payment.release`). The payment detail page's tables (approval chain, accounting codes) keep `<Table>`.
   - Verified identical outside edit mode (scratchpad render-and-compare): 2 rows (scheduled with Release, settled without; preparer/releaser missing on either side; CAD and USD) and 0 rows.
-- [ ] 8e. Vendors table.
+- [x] 8e. Vendors table.
+  - Vendors list uses `DataTable table="vendors"`. The columns come from `vendorColumns(vendors)`, built from the loaded list, because the Warnings column flags a "lookalike name" by comparing with the other vendors; the `base()` name normaliser moved into it from the component. No trailing column; no `empty` (keeps `Table`'s default "Nothing here.", as before).
+  - Verified identical outside edit mode (scratchpad render-and-compare): 3 rows with a lookalike pair ("Acme Freight Inc" / "Acme Freight Ltd"), an unverified bank change, missing category/GST/payment method; and 0 rows.
 - [ ] 8f. Audit table.
 - [ ] 9. Default filters: URL, then prefs, then old default; "all" writes the parameter; ☆ while editing.
 - [ ] 10. Rows per page: Invoices tables and Audit; RowsPerPage in edit mode.

@@ -7,9 +7,35 @@ import type { InvoiceRow } from "@/services/read.service";
 import { get, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { ApiForm, numOrNull, str } from "../components/ApiForm";
+import { DataTable, type Column } from "../components/DataTable";
 import { A, Badge, Card, Field, NotFound, PageTitle, Show, Status, Table, Td, btn, btnDanger, btnLight, date, input } from "../components/ui";
 
 type VendorRow = Awaited<ReturnType<typeof listVendors>>[number];
+
+// The vendors table's columns (ids and labels in TABLES.vendors, src/lib/preferences.ts).
+// Built from the whole list, since a lookalike name is one that matches another vendor's.
+function vendorColumns(vendors: VendorRow[]): Column<VendorRow>[] {
+  const base = (s: string) => vendorName(s).replace(/ (inc|ltd|llp)$/, "");
+  return [
+    { id: "vendor", render: (v) => <><A href={`/vendors/${v.vendor_id}`}>{v.legal_name}</A> <span className="text-xs muted">{v.vendor_id}</span></> },
+    { id: "category", render: (v) => v.category },
+    { id: "location", render: (v) => <>{v.province_or_state} {v.country}</> },
+    { id: "gst_hst", className: "font-mono text-xs", render: (v) => v.gst_hst_number ?? "—" },
+    { id: "pays_by", render: (v) => v.preferred_payment_method },
+    { id: "invoices", render: (v) => v.invoices },
+    { id: "status", render: (v) => <Status value={v.status} /> },
+    {
+      id: "warnings",
+      className: "space-x-1",
+      render: (v) => (
+        <>
+          {vendors.some((o) => o.vendor_id !== v.vendor_id && base(o.legal_name) === base(v.legal_name)) && <Badge tone="gold">lookalike name</Badge>}
+          {v.pending_change && <Badge tone="red">bank change unverified</Badge>}
+        </>
+      ),
+    },
+  ];
+}
 
 export function Vendors() {
   const user = useUser();
@@ -17,7 +43,6 @@ export function Vendors() {
   const status = sp.get("status") ?? "all";
   const load = useLoad(() => get<VendorRow[]>(org(user, `/vendors${qs({ status: status === "all" ? null : status })}`)), status);
   if (!can(user, "vendor.view")) return <NotFound />;
-  const base = (s: string) => vendorName(s).replace(/ (inc|ltd|llp)$/, "");
   return (
     <div className="space-y-5">
       <PageTitle sub="New vendors wait for finance manager approval. A change of bank details is a request that must be verified by callback.">Vendors</PageTitle>
@@ -34,23 +59,7 @@ export function Vendors() {
       >
         <Show load={load}>
           {(vendors) => (
-            <Table head={["Vendor", "Category", "Location", "GST/HST", "Pays by", "Invoices", "Status", "Warnings"]}>
-              {vendors.map((v) => (
-                <tr key={v.vendor_id}>
-                  <Td><A href={`/vendors/${v.vendor_id}`}>{v.legal_name}</A> <span className="text-xs muted">{v.vendor_id}</span></Td>
-                  <Td>{v.category}</Td>
-                  <Td>{v.province_or_state} {v.country}</Td>
-                  <Td className="font-mono text-xs">{v.gst_hst_number ?? "—"}</Td>
-                  <Td>{v.preferred_payment_method}</Td>
-                  <Td>{v.invoices}</Td>
-                  <Td><Status value={v.status} /></Td>
-                  <Td className="space-x-1">
-                    {vendors.some((o) => o.vendor_id !== v.vendor_id && base(o.legal_name) === base(v.legal_name)) && <Badge tone="gold">lookalike name</Badge>}
-                    {v.pending_change && <Badge tone="red">bank change unverified</Badge>}
-                  </Td>
-                </tr>
-              ))}
-            </Table>
+            <DataTable table="vendors" rows={vendors} rowKey={(v) => v.vendor_id} columns={vendorColumns(vendors)} />
           )}
         </Show>
       </Card>
