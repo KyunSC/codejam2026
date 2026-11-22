@@ -1,80 +1,97 @@
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { can } from "@/lib/authz";
 import { money } from "@/lib/format";
-import type { getInvoiceRecord, PaymentRow } from "@/services/read.service";
+import type { getInvoiceRecord, InvoiceRow, PaymentRow } from "@/services/read.service";
 import { get, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { ApiForm } from "../components/ApiForm";
-import { A, Card, NotFound, PageTitle, Show, Status, Table, Td, btn, btnLight, date, dateTime } from "../components/ui";
+import { A, Card, NotFound, PAGE_SIZE, PageTitle, Pager, Show, Status, Table, Td, btn, date, dateTime, pageParam, withParams } from "../components/ui";
 
 const TABS = ["scheduled", "released", "outstanding", "settled", "all"];
 
 export function Payments() {
   const user = useUser();
   const [sp] = useSearchParams();
-  const tab = TABS.includes(sp.get("status") ?? "") ? sp.get("status")! : "scheduled";
-  const totals = useLoad(() => get<{ status: string; n: number; total: number }[]>(org(user, "/payments/totals")), "");
-  const rows = useLoad(() => get<PaymentRow[]>(org(user, `/payments${qs({ status: tab === "all" ? null : tab, size: 300 })}`)), tab);
+  const status = TABS.includes(sp.get("status") ?? "") ? sp.get("status")! : "scheduled";
+  const page = pageParam(sp.get("page"));
+  const readyPage = pageParam(sp.get("readyPage"));
+  const rows = useLoad(() => get<PaymentRow[]>(org(user, `/payments${qs({ status: status === "all" ? null : status, page, size: PAGE_SIZE })}`)), `${status}:${page}`);
+  // approved invoices with no payment yet, for the clerk to prepare
+  const ready = useLoad(
+    () => (can(user, "payment.prepare")
+      ? get<InvoiceRow[]>(org(user, `/invoices${qs({ status: "approved", type: "invoice", page: readyPage, size: PAGE_SIZE })}`))
+      : Promise.resolve([] as InvoiceRow[])),
+    String(readyPage),
+  );
   if (!can(user, "payment.view")) return <NotFound />;
 
   const release = (id: string) => async () => {
     await post(org(user, `/payments/${id}/release`));
-    totals.reload();
     rows.reload();
     return "Released.";
   };
-  const simulate = async () => {
-    const r = await post<{ sent: number }>(org(user, "/bank-runs"));
-    totals.reload();
+  const prepare = (invoiceId: string) => async () => {
+    await post(org(user, "/payments"), { invoice_id: invoiceId });
     rows.reload();
-    return `${r.sent} released payment${r.sent === 1 ? "" : "s"} sent to the bank.`;
+    ready.reload();
+    return "Scheduled.";
   };
 
   return (
-    <div className="space-y-6">
-      <PageTitle sub="The AP clerk prepares payments for approved invoices; the finance manager (up to $100,000) or the controller releases them; the bank simulation sends released payments.">Payments</PageTitle>
-      <div className="grid gap-4 sm:grid-cols-4">
-        {["scheduled", "released", "outstanding", "settled"].map((s) => {
-          const t = totals.data?.find((x) => x.status === s);
-          return (
-            <Link key={s} to={`/payments?status=${s}`} className="card p-4" style={tab === s ? ({ "--card-shadow": "var(--red)" } as React.CSSProperties) : undefined}>
-              <div className="heading num text-4xl leading-none">{t?.n ?? 0}</div>
-              <div className="label muted mt-2 text-xs">{s} · {money(t?.total ?? 0)}</div>
-            </Link>
-          );
-        })}
-      </div>
+    <div className="space-y-5">
+      <PageTitle sub="The AP clerk prepares payments for approved invoices; the payment policies say who may release them; a payment settles when the bank statement shows it.">Payments</PageTitle>
+      {can(user, "payment.prepare") && (ready.data?.length ?? 0) > 0 && (
+        <Card id="ready" title={`${ready.data![0].total_count} ready to pay`}>
+          <Table head={["Invoice", "Vendor", "Invoice #", "Due", "Total", ""]}>
+            {ready.data!.map((i) => (
+              <tr key={i.invoice_id}>
+                <Td><A href={`/invoices/${i.invoice_id}`}>{i.invoice_id}</A></Td>
+                <Td>{i.vendor_name}</Td>
+                <Td>{i.vendor_invoice_number}</Td>
+                <Td>{date(i.due_date)}</Td>
+                <Td className="whitespace-nowrap">{money(i.total, i.currency)}</Td>
+                <Td><ApiForm inline submit={prepare(i.invoice_id)}><button className={btn}>Prepare payment</button></ApiForm></Td>
+              </tr>
+            ))}
+          </Table>
+          <Pager param="readyPage" page={readyPage} total={ready.data![0].total_count} />
+        </Card>
+      )}
       <Card
-        title={`Payments: ${tab}`}
+        id="payments"
+        title={`${rows.data?.[0]?.total_count ?? 0} payments`}
         actions={
           <>
-            <Link to="/payments?status=all" className="text-xs link">all</Link>
-            {can(user, "payment.simulate") && <ApiForm submit={simulate}><button className={btnLight}>Run bank simulation</button></ApiForm>}
+            {TABS.map((s) => (
+              <Link key={s} to={withParams(sp, { status: s, page: null })} className="chip" aria-current={s === status}>{s}</Link>
+            ))}
           </>
         }
       >
         <Show load={rows}>
           {(list) => (
-            <Table head={["Payment", "Invoice", "Vendor", "Method", "Amount", "Scheduled", "Paid", "Prepared / released", "Status", ""]} empty="No payments.">
-              {list.map((p) => (
-                <tr key={p.payment_id}>
-                  <Td><A href={`/payments/${p.payment_id}`}>{p.payment_id}</A></Td>
-                  <Td><A href={`/invoices/${p.invoice_id}`}>{p.invoice_id}</A></Td>
-                  <Td>{p.vendor}</Td>
-                  <Td>{p.method}</Td>
-                  <Td className="whitespace-nowrap">{money(p.amount, p.currency)}</Td>
-                  <Td>{date(p.scheduled_date)}</Td>
-                  <Td>{date(p.paid_date)}</Td>
-                  <Td className="text-xs">{p.preparer ?? "—"} / {p.releaser ?? "—"}</Td>
-                  <Td><Status value={p.status} /></Td>
-                  <Td>
-                    {p.status === "scheduled" && can(user, "payment.release") && (
-                      <ApiForm submit={release(p.payment_id)}><button className={btn}>Release</button></ApiForm>
-                    )}
-                  </Td>
-                </tr>
-              ))}
-            </Table>
+            <>
+              <Table head={["Payment", "Invoice", "Vendor", "Method", "Amount", "Scheduled", "Paid", "Prepared / released", "Status", ""]} empty="No payments.">
+                {list.map((p) => (
+                  <tr key={p.payment_id}>
+                    <Td><A href={`/payments/${p.payment_id}`}>{p.payment_id}</A></Td>
+                    <Td><A href={`/invoices/${p.invoice_id}`}>{p.invoice_id}</A></Td>
+                    <Td>{p.vendor}</Td>
+                    <Td>{p.method}</Td>
+                    <Td className="whitespace-nowrap">{money(p.amount, p.currency)}</Td>
+                    <Td>{date(p.scheduled_date)}</Td>
+                    <Td>{date(p.paid_date)}</Td>
+                    <Td className="text-xs">{p.preparer ?? "—"} / {p.releaser ?? "—"}</Td>
+                    <Td><Status value={p.status} /></Td>
+                    <Td>
+                      {p.can_release && <ApiForm submit={release(p.payment_id)} confirm={`Release ${money(p.amount, p.currency)} to ${p.vendor}?`}><button className={btn}>Release</button></ApiForm>}
+                      {p.release_blocked && <span className="text-xs muted">{p.release_blocked}</span>}
+                    </Td>
+                  </tr>
+                ))}
+              </Table>
+              <Pager param="page" page={page} total={list[0]?.total_count ?? 0} />
+            </>
           )}
         </Show>
       </Card>
@@ -82,14 +99,14 @@ export function Payments() {
   );
 }
 
-type PaymentView = { p: PaymentRow; inv: Awaited<ReturnType<typeof getInvoiceRecord>>; gl: { account_number: string; name: string }[] };
+type PaymentView = { p: PaymentRow & { statement: { posted_date: string; description: string; amount: number } | null }; inv: Awaited<ReturnType<typeof getInvoiceRecord>>; gl: { account_number: string; name: string }[] };
 
 // Audit-ready view: payment → bank account paid → invoice → approval chain → accounting codes.
 export function Payment() {
   const user = useUser();
   const { id = "" } = useParams();
   const load = useLoad(async (): Promise<PaymentView> => {
-    const p = await get<PaymentRow>(org(user, `/payments/${id}`));
+    const p = await get<PaymentView["p"]>(org(user, `/payments/${id}`));
     const [inv, gl] = await Promise.all([get<PaymentView["inv"]>(org(user, `/invoices/${p.invoice_id}`)), get<PaymentView["gl"]>(org(user, "/gl-accounts"))]);
     return { p, inv, gl };
   }, id);
@@ -108,7 +125,7 @@ export function Payment() {
           <div className="space-y-5">
             <PageTitle sub={<Status value={p.status} />}>{p.payment_id} · {p.vendor} · {money(p.amount, p.currency)}</PageTitle>
             <div className="grid gap-5 lg:grid-cols-2">
-              <Card title="Payment" actions={p.status === "scheduled" && can(user, "payment.release") && <ApiForm submit={release}><button className={btn}>Release</button></ApiForm>}>
+              <Card title="Payment" actions={p.can_release ? <ApiForm inline submit={release} confirm={`Release ${money(p.amount, p.currency)} to ${p.vendor}?`}><button className={btn}>Release</button></ApiForm> : p.release_blocked && <span className="text-xs muted">{p.release_blocked}</span>}>
                 <dl className="grid grid-cols-2 gap-2 text-sm">
                   <dt className="muted">Method</dt><dd>{p.method}</dd>
                   <dt className="muted">Amount</dt><dd>{money(p.amount, p.currency)}{p.currency !== "CAD" && ` = ${money(p.amount_cad)} at ${p.fx_rate_to_cad}`}</dd>
@@ -118,6 +135,9 @@ export function Payment() {
                   <dt className="muted">Paid</dt><dd>{date(p.paid_date)}</dd>
                   <dt className="muted">Bank account paid</dt><dd>{p.snapshot_account ? `${p.snapshot_institution}-${p.snapshot_transit}-${p.snapshot_account}` : "—"}</dd>
                   <dt className="muted">Reference</dt><dd className="font-mono text-xs">{p.bank_reference ?? p.card_reference ?? "—"}</dd>
+                  {p.cheque_number && <><dt className="muted">Cheque</dt><dd>{p.cheque_number}</dd></>}
+                  <dt className="muted">Statement line</dt>
+                  <dd>{p.statement ? <>{date(p.statement.posted_date)} · <span className="font-mono text-xs">{p.statement.description}</span> · {money(p.statement.amount)}</> : "—"}</dd>
                 </dl>
               </Card>
               <Card title="Invoice">

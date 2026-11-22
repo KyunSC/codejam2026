@@ -2,8 +2,9 @@ import { useEffect } from "react";
 import { Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { can } from "@/lib/authz";
 import type { Organization } from "@/services/organization.service";
+import type { User } from "@/lib/types";
 import { del, get, useLoad } from "./api";
-import { org, useSession } from "./session";
+import { org, useSession, useUser } from "./session";
 import { NavTabs, SubTabs } from "./components/NavTabs";
 import { NotFound, PageTitle } from "./components/ui";
 import { Home } from "./pages/Home";
@@ -12,10 +13,12 @@ import { Dashboard } from "./pages/Dashboard";
 import { Invoices } from "./pages/Invoices";
 import { InvoiceForm, InvoiceUpload } from "./pages/InvoiceIntake";
 import { Invoice } from "./pages/Invoice";
+import { PurchaseOrder, PurchaseOrders } from "./pages/PurchaseOrders";
 import { Payment, Payments } from "./pages/Payments";
 import { NewVendor, Vendor, Vendors } from "./pages/Vendors";
 import { PoliciesSettings, UsersSettings } from "./pages/Settings";
 import { Audit } from "./pages/Audit";
+import { Account } from "./pages/Account";
 import { Organization as OrganizationPage, Organizations } from "./pages/Organizations";
 
 export function App() {
@@ -35,18 +38,23 @@ export function App() {
         <Route path="/invoices/upload" element={<InvoiceUpload />} />
         <Route path="/invoices/form" element={<InvoiceForm />} />
         <Route path="/invoices/:id" element={<Invoice />} />
+        <Route path="/purchase-orders" element={<PurchaseOrders />} />
+        <Route path="/purchase-orders/:id" element={<PurchaseOrder />} />
         <Route path="/payments" element={<Payments />} />
         <Route path="/payments/:id" element={<Payment />} />
         <Route path="/vendors" element={<Vendors />} />
         <Route path="/vendors/new" element={<NewVendor />} />
         <Route path="/vendors/:id" element={<Vendor />} />
         <Route path="/settings" element={<SettingsLayout />}>
-          <Route index element={<Navigate to="/settings/users" replace />} />
+          <Route index element={<SettingsHome />} />
           <Route path="users" element={<UsersSettings />} />
           <Route path="policies" element={<PoliciesSettings />} />
+          <Route path="audit" element={<Audit />} />
         </Route>
-        <Route path="/audit" element={<Audit />} />
         <Route path="*" element={<NotFound />} />
+      </Route>
+      <Route path="/account" element={<AccountLayout />}>
+        <Route index element={<Account />} />
       </Route>
       <Route element={<BrimLayout />}>
         <Route path="/organizations" element={<Organizations />} />
@@ -69,6 +77,24 @@ function LogoutButton() {
 }
 
 // An organization user's workspace: organization name, the user, and the tabs their role may open.
+// Scrolls to the section a link points to (#id), waiting for the page to load it.
+function ScrollToSection() {
+  const { pathname, search, hash } = useLocation();
+  useEffect(() => {
+    if (!hash) return;
+    let tries = 0;
+    const timer = setInterval(() => {
+      const el = document.getElementById(hash.slice(1));
+      if (el || ++tries > 40) {
+        clearInterval(timer);
+        el?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }, 100);
+    return () => clearInterval(timer);
+  }, [pathname, search, hash]);
+  return null;
+}
+
 function WorkspaceLayout() {
   const { user, loading } = useSession();
   const orgLoad = useLoad(() => (user ? get<Organization>(org(user)) : Promise.resolve(null)), user?.user_id ?? "");
@@ -78,10 +104,11 @@ function WorkspaceLayout() {
   const tabs = [
     { href: "/dashboard", label: "Dashboard", match: "/dashboard" },
     { href: "/invoices", label: "Invoices", match: "/invoices" },
+    { href: "/purchase-orders", label: "Purchase orders", match: "/purchase-orders" },
     ...(can(user, "payment.view") ? [{ href: "/payments", label: "Payments", match: "/payments" }] : []),
     ...(can(user, "vendor.view") ? [{ href: "/vendors", label: "Vendors", match: "/vendors" }] : []),
-    ...(can(user, "audit.view") ? [{ href: "/audit", label: "Audit", match: "/audit" }] : []),
-    ...(can(user, "users.manage") ? [{ href: "/settings/users", label: "Settings", match: "/settings" }] : []),
+    { href: "/account", label: "Account", match: "/account" },
+    ...(settingsTabs(user).length ? [{ href: "/settings", label: "Settings", match: "/settings" }] : []),
   ];
   return (
     <div className="flex min-h-screen flex-col">
@@ -102,25 +129,43 @@ function WorkspaceLayout() {
         </div>
       </header>
       <main className="mx-auto w-full max-w-[1240px] flex-1 px-4 py-8 sm:px-5">
+        <ScrollToSection />
         <Outlet />
       </main>
     </div>
   );
 }
 
+// The settings pages the user's role may open.
+const settingsTabs = (user: User) => [
+  ...(can(user, "users.manage") ? [{ href: "/settings/users", label: "Users", match: "/settings/users" }] : []),
+  ...(can(user, "policies.manage") ? [{ href: "/settings/policies", label: "Approval policies", match: "/settings/policies" }] : []),
+  ...(can(user, "audit.view") ? [{ href: "/settings/audit", label: "Audit", match: "/settings/audit" }] : []),
+];
+
 function SettingsLayout() {
+  const user = useUser();
   return (
     <div>
       <PageTitle>Settings</PageTitle>
-      <SubTabs
-        items={[
-          { href: "/settings/users", label: "Users", match: "/settings/users" },
-          { href: "/settings/policies", label: "Approval policies", match: "/settings/policies" },
-        ]}
-      />
+      <SubTabs items={settingsTabs(user)} />
       <Outlet />
     </div>
   );
+}
+
+// /settings opens the first settings page the user may see.
+function SettingsHome() {
+  const first = settingsTabs(useUser())[0];
+  return first ? <Navigate to={first.href} replace /> : <NotFound />;
+}
+
+// The account page sits in the header of whichever side the user signs in to.
+function AccountLayout() {
+  const { user, loading } = useSession();
+  if (loading) return null;
+  if (!user) return <Navigate to="/login" replace />;
+  return user.role === "brim_employee" ? <BrimLayout /> : <WorkspaceLayout />;
 }
 
 // Brim operations: the organizations.
@@ -137,7 +182,10 @@ function BrimLayout() {
             <span className="text-[17px] font-bold">Brim</span>
             <span className="muted text-sm">Operations</span>
           </Link>
-          <nav className="text-sm font-bold"><Link to="/organizations" className="no-underline">Organizations</Link></nav>
+          <nav className="flex gap-4 text-sm font-bold">
+            <Link to="/organizations" className="no-underline">Organizations</Link>
+            <Link to="/account" className="no-underline">Account</Link>
+          </nav>
           <div className="ml-auto flex items-center gap-3 text-sm">
             <span className="font-bold">{user.full_name}</span>
             <LogoutButton />

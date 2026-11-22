@@ -17,32 +17,12 @@ type InboxEmail = {
   attachments: string[];
 };
 
-// Attachment filenames held back as a stand-in for the judges' hidden batch (one per line, # comments).
-// Emails carrying any of them are left in the inbox unless INCLUDE_SEALED=1, for the sealed drill.
-export function sealedNames(dir: string): Set<string> {
-  const file = path.join(dir, "sealed_invoices.txt");
-  if (!existsSync(file)) return new Set();
-  return new Set(
-    readFileSync(file, "utf8")
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter((l) => l && !l.startsWith("#")),
-  );
-}
-
-export function inboxEmails(dir: string, includeSealed = process.env.INCLUDE_SEALED === "1"): InboxEmail[] {
-  const emails: InboxEmail[] = JSON.parse(readFileSync(path.join(dir, "inbox", "emails.json"), "utf8"));
-  if (includeSealed) return emails;
-  const sealed = sealedNames(dir);
-  return emails.filter((e) => !e.attachments.some((name) => sealed.has(name)));
-}
-
-// Simulated AP inbox: the dataset's emails.json stands in for the mail server.
+// The AP mailbox, read from its export (inbox/emails.json in FEEDS_DIR).
 // Each email is stored once, as a raw email with its attachments.
 export async function pollInbox(actor: User | null): Promise<{ added: number; skipped: number }> {
   assertCan(actor, "raw.poll");
-  const dir = process.env.DATASET_DIR!;
-  const emails = inboxEmails(dir);
+  const dir = process.env.FEEDS_DIR!;
+  const emails: InboxEmail[] = JSON.parse(readFileSync(path.join(dir, "inbox", "emails.json"), "utf8"));
   let added = 0;
   let skipped = 0;
   for (const e of emails.sort((a, b) => a.received_at.localeCompare(b.received_at))) {

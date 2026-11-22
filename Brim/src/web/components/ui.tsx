@@ -1,12 +1,13 @@
 import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { ApiError, type Loaded } from "../api";
 
-export const date = (s: string | null | undefined) => (s ? String(s).slice(0, 10) : "—");
+// A date column (YYYY-MM-DD) as it is; a timestamp as its date where the user is.
+export const date = (s: string | null | undefined) => (!s ? "—" : String(s).length <= 10 ? String(s) : new Date(s).toLocaleDateString("en-CA"));
 export const dateTime = (s: string | null | undefined) => (s ? new Date(s).toLocaleString("en-CA", { dateStyle: "medium", timeStyle: "short" }) : "—");
 
-export function Card({ title, actions, children, className = "" }: { title?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode; className?: string }) {
+export function Card({ title, actions, children, className = "", id }: { title?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode; className?: string; id?: string }) {
   return (
-    <section className={`card ${className}`}>
+    <section id={id} className={`card scroll-mt-28 ${className}`}>
       {(title || actions) && (
         <header className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-border px-5 py-3">
           <h2 className="heading text-lg leading-none">{title}</h2>
@@ -80,6 +81,16 @@ export function Field({ label, children }: { label: string; children: React.Reac
   );
 }
 
+// The fields a form can do without, under their own heading after the essential ones.
+export function OptionalFields({ children, className = "grid grid-cols-2 gap-2 sm:grid-cols-3" }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className="col-span-full space-y-2 border-t border-line pt-3">
+      <p className="label muted m-0 text-xs">Optional</p>
+      <div className={className}>{children}</div>
+    </div>
+  );
+}
+
 export function PageTitle({ children, sub }: { children: React.ReactNode; sub?: React.ReactNode }) {
   return (
     <div className="mb-6">
@@ -108,6 +119,9 @@ export function withParams(sp: URLSearchParams, set: Record<string, string | nul
 }
 
 // Previous / next links for one list; keeps the screen's other query parameters.
+// One page of a list the page already holds, for lists built in the browser.
+export const pageOf = <T,>(list: T[], page: number, size = PAGE_SIZE) => list.slice((page - 1) * size, page * size);
+
 export function Pager({ param, page, total, size = PAGE_SIZE }: { param: string; page: number; total: number; size?: number }) {
   const [sp] = useSearchParams();
   const pages = Math.max(1, Math.ceil(total / size));

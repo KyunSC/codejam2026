@@ -25,7 +25,8 @@ CREATE TABLE users (
   department_id      text REFERENCES departments,
   manager_id         text REFERENCES users,
   role               text NOT NULL CHECK (role IN ('brim_employee','employee','ap_clerk','approver','finance_manager','controller_admin','auditor')),
-  approval_limit_cad numeric(14,2) NOT NULL DEFAULT 0,
+  -- the most this person may approve, whatever the policy; empty: no personal cap, only the policies apply
+  approval_limit_cad numeric(14,2),
   work_province      text,
   status             text NOT NULL DEFAULT 'active' CHECK (status IN ('active','on_leave','terminated')),
   status_since       date,
@@ -33,6 +34,24 @@ CREATE TABLE users (
 );
 
 ALTER TABLE departments ADD FOREIGN KEY (manager_user_id) REFERENCES users DEFERRABLE INITIALLY DEFERRED;
+
+-- Kept apart from users so that no read of users, nor the audit log of a user change, can carry a password hash.
+CREATE TABLE user_passwords (
+  user_id       text PRIMARY KEY REFERENCES users,
+  password_hash text NOT NULL,
+  updated_at    timestamptz NOT NULL DEFAULT now()
+);
+
+-- Personal access tokens: an employee's agent signs in with one. Only a hash is kept; the token is shown once.
+CREATE TABLE api_tokens (
+  token_id     text PRIMARY KEY,
+  user_id      text NOT NULL REFERENCES users,
+  name         text NOT NULL,
+  token_hash   text NOT NULL UNIQUE,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  last_used_at timestamptz,
+  revoked_at   timestamptz
+);
 
 CREATE TABLE gl_accounts (
   account_number  text NOT NULL,
@@ -42,13 +61,15 @@ CREATE TABLE gl_accounts (
   PRIMARY KEY (organization_id, account_number)
 );
 
+-- When [field] [operator] [value], require [required]. The fields, operators and roles each type allows are in src/lib/policies.ts.
 CREATE TABLE approval_policies (
   rule_id         text NOT NULL,
   organization_id text NOT NULL REFERENCES organizations,
-  rule_type       text NOT NULL CHECK (rule_type IN ('approval','payment_release','match')),
-  trigger_type    text NOT NULL,
-  trigger_value   numeric(14,2),
-  step_role       text,
+  rule_type       text NOT NULL CHECK (rule_type IN ('approval','match','payment_release')),
+  field           text NOT NULL,
+  operator        text NOT NULL CHECK (operator IN ('<=','>','is','in','always')),
+  value           text,
+  required        text[] NOT NULL,
   is_active       boolean NOT NULL DEFAULT true,
   updated_by      text REFERENCES users,
   updated_at      timestamptz NOT NULL DEFAULT now(),
@@ -74,9 +95,11 @@ CREATE TABLE vendors (
   bank_transit             text,
   bank_account             text,
   ap_contact_email         text,
+  phone                    text,
   requires_po              boolean NOT NULL DEFAULT false,
   status                   text NOT NULL DEFAULT 'pending_review' CHECK (status IN ('active','pending_review','on_hold')),
   onboarded_at             date,
+  onboarded_by             text REFERENCES users,
   approved_by              text REFERENCES users
 );
 
@@ -135,8 +158,10 @@ CREATE TABLE raw_items (
   files             jsonb NOT NULL DEFAULT '[]',
   form_json         jsonb,
   submitted_by      text REFERENCES users,
-  status            text NOT NULL DEFAULT 'new' CHECK (status IN ('new','extracted','no_invoice')),
+  -- new: waiting to be read; failed: reading failed (failure_reason), retried on the next poll
+  status            text NOT NULL DEFAULT 'new' CHECK (status IN ('new','extracted','no_invoice','failed')),
   no_invoice_reason text,
+  failure_reason    text,
   extracted_by      text REFERENCES users,
   extracted_at      timestamptz,
   source_ref        text,
@@ -225,7 +250,8 @@ CREATE TABLE approvals (
   rule_id              text,
   assigned_user_id     text REFERENCES users,
   original_user_id     text REFERENCES users,
-  reassign_reason      text CHECK (reassign_reason IN ('delegate','requester_is_approver','terminated')),
+  -- over_limit: the invoice is above the assignee's own approval limit, so the step went to their manager
+  reassign_reason      text CHECK (reassign_reason IN ('delegate','requester_is_approver','terminated','over_limit')),
   status               text NOT NULL CHECK (status IN ('waiting','pending','approved','rejected')),
   acted_by             text REFERENCES users,
   on_behalf_of_user_id text REFERENCES users,
@@ -255,7 +281,27 @@ CREATE TABLE payments (
   snapshot_account     text,
   bank_reference       text,
   card_reference       text,
+  -- a cheque's number, given when it is issued; the bank statement reports it when the cheque clears
+  cheque_number        integer,
   failure_reason       text
+);
+
+-- What the bank and the card feed report: bank statement lines (EFT payments, cleared cheques, fees) and virtual card charges.
+-- A line that settles a payment points to it.
+CREATE TABLE statement_lines (
+  line_id         text PRIMARY KEY,
+  organization_id text NOT NULL REFERENCES organizations,
+  source          text NOT NULL CHECK (source IN ('bank','card')),
+  posted_date     date NOT NULL,
+  description     text NOT NULL,
+  -- money out, in CAD
+  amount          numeric(14,2) NOT NULL,
+  -- what it is, read from the line: an EFT payment (reference: the last 6 digits of the payment's), a cleared cheque (its number),
+  -- a virtual card charge (the card), or anything else, such as a bank fee
+  kind            text NOT NULL CHECK (kind IN ('eft','cheque','card','other')),
+  reference       text,
+  payment_id      text REFERENCES payments,
+  imported_at     timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE audit_events (
@@ -273,7 +319,9 @@ CREATE TABLE audit_events (
   vendor_id            text,
   before_json          jsonb,
   after_json           jsonb,
-  note                 text
+  note                 text,
+  -- where the action came from: the website and REST API ("web"), or an employee's agent through MCP ("agent")
+  channel              text NOT NULL DEFAULT 'web'
 );
 
 -- The audit log is append-only.
@@ -283,8 +331,6 @@ BEGIN
 END $$ LANGUAGE plpgsql;
 CREATE TRIGGER audit_events_no_change BEFORE UPDATE OR DELETE ON audit_events
   FOR EACH ROW EXECUTE FUNCTION audit_events_append_only();
-
-CREATE SEQUENCE id_seq START 1000;
 
 -- The one Brim employee who creates organizations.
 INSERT INTO users (user_id, full_name, email, title, role)

@@ -6,20 +6,7 @@ Accounts payable for Brim business card customers: an Express API over Postgres,
 - `src/services` — business rules and permissions.
 - `src/lib` — database, auth, permissions, shared helpers.
 - `src/web` — the React app; it reaches the server only through `/api`.
-- `scripts` — database reset and the dataset loader, which calls the API.
-
-## Setup
-
-Needs Node 24 (`mise install` reads `mise.toml`) and a local Postgres.
-
-```bash
-npm install
-createdb brim_ap
-cp .env.example .env.local   # then fill it in: SESSION_SECRET, and ANTHROPIC_API_KEY for extraction
-./scripts/reset-db.sh        # loads db/schema.sql into the database named in DATABASE_URL
-```
-
-The server checks `.env.local` at startup and exits naming any missing setting.
+- `scripts` — database reset, the loader for Harborline's existing records, and `bank.ts`, which plays the bank outside the app.
 
 ## Run
 
@@ -29,32 +16,33 @@ npm run dev
 
 Express serves the API and, in development, the React app through Vite on http://localhost:3000.
 
-Load the dataset (with the server running):
+Every loaded account, and the Brim employee `ops@brim.example`, gets the password in `DEMO_PASSWORD` in `.env.local`.
+
+Load Harborline's existing records, then poll the AP inbox (the last step needs the server running):
 
 ```bash
-npx tsx scripts/ingest.ts setup     # organization, people, vendors, POs, contracts
-npx tsx scripts/ingest.ts history   # past invoices, approvals and payments
-npx tsx scripts/ingest.ts inbox     # poll the simulated AP inbox
+./scripts/reset-db.sh && npx tsx scripts/ingest.ts setup && npx tsx scripts/ingest.ts history && npx tsx scripts/ingest.ts inbox
 ```
 
-To start over, run `./scripts/reset-db.sh` again before `setup`.
+## Payments and the bank
 
-For production: `npm run build`, then `npm start`.
-
-## Signing in
-
-Sign-in is by email only, with no password (demo). The login page lists the demo accounts. The Brim operator account, `ops@brim.example`, creates organizations and runs setup.
-
-## Sealed invoices
-
-`brim_ap_dataset/sealed_invoices.txt` lists 15 incoming files held back as a stand-in for the judges' hidden batch. The inbox poll skips the emails that carry them unless the server runs with `INCLUDE_SEALED=1`. Don't open those files. See `AGENTS.md`.
-
-## Checks
+Releasing a payment sends it to the bank: its instruction goes to `BANK_DIR/outbox`. The bank answers with statement lines and virtual card charges in `BANK_DIR`; outside the app, `scripts/bank.ts` gives those answers for every instruction due by the business date:
 
 ```bash
-npm run typecheck
-npm run lint
-npm run build
+npx tsx scripts/bank.ts
 ```
 
-CI (`.github/workflows/brim-ci.yml`) runs these and loads `db/schema.sql` into Postgres.
+The app takes those in every minute and settles each payment a line confirms.
+
+## Agents (MCP)
+
+Employees can let an AI agent work in the app for them. The MCP server is at `/mcp` (Streamable HTTP).
+
+1. Log in, open the Account tab, and create a token under Agent access. It is shown once.
+2. Add the server to your agent, for example Claude Code:
+
+```bash
+claude mcp add --transport http brim-ap http://localhost:3000/mcp --header "Authorization: Bearer brim_…"
+```
+
+The agent acts as you: it is offered only the tools your role allows, the same rules apply as in the website, and every action it takes is marked "agent" in the audit log. Revoke the token on the Account page to cut it off. The same token also works as `Authorization: Bearer` on the REST API.

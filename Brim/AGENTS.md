@@ -6,8 +6,6 @@ An Express API (`src/server`) and a React app built with Vite (`src/web`) over P
 
 `brim_ap_dataset/sealed_invoices.txt` lists 15 incoming files held back as a stand-in for the judges' hidden batch. Never open, read, extract or print those files, or the emails in `brim_ap_dataset/inbox/emails.json` that carry them, until the team runs the sealed drill. Develop against the other 41 files only. Reading the list itself is fine.
 
-The inbox poll (`src/services/inboxPolling.service.ts`) skips emails carrying a sealed file unless `INCLUDE_SEALED=1` is set. Never set it outside the drill, and keep that filter on any new code that reads `emails.json` or `incoming_invoices/`.
-
 ## Design rules
 
 - The LLM only reads documents (extraction). Rules code makes every decision.

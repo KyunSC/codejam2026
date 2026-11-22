@@ -7,11 +7,11 @@ export async function poChecks(ctx: CheckContext): Promise<Flag[]> {
   const flags: Flag[] = [];
   if (!d.po_id) {
     if (vendor?.requires_po) {
-      const candidates = d.po_candidates?.length ? ` Open POs for this vendor: ${d.po_candidates.join(", ")}.` : " The vendor has no open PO.";
-      flags.push({ check_code: "po_missing", category: "po", severity: "blocking", message: `${vendor.legal_name} requires a PO and none is on the invoice (policy P13: hold).${candidates}` });
+      const candidates = d.po_candidates?.length ? ` Open purchase orders for this vendor: ${d.po_candidates.join(", ")}.` : " The vendor has no open purchase order.";
+      flags.push({ check_code: "po_missing", category: "po", severity: "warning", message: `${vendor.legal_name} requires a purchase order and none is on the invoice.${candidates}` });
     }
     if (d.po_reference) {
-      flags.push({ check_code: "po_not_found", category: "po", severity: "blocking", message: `PO "${d.po_reference}" printed on the invoice does not exist.` });
+      flags.push({ check_code: "po_not_found", category: "po", severity: "blocking", message: `Purchase order "${d.po_reference}" printed on the invoice does not exist.` });
     }
     return flags;
   }
@@ -38,7 +38,7 @@ export async function poChecks(ctx: CheckContext): Promise<Flag[]> {
       check_code: "po_over_balance",
       category: "po",
       severity: "warning",
-      message: `Subtotal ${money(d.subtotal)} is above ${po.po_id}'s remaining balance of ${money(remaining)} (policy P12: the finance manager is added).`,
+      message: `Subtotal ${money(d.subtotal)} is above ${po.po_id}'s remaining balance of ${money(remaining)}.`,
       evidence: { expected: remaining, found: d.subtotal },
     });
   }

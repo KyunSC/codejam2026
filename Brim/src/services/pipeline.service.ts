@@ -1,9 +1,9 @@
 import { ConflictError, NotFoundError } from "@/lib/errors";
 import { tx, query, one, nextId, Db } from "@/lib/db";
-import { assertCan, assertMember } from "@/lib/authz";
+import { assertMember } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 import type { InvoiceData, User } from "@/lib/types";
-import { getRawItem, RawItem } from "./rawIntake.service";
+import type { RawItem } from "./rawIntake.service";
 import { inspectFile } from "./fileInspection.service";
 import { classifyEmail, extractDocument, toInvoiceData, EXTRACTION_MODEL } from "./extraction.service";
 import { resolve } from "./resolution.service";
@@ -12,19 +12,21 @@ import type { Flag } from "./checks/types";
 
 type Found = { file_name: string | null; sha256: string | null; data: InvoiceData; language: string | null; model: string | null; extra: Flag[] };
 
-const EMPTY: InvoiceData = {
+// an invoice with nothing read yet; a form fills in what it has
+export const EMPTY: InvoiceData = {
   document_type: "invoice", vendor_name: null, vendor_address: null, vendor_gst_hst_number: null, vendor_qst_number: null,
   vendor_invoice_number: null, invoice_date: null, due_date: null, payment_terms: null, po_reference: null, credit_note_reference: null,
   bill_to_name: null, bill_to_address: null, bill_to_tax_number: null, currency: "CAD", subtotal: null, taxes: [], total: null,
   remit_institution: null, remit_transit: null, remit_account: null, remit_note: null, lines: [],
 };
 
-// Step 2: the Extract button. Steps 3–5 follow for each invoice found.
-export async function extract(actor: User | null, organizationId: string, rawItemId: string): Promise<{ parsed: string[]; noInvoice?: string }> {
-  assertCan(actor, actor?.role === "brim_employee" ? "org.manage" : "raw.extract");
-  const raw = await getRawItem(actor, organizationId, rawItemId);
+// Step 2, run by the system as soon as a raw item is stored: a form is already an invoice; an upload or an email's attachments
+// are read by Claude. Steps 3–5 follow for each invoice found. A raw item that failed before is read again.
+export async function readRawItem(organizationId: string, rawItemId: string): Promise<{ parsed: string[]; noInvoice?: string }> {
+  const raw = await one<RawItem>("SELECT * FROM raw_items WHERE raw_item_id=$1 AND organization_id=$2", [rawItemId, organizationId]);
   if (!raw) throw new NotFoundError("No such raw item");
-  if (raw.status !== "new") throw new ConflictError("Already extracted");
+  if (raw.status !== "new" && raw.status !== "failed") throw new ConflictError("Already read");
+  const actor = null;
 
   const found: Found[] = [];
   let noInvoice: string | null = null;
@@ -36,6 +38,7 @@ export async function extract(actor: User | null, organizationId: string, rawIte
     noInvoice = `${c.category.replace(/_/g, " ")}: ${c.reason}`;
   } else {
     const reasons: string[] = [];
+    const email = raw.kind === "email" ? { from: [raw.from_name, raw.from_address && `<${raw.from_address}>`].filter(Boolean).join(" "), subject: raw.subject, body: raw.body } : undefined;
     for (const f of raw.files) {
       const ins = inspectFile(f);
       if (!ins.readable) {
@@ -43,7 +46,7 @@ export async function extract(actor: User | null, organizationId: string, rawIte
           extra: [{ check_code: "file_unreadable", category: "extraction", severity: "blocking", message: `${ins.reason}. Open the raw item and enter the invoice by hand.` }] });
         continue;
       }
-      const e = await extractDocument(ins.kind, ins.bytes);
+      const e = await extractDocument(ins.kind, ins.bytes, email);
       if (!e.is_invoice) {
         reasons.push(`${f.file_name}: ${e.not_invoice_reason ?? "not an invoice"}`);
         continue;
@@ -55,7 +58,7 @@ export async function extract(actor: User | null, organizationId: string, rawIte
 
   return tx(async (c) => {
     if (noInvoice) {
-      await query("UPDATE raw_items SET status='no_invoice', no_invoice_reason=$2, extracted_by=$3, extracted_at=now() WHERE raw_item_id=$1", [raw.raw_item_id, noInvoice, actor.user_id], c);
+      await query("UPDATE raw_items SET status='no_invoice', no_invoice_reason=$2, failure_reason=NULL, extracted_at=now() WHERE raw_item_id=$1", [raw.raw_item_id, noInvoice], c);
       await writeAudit(c, { organizationId: raw.organization_id, actor, action: "raw_item.no_invoice", entityType: "raw_item", entityId: raw.raw_item_id, note: noInvoice });
       return { parsed: [], noInvoice };
     }
@@ -72,13 +75,14 @@ export async function extract(actor: User | null, organizationId: string, rawIte
       await writeAudit(c, { organizationId: raw.organization_id, actor, action: "parsed_invoice.create", entityType: "parsed_invoice", entityId: id, note: f.file_name });
       ids.push(id);
     }
-    await query("UPDATE raw_items SET status='extracted', extracted_by=$2, extracted_at=now() WHERE raw_item_id=$1", [raw.raw_item_id, actor.user_id], c);
+    await query("UPDATE raw_items SET status='extracted', failure_reason=NULL, extracted_at=now() WHERE raw_item_id=$1", [raw.raw_item_id], c);
     return { parsed: ids };
   });
 }
 
-// Steps 3–5 on one parsed invoice.
-export async function resolveAndCheck(db: Db, parsedInvoiceId: string, raw: RawItem, data: InvoiceData, extra: Flag[] = []) {
+// Steps 3–5 on one parsed invoice. When it turns out to be part of a split, the other pending invoices of the split are checked again,
+// so each of them is flagged too, not only the last one read.
+export async function resolveAndCheck(db: Db, parsedInvoiceId: string, raw: RawItem, data: InvoiceData, extra: Flag[] = [], recheckSplit = true) {
   const p = await one<{ sha256: string | null }>("SELECT sha256 FROM parsed_invoices WHERE parsed_invoice_id=$1", [parsedInvoiceId], db);
   const resolved = await resolve(db, raw.organization_id, data, raw);
   await query("UPDATE parsed_invoices SET invoice_json=$2 WHERE parsed_invoice_id=$1", [parsedInvoiceId, JSON.stringify(resolved)], db);
@@ -86,7 +90,13 @@ export async function resolveAndCheck(db: Db, parsedInvoiceId: string, raw: RawI
   const keepExtraction = extra.length
     ? extra
     : (await query<Flag & { evidence_json: unknown }>("SELECT check_code, category, severity, message FROM invoice_flags WHERE parsed_invoice_id=$1 AND category='extraction'", [parsedInvoiceId], db));
-  await runChecks(ctx, keepExtraction);
+  const flags = await runChecks(ctx, keepExtraction);
+  const partners = recheckSplit ? ((flags.find((f) => f.check_code === "split_invoice")?.evidence?.related ?? []) as string[]).filter((r) => r.startsWith("PRS-")) : [];
+  for (const id of partners) {
+    const p = await one<{ invoice_json: InvoiceData; raw_item_id: string }>("SELECT invoice_json, raw_item_id FROM parsed_invoices WHERE parsed_invoice_id=$1 AND status='pending'", [id], db);
+    const pRaw = p && (await one<RawItem>("SELECT * FROM raw_items WHERE raw_item_id=$1", [p.raw_item_id], db));
+    if (p && pRaw) await resolveAndCheck(db, id, pRaw, p.invoice_json, [], false);
+  }
   return resolved;
 }
 

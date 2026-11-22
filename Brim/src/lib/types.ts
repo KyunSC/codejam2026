@@ -16,7 +16,7 @@ export type User = {
   department_id: string | null;
   manager_id: string | null;
   role: Role;
-  approval_limit_cad: number;
+  approval_limit_cad: number | null;
   work_province: string | null;
   status: "active" | "on_leave" | "terminated";
   status_since: string | null;

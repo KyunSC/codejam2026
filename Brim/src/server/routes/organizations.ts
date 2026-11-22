@@ -1,16 +1,17 @@
 import { Router } from "express";
 import type { Action } from "@/lib/authz";
 import {
-  createOrganization, createUser, deleteUser, getOrganization, getOrgUser, listOrganizations, listUsers, updateOrganization, updateUser,
+  createOrganization, createUser, deleteUser, getOrganization, getOrgUser, listOrganizations, listUserChoices, listUsers, updateOrganization, updateUser,
 } from "@/services/organization.service";
 import { createRecord, deleteRecord, getRecord, listRecords, updateRecord, type RecordKind } from "@/services/records.service";
 import { departmentSpend } from "@/services/read.service";
-import { route } from "../http";
+import { pagingOf, route } from "../http";
 
 // /api/organizations: the organization list for Brim employees.
 export const organizations = Router();
 organizations.get("/", route(async ({ user }) => listOrganizations(user), { gate: "org.manage", brim: "org.manage" }));
-organizations.post("/", route(async ({ user, body }) => ({ id: await createOrganization(user, body as { legal_name: string }) }), { gate: "org.manage", brim: "org.manage" }));
+// Creates the organization with its first department and admin.
+organizations.post("/", route(async ({ user, body }) => createOrganization(user, body as Parameters<typeof createOrganization>[1]), { gate: "org.manage", brim: "org.manage" }));
 
 // /api/organizations/:orgId: the organization, its users and its simple records.
 export const organization = Router({ mergeParams: true });
@@ -24,15 +25,17 @@ organization.patch("/", route(async ({ user, params, body }) => {
 // Invoice spend in CAD by department and month, for the three months up to today.
 organization.get("/department-spend", route(async ({ user, params }) => departmentSpend(user, params.orgId)));
 
-organization.get("/users", route(async ({ user, params }) => listUsers(user, params.orgId)));
-organization.post("/users", route(async ({ user, params, body }) => ({ id: await createUser(user, params.orgId, body) }), { gate: "users.manage", brim: "users.manage" }));
+organization.get("/users", route(async ({ user, params, query }) => listUsers(user, params.orgId, pagingOf(query))));
+// Everyone's name, role and status, for picking a person.
+organization.get("/user-choices", route(async ({ user, params }) => listUserChoices(user, params.orgId)));
+organization.post("/users", route(async ({ user, params, body }) => ({ id: await createUser(user, params.orgId, body) }), { gate: "users.manage" }));
 organization.get("/users/:id", route(async ({ user, params }) => getOrgUser(user, params.orgId, params.id)));
 organization.patch("/users/:id", route(async ({ user, params, body }) => {
   await updateUser(user, params.orgId, params.id, body);
   return getOrgUser(user, params.orgId, params.id);
-}, { gate: "users.manage", brim: "users.manage" }));
+}, { gate: "users.manage" }));
 // Marks the user terminated; the records they appear on keep their name.
-organization.delete("/users/:id", route(async ({ user, params }) => deleteUser(user, params.orgId, params.id), { gate: "users.manage", brim: "users.manage" }));
+organization.delete("/users/:id", route(async ({ user, params }) => deleteUser(user, params.orgId, params.id), { gate: "users.manage" }));
 
 // Plain create / read / update / delete records: path, record kind, and the action that may change them.
 const RECORDS: [string, RecordKind, Action][] = [
@@ -43,7 +46,7 @@ const RECORDS: [string, RecordKind, Action][] = [
   ["policies", "approval_policies", "policies.manage"],
 ];
 for (const [path, kind, action] of RECORDS) {
-  const gate = { gate: action, brim: action };
+  const gate = { gate: action };
   organization.get(`/${path}`, route(async ({ user, params, query }) => listRecords(user, params.orgId, kind, Object.fromEntries(query))));
   organization.post(`/${path}`, route(async ({ user, params, body }) => ({ id: await createRecord(user, params.orgId, kind, body) }), gate));
   organization.get(`/${path}/:id`, route(async ({ user, params }) => getRecord(user, params.orgId, kind, params.id)));

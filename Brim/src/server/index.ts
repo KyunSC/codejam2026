@@ -7,14 +7,14 @@ const ROOT = path.resolve(import.meta.dirname, "../..");
 const envFile = path.join(ROOT, ".env.local");
 if (existsSync(envFile)) process.loadEnvFile(envFile);
 
-const REQUIRED = ["DATABASE_URL", "SESSION_SECRET", "DATASET_DIR", "STORAGE_DIR", "AS_OF_DATE"];
+const REQUIRED = ["DATABASE_URL", "SESSION_SECRET", "FEEDS_DIR", "STORAGE_DIR", "BANK_DIR", "AS_OF_DATE"];
 const missing = REQUIRED.filter((k) => !process.env[k]);
 if (missing.length) {
   console.error(`Missing required settings: ${missing.join(", ")}. Copy .env.example to .env.local and fill them in.`);
   process.exit(1);
 }
-// Dataset and storage paths are relative to Brim/, whatever directory the server starts from.
-for (const k of ["DATASET_DIR", "STORAGE_DIR"]) process.env[k] = path.resolve(ROOT, process.env[k]!);
+// Feed, storage and bank paths are relative to Brim/, whatever directory the server starts from.
+for (const k of ["FEEDS_DIR", "STORAGE_DIR", "BANK_DIR"]) process.env[k] = path.resolve(ROOT, process.env[k]!);
 
 // Loaded after the environment, since the database pool reads it when imported.
 const { errors } = await import("./http");
@@ -24,6 +24,7 @@ const { vendors } = await import("./routes/vendors");
 const { invoices } = await import("./routes/invoices");
 const { payments } = await import("./routes/payments");
 const { audit } = await import("./routes/audit");
+const { mcp } = await import("./mcp");
 
 const app = express();
 app.use(cookieParser());
@@ -39,6 +40,9 @@ api.use((_req, res) => {
 api.use(errors);
 app.use("/api", api);
 
+// The MCP server for employees' agents.
+app.use("/mcp", express.json({ limit: "5mb" }), mcp);
+
 // The React app: served by Vite with hot reload in development, from the build in production.
 if (process.env.NODE_ENV === "production") {
   const dist = path.join(ROOT, "dist");
@@ -52,3 +56,13 @@ if (process.env.NODE_ENV === "production") {
 
 const port = Number(process.env.PORT ?? 3000);
 app.listen(port, () => console.log(`http://localhost:${port}`));
+
+// raw items stored but not read before the last stop
+const { resumeReading } = await import("@/services/intake.service");
+void resumeReading();
+
+// what the bank reports is taken in every minute, so payments settle on their own
+const { importStatements } = await import("@/services/statement.service");
+const importBank = () => importStatements().catch((e) => console.error("bank statement import failed:", e instanceof Error ? e.message : e));
+void importBank();
+setInterval(importBank, 60_000);

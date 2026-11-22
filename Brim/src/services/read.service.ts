@@ -1,4 +1,5 @@
 import { query, one } from "@/lib/db";
+import { today } from "@/lib/dates";
 import { assertMember, authorize, can, invoiceScope } from "@/lib/authz";
 import { NotFoundError } from "@/lib/errors";
 import { window, type Paging } from "@/lib/paging";
@@ -6,6 +7,7 @@ import type { InvoiceData, InvoiceLine, User } from "@/lib/types";
 import { canActOn, pendingForUserSql } from "./approval.service";
 import { getParsed } from "./pipeline.service";
 import { getRawItem, type RawItem } from "./rawIntake.service";
+import { releaseBlocks } from "./payment.service";
 
 // Read side shared by the API and the pages: each list and record has one function, limited to what the user may see.
 
@@ -14,28 +16,28 @@ import { getRawItem, type RawItem } from "./rawIntake.service";
 export type RawItemRow = {
   total_count: number; raw_item_id: string; kind: string; received_at: string; from_name: string | null; from_address: string | null; subject: string | null;
   files: { file_name: string }[]; form_json: InvoiceData | null; submitted_by: string | null; submitter: string | null; status: string; no_invoice_reason: string | null;
+  failure_reason: string | null;
 };
 
-// Raw items not yet extracted come first. Those who do not see all invoices see only what they submitted.
+// Raw items not yet extracted come first. The AP clerk sees them all; everyone else sees only what they submitted.
 export async function listRawItems(user: User | null, organizationId: string, f: Paging & { kind?: string | null; status?: string | null } = {}) {
   assertMember(user, organizationId);
   const { limit, offset } = window(f);
   return query<RawItemRow>(
     `SELECT r.raw_item_id, r.kind, r.received_at, r.from_name, r.from_address, r.subject, r.files, r.form_json, r.submitted_by, u.full_name AS submitter,
-            r.status, r.no_invoice_reason, count(*) OVER ()::int AS total_count
+            r.status, r.no_invoice_reason, r.failure_reason, count(*) OVER ()::int AS total_count
        FROM raw_items r LEFT JOIN users u ON u.user_id=r.submitted_by
       WHERE r.organization_id=$1 AND ($2::text IS NULL OR r.kind=$2) AND ($3::text IS NULL OR r.status=$3) AND ($4::text IS NULL OR r.submitted_by=$4)
-        AND NOT EXISTS (SELECT 1 FROM parsed_invoices p JOIN invoices i ON i.parsed_invoice_id=p.parsed_invoice_id WHERE p.raw_item_id=r.raw_item_id AND i.is_historical)
       ORDER BY (r.status='new') DESC, r.received_at DESC LIMIT ${limit} OFFSET ${offset}`,
-    [organizationId, f.kind || null, f.status || null, can(user, "invoice.view_all") ? null : user.user_id],
+    [organizationId, f.kind || null, f.status || null, can(user, "parsed.review") ? null : user.user_id],
   );
 }
 
-// A raw item, for those who see all invoices, its submitter, and anyone who may see the invoice made from it.
+// A raw item, for the AP clerk who reviews them all, its submitter, and anyone who may see the invoice made from it.
 export async function getRawItemRecord(user: User | null, organizationId: string, id: string): Promise<RawItem> {
   assertMember(user, organizationId);
   const r = await getRawItem(user, organizationId, id);
-  if (!r || !(can(user, "invoice.view_all") || r.submitted_by === user.user_id || (await seesInvoiceFrom(user, id)))) throw new NotFoundError("No such raw item");
+  if (!r || !(can(user, "parsed.review") || r.submitted_by === user.user_id || (await seesInvoiceFrom(user, id)))) throw new NotFoundError("No such raw item");
   return r;
 }
 
@@ -67,7 +69,7 @@ export async function listParsedInvoices(user: User | null, organizationId: stri
       WHERE p.organization_id=$1 AND p.status=COALESCE($2, 'pending')
         AND ($3::text IS NULL OR EXISTS (SELECT 1 FROM raw_items r WHERE r.raw_item_id=p.raw_item_id AND r.submitted_by=$3))
       ORDER BY p.parsed_invoice_id LIMIT ${limit} OFFSET ${offset}`,
-    [organizationId, f.status || null, can(user, "invoice.view_all") ? null : user.user_id],
+    [organizationId, f.status || null, can(user, "parsed.review") ? null : user.user_id],
   );
 }
 
@@ -102,7 +104,7 @@ export type InvoiceRow = {
 };
 
 // Invoices the user may see; those waiting on the user's approval come first.
-export async function listInvoices(user: User | null, organizationId: string, f: Paging & { status?: string | null; vendor_id?: string | null; type?: string | null } = {}) {
+export async function listInvoices(user: User | null, organizationId: string, f: Paging & { status?: string | null; vendor_id?: string | null; type?: string | null; po_id?: string | null } = {}) {
   assertMember(user, organizationId);
   const { limit, offset } = window(f);
   const s = invoiceScope(user);
@@ -114,9 +116,9 @@ export async function listInvoices(user: User | null, organizationId: string, f:
             EXISTS (SELECT 1 FROM approvals a LEFT JOIN users au ON au.user_id=a.assigned_user_id WHERE a.invoice_id=i.invoice_id AND ${pendingForUserSql(`$${n + 1}`)}) AS mine
        FROM invoices i LEFT JOIN vendors v ON v.vendor_id=i.vendor_id LEFT JOIN departments d ON d.department_id=i.department_id
       WHERE ${s.sql} AND ($${n + 2}::text IS NULL OR i.status=$${n + 2}) AND ($${n + 3}::text IS NULL OR i.vendor_id=$${n + 3})
-        AND ($${n + 4}::text IS NULL OR i.type=$${n + 4})
+        AND ($${n + 4}::text IS NULL OR i.type=$${n + 4}) AND ($${n + 5}::text IS NULL OR i.po_id=$${n + 5})
       ORDER BY mine DESC, i.invoice_date DESC, i.invoice_id DESC LIMIT ${limit} OFFSET ${offset}`,
-    [...s.params, user.user_id, f.status || null, f.vendor_id || null, f.type || null],
+    [...s.params, user.user_id, f.status || null, f.vendor_id || null, f.type || null, f.po_id || null],
   );
 }
 
@@ -129,14 +131,25 @@ export type InvoiceRecord = {
 export type ApprovalStep = {
   approval_id: string; invoice_id: string; step_no: number; rule_id: string | null; assigned_user_id: string | null; original_user_id: string | null;
   reassign_reason: string | null; status: string; acted_at: string | null; comment: string | null; assignee: string | null; original: string | null; actor: string | null; on_behalf: string | null;
-  // whether the signed-in user may approve or reject this step now
+  // whether the signed-in user may approve or reject this step now, and if they hold it but may not, why
   can_act: boolean;
+  blocked?: string;
 };
 export type PaymentRow = {
   total_count: number; payment_id: string; invoice_id: string; vendor_id: string; vendor: string; method: string; amount: number; currency: string; amount_cad: number;
   fx_rate_to_cad: number; scheduled_date: string | null; paid_date: string | null; status: string; preparer: string | null; releaser: string | null; released_at: string | null;
   snapshot_institution: string | null; snapshot_transit: string | null; snapshot_account: string | null; bank_reference: string | null; card_reference: string | null; discount_taken: number;
+  cheque_number: number | null;
+  // for a scheduled payment: whether the signed-in user may release it, and if not, why
+  can_release?: boolean; release_blocked?: string | null;
 };
+
+// Adds can_release / release_blocked for the signed-in user.
+async function withRelease(user: User, organizationId: string, rows: PaymentRow[]) {
+  if (!can(user, "payment.release")) return rows;
+  const blocks = await releaseBlocks(user, organizationId, rows);
+  return rows.map((r) => (r.status === "scheduled" ? { ...r, can_release: !blocks.get(r.payment_id), release_blocked: blocks.get(r.payment_id) ?? null } : r));
+}
 
 const PAYMENT_SELECT = `SELECT p.*, v.legal_name vendor, u1.full_name preparer, u2.full_name releaser, count(*) OVER ()::int AS total_count
   FROM payments p JOIN vendors v USING (vendor_id) LEFT JOIN users u1 ON u1.user_id=p.prepared_by LEFT JOIN users u2 ON u2.user_id=p.released_by`;
@@ -161,7 +174,10 @@ export async function getInvoiceRecord(user: User | null, organizationId: string
   );
   const mayAct = invoice.requester_user_id !== user.user_id && can(user, "approval.act");
   const approvals: ApprovalStep[] = [];
-  for (const st of steps) approvals.push({ ...st, can_act: mayAct && (await canActOn(user, st)).ok });
+  for (const st of steps) {
+    const c = mayAct ? await canActOn(user, st) : { ok: false };
+    approvals.push({ ...st, can_act: c.ok, ...("reason" in c && c.reason ? { blocked: c.reason } : {}) });
+  }
   const payments = can(user, "payment.view") ? await query<PaymentRow>(`${PAYMENT_SELECT} WHERE p.invoice_id=$1 ORDER BY p.payment_id`, [id]) : [];
   return { ...invoice, approvals, payments };
 }
@@ -171,27 +187,26 @@ export async function getInvoiceRecord(user: User | null, organizationId: string
 export async function listPayments(user: User | null, organizationId: string, f: Paging & { status?: string | null } = {}) {
   authorize(user, organizationId, "payment.view");
   const { limit, offset } = window(f);
-  return query<PaymentRow>(
+  // payments still to go out: the earliest due first; the rest: the latest first
+  const upcoming = f.status === "scheduled" || f.status === "released";
+  const rows = await query<PaymentRow>(
     `${PAYMENT_SELECT} WHERE p.organization_id=$1 AND ($2::text IS NULL OR p.status=$2)
-      ORDER BY p.scheduled_date DESC NULLS LAST, p.payment_id DESC LIMIT ${limit} OFFSET ${offset}`,
+      ORDER BY p.scheduled_date ${upcoming ? "ASC" : "DESC"} NULLS LAST, p.payment_id DESC LIMIT ${limit} OFFSET ${offset}`,
     [organizationId, f.status || null],
   );
-}
-
-// Count and CAD total of the payments in each status.
-export async function paymentTotals(user: User | null, organizationId: string) {
-  authorize(user, organizationId, "payment.view");
-  return query<{ status: string; n: number; total: number }>(
-    "SELECT status, count(*)::int n, sum(amount_cad)::float total FROM payments WHERE organization_id=$1 GROUP BY status",
-    [organizationId],
-  );
+  return withRelease(user, organizationId, rows);
 }
 
 export async function getPaymentRecord(user: User | null, organizationId: string, id: string) {
   authorize(user, organizationId, "payment.view");
   const p = await one<PaymentRow>(`${PAYMENT_SELECT} WHERE p.payment_id=$1 AND p.organization_id=$2`, [id, organizationId]);
   if (!p) throw new NotFoundError("No such payment");
-  return p;
+  // the bank statement line or virtual card charge that settled it
+  const statement = await one<{ line_id: string; source: string; posted_date: string; description: string; amount: number }>(
+    "SELECT line_id, source, posted_date::text, description, amount::float FROM statement_lines WHERE payment_id=$1",
+    [id],
+  );
+  return { ...(await withRelease(user, organizationId, [p]))[0], statement };
 }
 
 // --- approvals waiting on the user ---
@@ -216,16 +231,17 @@ export async function listWaitingApprovals(user: User | null, organizationId: st
 
 // --- spend ---
 
-// Invoice spend in CAD by department and month, for the three months up to AS_OF_DATE.
+// Approved invoice spend in CAD by department and month, for the last three months.
 // Those who see all invoices get every department; department approvers get their own.
 export async function departmentSpend(user: User | null, organizationId: string) {
   assertMember(user, organizationId);
   if (!can(user, "invoice.view_all") && !can(user, "invoice.view_department")) return [];
   return query<{ department: string; month: string; total: number }>(
     `SELECT d.name department, to_char(i.invoice_date,'YYYY-MM') AS month, sum(i.total_cad)::float AS total FROM invoices i JOIN departments d USING (department_id)
-      WHERE i.organization_id=$1 AND i.status NOT IN ('rejected','void') AND ($2::text IS NULL OR i.department_id=$2)
+      WHERE i.organization_id=$1 AND i.status IN ('approved','scheduled','paid') AND ($2::text IS NULL OR i.department_id=$2)
         AND i.invoice_date >= date_trunc('month', $3::date) - interval '2 months'
       GROUP BY 1,2 ORDER BY 1,2`,
-    [organizationId, can(user, "invoice.view_all") ? null : user.department_id, process.env.AS_OF_DATE],
+    [organizationId, can(user, "invoice.view_all") ? null : user.department_id, today()],
   );
 }
+

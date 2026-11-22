@@ -6,7 +6,7 @@ import type { User } from "@/lib/types";
 
 export type AuditRow = {
   event_id: string; occurred_at: string; actor: string | null; actor_role: string | null; on_behalf: string | null; action: string;
-  entity_type: string; entity_id: string; invoice_id: string | null; payment_id: string | null; vendor_id: string | null; note: string | null;
+  entity_type: string; entity_id: string; invoice_id: string | null; payment_id: string | null; vendor_id: string | null; note: string | null; channel: string;
 };
 
 export type AuditFilter = { invoice: string; actor: string; action: string };
@@ -27,7 +27,7 @@ export function auditPage(user: User | null, organizationId: string, f: AuditFil
   const { limit, offset } = window(p);
   return query<AuditRow & { total_count: number }>(
     `SELECT e.event_id::text, e.occurred_at, u.full_name actor, e.actor_role, ob.full_name on_behalf, e.action, e.entity_type, e.entity_id,
-            e.invoice_id, e.payment_id, e.vendor_id, e.note, count(*) OVER ()::int AS total_count
+            e.invoice_id, e.payment_id, e.vendor_id, e.note, e.channel, count(*) OVER ()::int AS total_count
        FROM audit_events e LEFT JOIN users u ON u.user_id=e.actor_user_id LEFT JOIN users ob ON ob.user_id=e.on_behalf_of_user_id
       WHERE e.organization_id=$1 AND ${FILTER_SQL}
       ORDER BY e.event_id DESC LIMIT ${limit} OFFSET ${offset}`,
@@ -60,7 +60,7 @@ export async function auditFilterOptions(user: User | null, organizationId: stri
   return { invoices, people, actions: actions.map((r) => r.action) };
 }
 
-export type TrailEvent = { event_id: string; occurred_at: string; action: string; entity_id: string; actor: string | null; actor_role: string | null; on_behalf: string | null; note: string | null };
+export type TrailEvent = { event_id: string; occurred_at: string; action: string; entity_id: string; actor: string | null; actor_role: string | null; on_behalf: string | null; note: string | null; channel: string };
 
 // Everything that happened to an invoice: its raw item and parsed invoice, then the invoice itself. For whoever may see the invoice.
 export async function invoiceTrail(user: User | null, organizationId: string, invoiceId: string) {
@@ -77,7 +77,7 @@ export async function parsedInvoiceTrail(user: User | null, organizationId: stri
 
 function trail(organizationId: string, invoiceId: string | null, entityIds: string[]) {
   return query<TrailEvent>(
-    `SELECT e.event_id::text, e.occurred_at, e.action, e.entity_id, u.full_name AS actor, e.actor_role, ob.full_name AS on_behalf, e.note FROM audit_events e
+    `SELECT e.event_id::text, e.occurred_at, e.action, e.entity_id, u.full_name AS actor, e.actor_role, ob.full_name AS on_behalf, e.note, e.channel FROM audit_events e
        LEFT JOIN users u ON u.user_id=e.actor_user_id LEFT JOIN users ob ON ob.user_id=e.on_behalf_of_user_id
      WHERE e.organization_id=$1 AND (e.entity_id = ANY($2) OR e.invoice_id = $3) ORDER BY e.occurred_at, e.event_id`,
     [organizationId, entityIds, invoiceId ?? ""],
@@ -94,7 +94,7 @@ export async function auditCsv(user: User | null, organizationId: string, f: Aud
   authorize(user, organizationId, "audit.view");
   const rows = await query<Record<string, unknown>>(
     `SELECT e.event_id, e.occurred_at, e.actor_user_id, u.full_name actor, e.actor_role, e.on_behalf_of_user_id, e.action, e.entity_type, e.entity_id,
-            e.invoice_id, e.payment_id, e.vendor_id, e.note, e.before_json, e.after_json
+            e.invoice_id, e.payment_id, e.vendor_id, e.note, e.channel, e.before_json, e.after_json
        FROM audit_events e LEFT JOIN users u ON u.user_id=e.actor_user_id
       WHERE e.organization_id=$1 AND ${FILTER_SQL}
       ORDER BY e.event_id`,

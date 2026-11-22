@@ -1,4 +1,5 @@
 import { useNavigate, useParams } from "react-router-dom";
+import { actionName } from "@/lib/auditActions";
 import { can } from "@/lib/authz";
 import { money } from "@/lib/format";
 import type { InvoiceLine, User } from "@/lib/types";
@@ -30,6 +31,14 @@ export function Invoice() {
   const load = useLoad(async () => {
     let invoice: InvoiceRecord | null = null;
     let parsed: ParsedRecord | null = null;
+    // a submission not yet read: the raw item on its own
+    if (id.startsWith("RAW-")) {
+      const [raw, vendors] = await Promise.all([
+        get<RawItem>(org(user, `/raw-items/${id}`)),
+        get<{ vendor_id: string; legal_name: string; status: string }[]>(org(user, "/vendor-choices")),
+      ]);
+      return { invoice, parsed, raw, audit: [] as TrailEvent[], vendors, depts: [], gls: [], people: [] as User[] };
+    }
     if (id.startsWith("PRS-")) {
       parsed = await get<ParsedRecord>(org(user, `/parsed-invoices/${id}`));
       if (parsed.invoice_id) invoice = await unlessHidden(get<InvoiceRecord>(org(user, `/invoices/${parsed.invoice_id}`)));
@@ -43,7 +52,7 @@ export function Invoice() {
       get<{ vendor_id: string; legal_name: string; status: string }[]>(org(user, "/vendor-choices")),
       get<{ department_id: string; name: string }[]>(org(user, "/departments")),
       get<{ account_number: string; name: string }[]>(org(user, "/gl-accounts?account_type=expense")),
-      get<User[]>(org(user, "/users")),
+      get<User[]>(org(user, "/user-choices")),
     ]);
     const people = users.filter((u) => u.status !== "terminated");
     return { invoice, parsed, raw, audit, vendors, depts, gls, people };
@@ -61,10 +70,15 @@ export function Invoice() {
         const payments = invoice?.payments ?? [];
         const reviewing = parsed?.status === "pending" && can(user, "parsed.review");
         const d = parsed?.invoice_json;
+        // a form is the invoice as typed, already shown as the invoice; only an attached copy of the document is worth showing beside it
+        const showRaw = !(raw?.kind === "form" && !raw.files.length);
         const vendorName = (vid: string | null | undefined) => vendors.find((v) => v.vendor_id === vid)?.legal_name;
         const title = invoice
           ? `${invoice.invoice_id} · ${invoice.vendor_name} ${invoice.vendor_invoice_number}`
-          : `${parsed!.parsed_invoice_id} · ${vendorName(d?.vendor_id) ?? d?.vendor_name ?? "Unknown vendor"} ${d?.vendor_invoice_number ?? ""}`;
+          : parsed
+            ? `${parsed.parsed_invoice_id} · ${vendorName(d?.vendor_id) ?? d?.vendor_name ?? "Unknown vendor"} ${d?.vendor_invoice_number ?? ""}`
+            : `${raw!.raw_item_id} · ${raw!.kind === "form" ? `form ${raw!.form_json?.vendor_invoice_number ?? ""}` : raw!.kind === "pdf" ? raw!.files[0]?.file_name ?? "upload" : raw!.subject ?? "email"}`;
+        const mySteps = steps.filter((s) => s.can_act);
 
         const saveReview = async (fd: FormData) => {
           const header: ReviewEdit["header"] = {};
@@ -104,14 +118,38 @@ export function Invoice() {
 
         return (
           <div className="space-y-5">
-            <PageTitle sub={invoice ? <span className="flex gap-2"><Status value={invoice.status} />{invoice.is_historical && <Badge>imported history</Badge>}{invoice.type === "credit_note" && <Badge tone="violet">credit note</Badge>}</span> : <Status value={parsed!.status} />}>
+            <PageTitle sub={
+              <span className="flex flex-wrap items-center gap-2">
+                <Status value={invoice?.status ?? parsed?.status ?? raw?.status} />
+                {invoice?.type === "credit_note" && <Badge tone="violet">credit note</Badge>}
+                {/* where it came from, as the raw item records it */}
+                {raw && <><Badge>{raw.kind}</Badge><span className="text-xs muted">received {dateTime(raw.received_at)}</span></>}
+              </span>
+            }>
               {title}
             </PageTitle>
 
-            <div className="grid gap-5 xl:grid-cols-2">
-              <Card title="Raw item">
-                <RawView raw={raw} file={parsed?.file_name ?? null} />
+            {/* the approver's decision comes first, above the documents */}
+            {invoice && mySteps.map((s) => (
+              <Card key={s.approval_id} title={`Your decision · step ${s.step_no}${s.assigned_user_id !== user.user_id ? ` on behalf of ${s.assignee}` : ""}`}>
+                <p className="mb-3 text-sm">{invoice.vendor_name} · {invoice.vendor_invoice_number} · {money(invoice.total, invoice.currency)}{invoice.department && ` · ${invoice.department}`}</p>
+                <ApiForm submit={decide(s.approval_id)} className="flex flex-wrap gap-2" confirm={(fd) => `${fd.get("decision") === "rejected" ? "Reject" : "Approve"} ${invoice.vendor_name} ${invoice.vendor_invoice_number} for ${money(invoice.total, invoice.currency)}?`}>
+                  <input name="comment" placeholder="Comment (required to reject)" className={`${input} max-w-md`} />
+                  <button name="decision" value="approved" className={btn}>Approve</button>
+                  <button name="decision" value="rejected" className={btnDanger}>Reject</button>
+                </ApiForm>
               </Card>
+            ))}
+            {!parsed && raw?.no_invoice_reason && <p className="text-sm muted">No invoice found: {raw.no_invoice_reason}</p>}
+            {!parsed && raw?.status === "new" && <p className="text-sm muted">Being read; the invoice appears here when it is done.</p>}
+            {!parsed && raw?.status === "failed" && <p className="form-error">Could not be read: {raw.failure_reason}</p>}
+
+            <div className={`grid gap-5 ${showRaw ? "xl:grid-cols-2" : ""}`}>
+              {showRaw && (
+                <Card title="As received">
+                  <RawView raw={raw} file={parsed?.file_name ?? null} />
+                </Card>
+              )}
 
               <div className="space-y-5">
                 {d && (
@@ -140,7 +178,7 @@ export function Invoice() {
                               {people.map((p) => <option key={p.user_id} value={p.user_id}>{p.full_name}</option>)}
                             </select>
                           </Field>
-                          <Field label="PO">
+                          <Field label="Purchase order">
                             <select name="po_id" defaultValue={d.po_id ?? ""} className={input}>
                               <option value="">— none —</option>
                               {[...new Set([...(d.po_id ? [d.po_id] : []), ...(d.po_candidates ?? [])])].map((p) => <option key={p}>{p}</option>)}
@@ -167,7 +205,7 @@ export function Invoice() {
                           <Item k="Due date">{date(d.due_date)}</Item>
                           <Item k="Department">{depts.find((x) => x.department_id === d.department_id)?.name ?? "—"}</Item>
                           <Item k="Requester">{people.find((p) => p.user_id === d.requester_user_id)?.full_name ?? "—"}</Item>
-                          <Item k="PO">{d.po_id ?? "—"}</Item>
+                          <Item k="Purchase order">{d.po_id ? <A href={`/purchase-orders/${d.po_id}`}>{d.po_id}</A> : "—"}</Item>
                           <Item k="Contract">{d.contract_id ?? "—"}</Item>
                           <Item k="Delivered to">{d.ship_to_province ?? "—"}</Item>
                           <Item k="Total">{money(d.total, d.currency)}{d.currency !== "CAD" && ` (${money(d.total_cad)})`}</Item>
@@ -189,13 +227,13 @@ export function Invoice() {
                         <li key={f.flag_id} className={`flag ${f.status !== "open" ? "flag--closed" : `flag--${f.severity}`}`}>
                           <div className="flex items-start justify-between gap-3">
                             <div>
-                              <div className="mb-1 flex gap-1"><Status value={f.severity} /><Badge>{f.category}</Badge>{f.line_no && <Badge>line {f.line_no}</Badge>}{f.status !== "open" && <Status value={f.status} />}</div>
+                              <div className="mb-1 flex gap-1"><Status value={f.severity} /><Badge>{f.category === "po" ? "purchase order" : f.category}</Badge>{f.line_no && <Badge>line {f.line_no}</Badge>}{f.status !== "open" && <Status value={f.status} />}</div>
                               <p className="text-sm">{f.message} {f.related_invoice_id && <A href={`/invoices/${f.related_invoice_id}`}>Open {f.related_invoice_id}</A>}</p>
                               {f.resolution_note && <p className="mt-1 text-xs muted">{f.resolver}: {f.resolution_note}</p>}
                             </div>
                           </div>
                           {reviewing && f.status === "open" && (
-                            <ApiForm submit={resolveFlag(f.flag_id)} className="mt-2 flex gap-2">
+                            <ApiForm submit={resolveFlag(f.flag_id)} className="mt-2 flex gap-2" confirm={(fd) => (fd.get("status") === "overridden" ? `Override this ${f.severity} flag? The invoice goes ahead despite it.` : null)}>
                               <input name="note" placeholder="What you checked or decided" className={input} required />
                               <select name="status" className="input w-36"><option value="resolved">Resolved</option><option value="overridden">Override</option></select>
                               <button className={btnLight}>Save</button>
@@ -206,10 +244,10 @@ export function Invoice() {
                     </ul>
                     {reviewing && (
                       <div className="mt-4 flex flex-wrap items-start gap-3 border-t border-line pt-4">
-                        <ApiForm submit={approveParsed}>
+                        <ApiForm submit={approveParsed} confirm="Approve this into the invoices? Its approval chain starts.">
                           <button className={btn}>Approve into invoices</button>
                         </ApiForm>
-                        <ApiForm submit={rejectParsed} className="flex gap-2">
+                        <ApiForm submit={rejectParsed} className="flex gap-2" confirm="Reject this parsed invoice?">
                           <input name="reason" placeholder="Reason" className={input} required />
                           <button className={btnDanger}>Reject</button>
                         </ApiForm>
@@ -227,18 +265,20 @@ export function Invoice() {
                           <Td>{s.step_no}{s.rule_id && <span className="ml-1 text-xs muted">{s.rule_id}</span>}</Td>
                           <Td>
                             {s.assignee}
-                            {s.reassign_reason && <div className="text-xs muted">{s.reassign_reason === "delegate" ? `delegate for ${s.original}` : s.reassign_reason === "requester_is_approver" ? `${s.original} requested it; escalated` : `${s.original} has left; escalated`}</div>}
+                            {s.reassign_reason && (
+                              <div className="text-xs muted">
+                                {s.reassign_reason === "delegate" ? `delegate for ${s.original}`
+                                  : s.reassign_reason === "requester_is_approver" ? `${s.original} requested it; escalated`
+                                    : s.reassign_reason === "over_limit" ? `above ${s.original}'s approval limit; escalated`
+                                      : `${s.original} has left; escalated`}
+                              </div>
+                            )}
                           </Td>
                           <Td><Status value={s.status} /></Td>
                           <Td>
                             {s.actor && <div className="text-xs">{s.actor}{s.on_behalf && ` on behalf of ${s.on_behalf}`} · {dateTime(s.acted_at)}{s.comment && ` · “${s.comment}”`}</div>}
-                            {s.can_act && (
-                              <ApiForm submit={decide(s.approval_id)} className="flex flex-wrap gap-2">
-                                <input name="comment" placeholder="Comment (required to reject)" className={input} />
-                                <button name="decision" value="approved" className={btn}>Approve</button>
-                                <button name="decision" value="rejected" className={btnDanger}>Reject</button>
-                              </ApiForm>
-                            )}
+                            {s.can_act && <span className="text-xs muted">your decision, at the top</span>}
+                            {s.blocked && <span className="text-xs text-flag">{s.blocked}</span>}
                           </Td>
                         </tr>
                       ))}
@@ -267,19 +307,21 @@ export function Invoice() {
               </div>
             </div>
 
-            <Card title="Audit trail">
-              <Table head={["When", "Who", "Action", "On", "Note"]} empty="No events.">
-                {audit.map((e) => (
-                  <tr key={e.event_id}>
-                    <Td className="whitespace-nowrap text-xs">{dateTime(e.occurred_at)}</Td>
-                    <Td>{e.actor ?? "system"}{e.actor_role && <span className="ml-1 text-xs muted">{e.actor_role.replace(/_/g, " ")}</span>}{e.on_behalf && <div className="text-xs muted">on behalf of {e.on_behalf}</div>}</Td>
-                    <Td className="font-mono text-xs">{e.action}</Td>
-                    <Td className="font-mono text-xs">{e.entity_id}</Td>
-                    <Td className="text-xs">{e.note}</Td>
-                  </tr>
-                ))}
-              </Table>
-            </Card>
+            {(invoice || parsed) && (
+              <Card title="Audit trail">
+                <Table head={["When", "Who", "Action", "On", "Note"]} empty="No events.">
+                  {audit.map((e) => (
+                    <tr key={e.event_id}>
+                      <Td className="whitespace-nowrap text-xs">{dateTime(e.occurred_at)}</Td>
+                      <Td>{e.actor ?? "system"}{e.actor_role && <span className="ml-1 text-xs muted">{e.actor_role.replace(/_/g, " ")}</span>}{e.on_behalf && <div className="text-xs muted">on behalf of {e.on_behalf}</div>}</Td>
+                      <Td className="text-xs">{actionName(e.action)}{e.channel === "agent" && <Badge tone="purple">agent</Badge>}</Td>
+                      <Td className="font-mono text-xs">{e.entity_id}</Td>
+                      <Td className="text-xs">{e.note}</Td>
+                    </tr>
+                  ))}
+                </Table>
+              </Card>
+            )}
           </div>
         );
       }}
@@ -302,7 +344,7 @@ function RawView({ raw, file }: { raw: RawItem | null; file: string | null }) {
   const url = f ? `/api/organizations/${raw.organization_id}/raw-items/${raw.raw_item_id}/files/${encodeURIComponent(f.file_name)}` : null;
   return (
     <div className="space-y-3 text-sm">
-      <div className="flex items-center gap-2 text-xs muted"><span className="font-mono">{raw.raw_item_id}</span><Badge>{raw.kind}</Badge><span>received {dateTime(raw.received_at)}</span></div>
+      <div className="text-xs muted"><span className="font-mono">{raw.raw_item_id}</span></div>
       {raw.kind === "email" && (
         <div className="rounded-[6px] border-2 border-border bg-surface-2 p-3">
           <div><span className="muted">From:</span> {raw.from_name} &lt;{raw.from_address}&gt;</div>
@@ -310,7 +352,6 @@ function RawView({ raw, file }: { raw: RawItem | null; file: string | null }) {
           <p className="mt-2 whitespace-pre-wrap muted">{raw.body}</p>
         </div>
       )}
-      {raw.kind === "form" && <pre className="max-h-96 overflow-auto rounded-[6px] border-2 border-border bg-surface-2 p-3 text-xs">{JSON.stringify(raw.form_json, null, 2)}</pre>}
       {url && f && (f.mime_type === "application/pdf" ? <iframe src={url} className="h-[720px] w-full rounded-[6px] border-2 border-border" /> : f.mime_type.startsWith("image/") ? <img src={url} alt={f.file_name} className="w-full rounded-[6px] border-2 border-border" /> : <a href={url}>{f.file_name}</a>)}
     </div>
   );

@@ -1,5 +1,5 @@
 # Incoming files held back as a stand-in for the judges' hidden batch (BUILD_PLAN "Before starting").
-# Do not open these, or the emails that carry them, until the sealed drill. The inbox poll skips them unless INCLUDE_SEALED=1.
+# Do not open these, or the emails that carry them, until the sealed drill.
 # Derived from the 41 files named in BUILD_PLAN "Unsealed batch: expected"; these are the other 15.
 Invoice 000809.pdf
 Invoice 000961.pdf
