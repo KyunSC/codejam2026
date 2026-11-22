@@ -26,7 +26,9 @@ export type Action =
   | "org.settings"
   | "contract.manage"
   | "po.manage"
-  | "flag.resolve_fraud";
+  | "flag.resolve_fraud"
+  | "fraud.view"
+  | "fraud.resolve";
 
 // The everyday vendor work the AP clerk and the finance manager share: the vendor list, bank change requests, contracts,
 // and purchase orders. Whoever requests a vendor or a bank change cannot also approve it (vendor.service.ts).
@@ -42,14 +44,14 @@ const PERMISSIONS: Record<Role, Action[]> = {
   approver: ["raw.submit", "invoice.view_department", "approval.act", "delegate.set"],
   finance_manager: [
     "raw.submit", "invoice.view_all", "approval.act", "delegate.set",
-    "payment.view", "payment.release", "payment.cancel", ...VENDOR_WORK, "vendor.approve", "bank_change.approve", "flag.resolve_fraud",
+    "payment.view", "payment.release", "payment.cancel", ...VENDOR_WORK, "vendor.approve", "bank_change.approve", "flag.resolve_fraud", "fraud.view", "fraud.resolve",
   ],
   // the organization's admin (controller and CFO): everything except the steps only the AP clerk takes,
   // reading and reviewing invoices and preparing payments
   controller_admin: [
     "raw.submit", "invoice.view_all", "approval.act", "delegate.set",
     "payment.view", "payment.release", "payment.cancel", ...VENDOR_WORK, "vendor.approve", "bank_change.approve",
-    "users.manage", "policies.manage", "audit.view", "org.settings", "flag.resolve_fraud",
+    "users.manage", "policies.manage", "audit.view", "org.settings", "flag.resolve_fraud", "fraud.view", "fraud.resolve",
   ],
   auditor: ["invoice.view_all", "payment.view", "vendor.view", "audit.view"],
 };
