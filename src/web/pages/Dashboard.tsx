@@ -176,10 +176,11 @@ function EditableDashboard({ tiles, cards, tilePrefs, cardPrefs, update }: {
             <SortableItem key={t.id} id={t.id} className="dash-tile">
               {({ grip }) => (
                 <>
-                  <Link to={t.href} className="card block h-full p-4">
+                  {/* while customizing, a tile is only something to move: not a link, so letting go of a drag opens nothing */}
+                  <div className="card block h-full select-none p-4">
                     <div className="heading num text-4xl leading-none">{t.value}</div>
                     <div className="label muted mt-2 text-xs">{t.label}</div>
-                  </Link>
+                  </div>
                   <div className="dash-tools">
                     {grip}
                     <HideButton label={`the ${t.label} tile`} onHide={() => update(setVisible(tilePath, tilePrefs, t.id, false))} />
@@ -201,7 +202,8 @@ function EditableDashboard({ tiles, cards, tilePrefs, cardPrefs, update }: {
                   title={<span className="inline-flex items-center gap-2">{grip}{c.title}</span>}
                   actions={<HideButton label={`the ${c.label} card`} onHide={() => update(setVisible(cardPath, cardPrefs, c.id, false))} />}
                 >
-                  {c.body}
+                  {/* the card's links, buttons and forms don't respond while customizing */}
+                  <div inert className="select-none">{c.body}</div>
                 </Card>
               )}
             </SortableItem>
