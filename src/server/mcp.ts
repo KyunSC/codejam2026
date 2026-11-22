@@ -75,8 +75,13 @@ function serverFor(user: User) {
       const r = await getRawItemRecord(user, org, a.raw_item_id);
       return { ...r, files: r.files.map((f) => ({ file_name: f.file_name, mime_type: f.mime_type })) };
     });
-  tool("list_parsed_invoices", null, "Parsed invoices waiting for the AP clerk's review (status pending), with their open blocking and warning flags.",
-    { status: z.string().optional(), page }, false, (a) => listParsedInvoices(user, org, { status: a.status, page: a.page }));
+  tool("list_parsed_invoices", null, "Parsed invoices waiting for the AP clerk's review (status pending), each with its vendor, number, date, total and count of open blocking and warning flags. get_parsed_invoice has every field and the flags themselves.",
+    { status: z.string().optional().describe("pending (the default list), approved or rejected"), page }, false, async (a) =>
+      (await listParsedInvoices(user, org, { status: a.status, page: a.page })).map((p) => ({
+        parsed_invoice_id: p.parsed_invoice_id, status: p.status, vendor: p.vendor_name ?? p.invoice_json.vendor_name, vendor_invoice_number: p.invoice_json.vendor_invoice_number,
+        invoice_date: p.invoice_json.invoice_date, total: p.invoice_json.total, currency: p.invoice_json.currency, blocking_flags: p.blocking, warning_flags: p.warnings,
+        invoice_id: p.invoice_id, total_count: p.total_count,
+      })));
   tool("get_parsed_invoice", null, "One parsed invoice with every field read from the document and its flags.",
     { parsed_invoice_id: z.string().describe("e.g. PRS-0428") }, false, (a) => getParsedInvoiceRecord(user, org, a.parsed_invoice_id));
   tool("list_payments", "payment.view", "Payments; for scheduled and released ones the earliest due first, and whether the employee may release each.",
@@ -134,8 +139,8 @@ function serverFor(user: User) {
     { parsed_invoice_id: z.string() }, true, async (a) => ({ invoice_id: await approve(user, org, a.parsed_invoice_id) }));
   tool("reject_parsed_invoice", "parsed.review", "Rejects a parsed invoice, with the reason.", { parsed_invoice_id: z.string(), reason: z.string().min(1) }, true,
     (a) => reject(user, org, a.parsed_invoice_id, a.reason));
-  tool("decide_approval", "approval.act", "Approves or rejects an approval step waiting on the employee. A rejection needs a comment.",
-    { approval_id: z.string().describe("from list_approvals_waiting_on_me or get_invoice"), decision: z.enum(["approve", "reject"]), comment: z.string().optional() }, true,
+  tool("decide_approval", "approval.act", 'Approves or rejects an approval step waiting on the employee: decision "approve" or "reject". A rejection needs a comment.',
+    { approval_id: z.string().describe("from list_approvals_waiting_on_me or get_invoice"), decision: z.enum(["approve", "reject"]).describe('"approve" or "reject"'), comment: z.string().optional().describe("required to reject") }, true,
     (a) => decide(user, org, a.approval_id, a.decision === "approve" ? "approved" : "rejected", a.comment ?? null));
   tool("prepare_payment", "payment.prepare", "Schedules the payment of an approved invoice for its due date, by the vendor's payment method.",
     { invoice_id: z.string() }, true, async (a) => ({ payment_id: await preparePayment(user, org, a.invoice_id) }));
