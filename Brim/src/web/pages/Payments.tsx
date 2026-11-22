@@ -8,6 +8,9 @@ import { ApiForm } from "../components/ApiForm";
 import { DataTable, type Column } from "../components/DataTable";
 import { useEditMode } from "../customize/EditMode";
 import { FilterStar } from "../customize/FilterStar";
+import { HiddenTray } from "../customize/HiddenTray";
+import { HideButton } from "../customize/HideButton";
+import { setVisible } from "../customize/lists";
 import { usePreferences } from "../preferences";
 import { A, Card, NotFound, PageTitle, Show, Status, Table, Td, btn, btnLight, date, dateTime } from "../components/ui";
 
@@ -29,11 +32,18 @@ const PAYMENT_COLUMNS: Column<PaymentRow>[] = [
 export function Payments() {
   const user = useUser();
   const [sp] = useSearchParams();
-  const { prefs } = usePreferences();
+  const { prefs, update } = usePreferences();
   const { editing } = useEditMode();
+  // The totals row can be hidden (plan 6.8); the list is locked. Hidden totals aren't fetched.
+  const sections = prefs.sections.payments;
+  const showTotals = sections.some((x) => x.id === "totals" && x.visible);
+  const sectionPath = { kind: "section", page: "payments" } as const;
   // The filter in the URL wins; without one, the list opens on the user's default (plan 6.6).
   const tab = TABS.includes(sp.get("status") ?? "") ? sp.get("status")! : (prefs.tables.payments.filter ?? "scheduled");
-  const totals = useLoad(() => get<{ status: string; n: number; total: number }[]>(org(user, "/payments/totals")), "");
+  const totals = useLoad(
+    () => (showTotals ? get<{ status: string; n: number; total: number }[]>(org(user, "/payments/totals")) : Promise.resolve([])),
+    `${showTotals}`,
+  );
   const rows = useLoad(() => get<PaymentRow[]>(org(user, `/payments${qs({ status: tab === "all" ? null : tab, size: 300 })}`)), tab);
   if (!can(user, "payment.view")) return <NotFound />;
 
@@ -50,28 +60,43 @@ export function Payments() {
     return `${r.sent} released payment${r.sent === 1 ? "" : "s"} sent to the bank.`;
   };
 
+  // The totals tiles; each is also a filter.
+  const totalsRow = (
+    <div className="grid gap-4 sm:grid-cols-4">
+      {["scheduled", "released", "outstanding", "settled"].map((s) => {
+        const t = totals.data?.find((x) => x.status === s);
+        const tile = (
+          <Link key={s} to={`/payments?status=${s}`} className="card p-4" style={tab === s ? ({ "--card-shadow": "var(--red)" } as React.CSSProperties) : undefined}>
+            <div className="heading num text-4xl leading-none">{t?.n ?? 0}</div>
+            <div className="label muted mt-2 text-xs">{s} · {money(t?.total ?? 0)}</div>
+          </Link>
+        );
+        // In edit mode each tile (a filter) gets a ☆ beside it; the star is a sibling, since a button can't sit inside a link.
+        if (!editing) return tile;
+        return (
+          <div key={s} className="tile-edit">
+            {tile}
+            <span className="tile-edit__tools"><FilterStar table="payments" value={s} label={s} to={`/payments?status=${s}`} /></span>
+          </div>
+        );
+      })}
+    </div>
+  );
+
   return (
     <div className="space-y-6">
       <PageTitle sub="The AP clerk prepares payments for approved invoices; the finance manager (up to $100,000) or the controller releases them; the bank simulation sends released payments.">Payments</PageTitle>
-      <div className="grid gap-4 sm:grid-cols-4">
-        {["scheduled", "released", "outstanding", "settled"].map((s) => {
-          const t = totals.data?.find((x) => x.status === s);
-          const tile = (
-            <Link key={s} to={`/payments?status=${s}`} className="card p-4" style={tab === s ? ({ "--card-shadow": "var(--red)" } as React.CSSProperties) : undefined}>
-              <div className="heading num text-4xl leading-none">{t?.n ?? 0}</div>
-              <div className="label muted mt-2 text-xs">{s} · {money(t?.total ?? 0)}</div>
-            </Link>
-          );
-          // In edit mode each tile (a filter) gets a ☆ beside it; the star is a sibling, since a button can't sit inside a link.
-          if (!editing) return tile;
-          return (
-            <div key={s} className="tile-edit">
-              {tile}
-              <span className="tile-edit__tools"><FilterStar table="payments" value={s} label={s} to={`/payments?status=${s}`} /></span>
-            </div>
-          );
-        })}
-      </div>
+      {showTotals && !editing && totalsRow}
+      {showTotals && editing && (
+        <div className="section-edit">
+          <div className="section-edit__bar">
+            <span className="label muted text-xs">Totals</span>
+            <HideButton label="the totals" onHide={() => update(setVisible(sectionPath, sections, "totals", false))} />
+          </div>
+          {totalsRow}
+        </div>
+      )}
+      <HiddenTray what="sections" items={sections} onShow={(id) => update(setVisible(sectionPath, sections, id, true))} />
       <Card
         title={`Payments: ${tab}`}
         actions={

@@ -6,7 +6,12 @@ import type { InvoiceRow, ParsedRow, RawItemRow } from "@/services/read.service"
 import { get, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { ApiForm } from "../components/ApiForm";
+import { useEditMode } from "../customize/EditMode";
 import { FilterStar } from "../customize/FilterStar";
+import { HiddenTray } from "../customize/HiddenTray";
+import { HideButton } from "../customize/HideButton";
+import { reorder, setVisible } from "../customize/lists";
+import { SortableArea, SortableItem } from "../customize/Sortable";
 import { RowsPerPage } from "../customize/RowsPerPage";
 import { usePreferences } from "../preferences";
 import { DataTable, type Column } from "../components/DataTable";
@@ -50,7 +55,11 @@ const KINDS = ["all", "email", "pdf", "form"];
 export function Invoices() {
   const user = useUser();
   const [sp] = useSearchParams();
-  const { prefs } = usePreferences();
+  const { prefs, update } = usePreferences();
+  const { editing } = useEditMode();
+  // Which sections show, in the user's order (plan 6.8). A hidden section isn't fetched.
+  const sections = prefs.sections.invoices;
+  const on = (id: string) => sections.some((x) => x.id === id && x.visible);
   // The filter in the URL wins; without one, the table opens on the user's default (plan 6.6).
   const status = STATUSES.includes(sp.get("status") ?? "") ? sp.get("status")! : (prefs.tables.invoices.filter ?? "all");
   const rawFilter = KINDS.includes(sp.get("rawKind") ?? "") ? sp.get("rawKind")! : (prefs.tables.raw.filter ?? "all");
@@ -63,11 +72,18 @@ export function Invoices() {
   const parsedSize = prefs.tables.parsed.pageSize ?? PAGE_SIZE;
   const invSize = prefs.tables.invoices.pageSize ?? PAGE_SIZE;
 
-  const raw = useLoad(() => get<RawItemRow[]>(org(user, `/raw-items${qs({ kind: rawKind, page: rawPage, size: rawSize })}`)), `${rawKind}:${rawPage}:${rawSize}`);
-  const parsed = useLoad(() => get<ParsedRow[]>(org(user, `/parsed-invoices${qs({ page: parsedPage, size: parsedSize })}`)), `${parsedPage}:${parsedSize}`);
+  const skip = <T,>(): Promise<T[]> => Promise.resolve([]);
+  const raw = useLoad(
+    () => (on("raw") ? get<RawItemRow[]>(org(user, `/raw-items${qs({ kind: rawKind, page: rawPage, size: rawSize })}`)) : skip<RawItemRow>()),
+    `${on("raw")}:${rawKind}:${rawPage}:${rawSize}`,
+  );
+  const parsed = useLoad(
+    () => (on("parsed") ? get<ParsedRow[]>(org(user, `/parsed-invoices${qs({ page: parsedPage, size: parsedSize })}`)) : skip<ParsedRow>()),
+    `${on("parsed")}:${parsedPage}:${parsedSize}`,
+  );
   const invoices = useLoad(
-    () => get<InvoiceRow[]>(org(user, `/invoices${qs({ status: status === "all" ? null : status, page: invPage, size: invSize })}`)),
-    `${status}:${invPage}:${invSize}`,
+    () => (on("invoices") ? get<InvoiceRow[]>(org(user, `/invoices${qs({ status: status === "all" ? null : status, page: invPage, size: invSize })}`)) : skip<InvoiceRow>()),
+    `${on("invoices")}:${status}:${invPage}:${invSize}`,
   );
   const reloadAll = () => [raw, parsed, invoices].forEach((l) => l.reload());
 
@@ -104,32 +120,30 @@ export function Invoices() {
     { id: "status", render: (r) => <Status value={r.status} /> },
   ];
 
-  return (
-    <div className="space-y-6">
-      <PageTitle sub="Raw items stay as they arrived. Extract turns one into a parsed invoice; approving a parsed invoice adds it to the invoices.">Invoices</PageTitle>
-
-      <Card
-        title={
-          <span className="flex flex-wrap items-center gap-3">
-            1. Raw
-            <span className="flex gap-1 normal-case">
-              {([["all", "All"], ["email", "Emails"], ["pdf", "Uploads"], ["form", "Forms"]] as const).map(([k, label]) => (
-                <Fragment key={k}>
-                  <Link to={withParams(sp, { rawKind: k, rawPage: null })} className="chip" aria-current={rawFilter === k}>{label}</Link>
-                  <FilterStar table="raw" value={k} label={label} to={withParams(sp, { rawKind: k, rawPage: null })} />
-                </Fragment>
-              ))}
-            </span>
+  // The three sections; titles lost their "1. 2. 3." prefixes, since the order is now the user's.
+  const parts: Record<string, { title: React.ReactNode; actions?: React.ReactNode; body: React.ReactNode }> = {
+    raw: {
+      title: (
+        <span className="flex flex-wrap items-center gap-3">
+          Raw
+          <span className="flex gap-1 normal-case">
+            {([["all", "All"], ["email", "Emails"], ["pdf", "Uploads"], ["form", "Forms"]] as const).map(([k, label]) => (
+              <Fragment key={k}>
+                <Link to={withParams(sp, { rawKind: k, rawPage: null })} className="chip" aria-current={rawFilter === k}>{label}</Link>
+                <FilterStar table="raw" value={k} label={label} to={withParams(sp, { rawKind: k, rawPage: null })} />
+              </Fragment>
+            ))}
           </span>
-        }
-        actions={
-          <>
-            {can(user, "raw.poll") && <ApiForm submit={poll}><button className={btnLight}>Poll AP inbox</button></ApiForm>}
-            {can(user, "raw.submit") && <Link to="/invoices/upload" className={btnLight}>Upload PDF</Link>}
-            {can(user, "raw.submit") && <Link to="/invoices/form" className={btn}>Fill form</Link>}
-          </>
-        }
-      >
+        </span>
+      ),
+      actions: (
+        <>
+          {can(user, "raw.poll") && <ApiForm submit={poll}><button className={btnLight}>Poll AP inbox</button></ApiForm>}
+          {can(user, "raw.submit") && <Link to="/invoices/upload" className={btnLight}>Upload PDF</Link>}
+          {can(user, "raw.submit") && <Link to="/invoices/form" className={btn}>Fill form</Link>}
+        </>
+      ),
+      body: (
         <Show load={raw}>
           {(rows) => (
             <>
@@ -148,9 +162,11 @@ export function Invoices() {
             </>
           )}
         </Show>
-      </Card>
-
-      <Card title={`2. Parsed — pending approval (${parsed.data?.[0]?.total_count ?? 0})`}>
+      ),
+    },
+    parsed: {
+      title: `Parsed — pending approval (${parsed.data?.[0]?.total_count ?? 0})`,
+      body: (
         <Show load={parsed}>
           {(rows) => (
             <>
@@ -167,23 +183,23 @@ export function Invoices() {
             </>
           )}
         </Show>
-      </Card>
-
-      <Card
-        title="3. Invoices"
-        actions={
-          <div className="flex gap-1 text-xs">
-            {STATUSES.map((s) => (
-              <Fragment key={s}>
-                <Link to={withParams(sp, { status: s, page: null })} className="chip" aria-current={s === status}>
-                  {s.replace(/_/g, " ")}
-                </Link>
-                <FilterStar table="invoices" value={s} label={s.replace(/_/g, " ")} to={withParams(sp, { status: s, page: null })} />
-              </Fragment>
-            ))}
-          </div>
-        }
-      >
+      ),
+    },
+    invoices: {
+      title: "Invoices",
+      actions: (
+        <div className="flex gap-1 text-xs">
+          {STATUSES.map((s) => (
+            <Fragment key={s}>
+              <Link to={withParams(sp, { status: s, page: null })} className="chip" aria-current={s === status}>
+                {s.replace(/_/g, " ")}
+              </Link>
+              <FilterStar table="invoices" value={s} label={s.replace(/_/g, " ")} to={withParams(sp, { status: s, page: null })} />
+            </Fragment>
+          ))}
+        </div>
+      ),
+      body: (
         <Show load={invoices}>
           {(rows) => (
             <>
@@ -193,7 +209,46 @@ export function Invoices() {
             </>
           )}
         </Show>
-      </Card>
+      ),
+    },
+  };
+  const shown = sections.filter((x) => x.visible && parts[x.id]);
+  const path = { kind: "section", page: "invoices" } as const;
+
+  return (
+    <div className="space-y-6">
+      <PageTitle sub="Raw items stay as they arrived. Extract turns one into a parsed invoice; approving a parsed invoice adds it to the invoices.">Invoices</PageTitle>
+
+      {!editing && shown.map((x) => (
+        <Card key={x.id} title={parts[x.id]!.title} actions={parts[x.id]!.actions}>{parts[x.id]!.body}</Card>
+      ))}
+      {!editing && !shown.length && <p className="card p-6 muted">All sections are hidden. Click Customize to bring them back.</p>}
+
+      {editing && (
+        <>
+          <SortableArea
+            ids={shown.map((x) => x.id)}
+            labels={Object.fromEntries(sections.map((x) => [x.id, `the ${x.label} section`]))}
+            strategy="vertical"
+            onReorder={(ids) => update(reorder(path, sections, ids))}
+          >
+            {shown.map((x) => (
+              <SortableItem key={x.id} id={x.id} handle className="dash-card">
+                {({ grip, dragProps }) => (
+                  <Card
+                    headerProps={dragProps}
+                    title={<span className="inline-flex items-center gap-2">{grip}{parts[x.id]!.title}</span>}
+                    actions={<>{parts[x.id]!.actions}<HideButton label={`the ${x.label} section`} onHide={() => update(setVisible(path, sections, x.id, false))} /></>}
+                  >
+                    {parts[x.id]!.body}
+                  </Card>
+                )}
+              </SortableItem>
+            ))}
+          </SortableArea>
+          <HiddenTray what="sections" items={sections} onShow={(id) => update(setVisible(path, sections, id, true))} />
+        </>
+      )}
     </div>
   );
 }
