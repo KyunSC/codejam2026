@@ -22,7 +22,8 @@ export async function contractChecks(ctx: CheckContext): Promise<Flag[]> {
   const flags: Flag[] = [];
   const month = (d.invoice_date ?? "").slice(0, 7);
 
-  if (c.status === "expired" || (c.end_date && d.invoice_date && d.invoice_date > c.end_date)) {
+  // expired on the invoice's date: the contract's status today does not matter to an invoice dated while it ran
+  if (c.end_date && d.invoice_date && d.invoice_date > c.end_date) {
     flags.push({ check_code: "contract_expired", category: "contract", severity: "warning", message: `Contract ${c.contract_id} ended ${c.end_date}; invoice dated ${d.invoice_date}.` });
   }
 

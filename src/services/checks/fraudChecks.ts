@@ -95,13 +95,15 @@ export async function fraudChecks(ctx: CheckContext): Promise<Flag[]> {
     [vendor.vendor_id],
     db,
   );
+  // the date the change was asked for (a timestamp from the database)
+  const changedOn = change ? new Date(change.requested_at).toISOString().slice(0, 10) : "";
   if (change && (!change.verified_by_callback || change.status === "pending")) {
     fraud("bank_change_unverified",
-      `The vendor's bank details changed on ${String(change.requested_at).slice(0, 10)} by ${change.request_channel.replace(/_/g, " ")}, with no callback verification (${change.change_id}). Payment is held until it is verified.`);
+      `The vendor's bank details changed on ${changedOn} by ${change.request_channel.replace(/_/g, " ")}, with no callback verification (${change.change_id}). Payment is held until it is verified.`);
   } else if (change && d.invoice_date) {
-    const days = daysBetween(String(change.requested_at).slice(0, 10), d.invoice_date);
+    const days = daysBetween(changedOn, d.invoice_date);
     if (days >= 0 && days <= 30) {
-      warn("bank_change_recent", `The vendor's bank details changed on ${String(change.requested_at).slice(0, 10)} (${change.change_id}), ${days} days before the invoice date.`);
+      warn("bank_change_recent", `The vendor's bank details changed on ${changedOn} (${change.change_id}), ${days} days before the invoice date.`);
     }
   }
   return flags;
