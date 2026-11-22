@@ -8,6 +8,11 @@ import { org, useUser } from "../session";
 import { ApiForm } from "../components/ApiForm";
 import { Card, Field, NotFound, OptionalFields, PageTitle, Table, Td, btn, btnLight, input } from "../components/ui";
 
+// A file input whose "Choose file" is a clear blue button, with the chosen file's name beside it.
+const fileInput =
+  "block w-full text-sm text-[var(--muted)] file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-[var(--blue)] " +
+  "file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:brightness-110";
+
 export function InvoiceUpload() {
   const user = useUser();
   const navigate = useNavigate();
@@ -24,12 +29,13 @@ export function InvoiceUpload() {
     <div className="max-w-2xl">
       <PageTitle sub="The file is stored as it is and read automatically; accounts payable then reviews the invoice.">Upload an invoice</PageTitle>
       <Card>
-        <ApiForm submit={upload} className="space-y-4">
-          <div className="dropzone">
-            <input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg" required className="block w-full text-sm" />
-            <p className="muted mt-2 text-xs">PDF, PNG or JPEG</p>
-          </div>
-          <div className="flex gap-3">
+        <ApiForm submit={upload} className="flex flex-col gap-5">
+          <label className="dropzone flex cursor-pointer flex-col gap-3 px-5 py-6">
+            <span className="text-sm font-semibold">Invoice file</span>
+            <input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg" required className={fileInput} />
+            <span className="muted text-xs">PDF, PNG or JPEG, one invoice per file.</span>
+          </label>
+          <div className="flex flex-wrap gap-3">
             <button className={btn}>Upload</button>
             <Link to="/invoices" className={btnLight}>Cancel</Link>
           </div>
@@ -180,7 +186,7 @@ export function InvoiceEntry({ start, submitLabel, onSubmit, cancel, withCopy, c
   };
 
   return (
-        <ApiForm submit={submit} className="space-y-5">
+        <ApiForm submit={submit} className="flex flex-col gap-5">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Field label="Vendor">
               <select value={vendorId} onChange={(e) => { setVendorId(e.target.value); setPoId(""); }} className={input} required>
@@ -289,7 +295,16 @@ export function InvoiceEntry({ start, submitLabel, onSubmit, cancel, withCopy, c
               )}
             </Field>
             <Field label="Delivery address"><input value={address} onChange={(e) => setAddress(e.target.value)} className={input} /></Field>
-            {withCopy && <Field label="Copy of the invoice"><input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg" className="block w-full text-sm" /></Field>}
+            {withCopy && (
+              <label className="dropzone col-span-full flex cursor-pointer flex-col gap-2 px-4 py-4">
+                <span className="text-sm font-semibold">Attach the paper invoice <span className="font-normal muted">(optional)</span></span>
+                <span className="muted text-xs">
+                  Typing this in from a paper or PDF invoice? Attach a scan or photo of it, so accounts payable and the auditors can check
+                  what you typed against the original. Skip this if you don't have one.
+                </span>
+                <input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg" className={fileInput} />
+              </label>
+            )}
           </OptionalFields>
 
           <div className="flex gap-3">
