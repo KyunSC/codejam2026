@@ -85,7 +85,7 @@ function serverFor(user: User) {
   tool("get_parsed_invoice", null, "One parsed invoice with every field read from the document and its flags.",
     { parsed_invoice_id: z.string().describe("e.g. PRS-0428") }, false, (a) => getParsedInvoiceRecord(user, org, a.parsed_invoice_id));
   tool("list_payments", "payment.view", "Payments; for scheduled and released ones the earliest due first, and whether the employee may release each.",
-    { status: z.string().optional().describe("scheduled, released, outstanding or settled"), page }, false,
+    { status: z.string().optional().describe("scheduled, released, outstanding, settled, failed or cancelled"), page }, false,
     (a) => listPayments(user, org, { status: a.status, page: a.page }));
   tool("get_payment", "payment.view", "One payment: method, amount, dates, who prepared and released it, the bank account paid.",
     { payment_id: z.string() }, false, (a) => getPaymentRecord(user, org, a.payment_id));

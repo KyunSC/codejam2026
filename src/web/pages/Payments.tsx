@@ -11,14 +11,14 @@ import { A, Card, NotFound, PAGE_SIZE, PageTitle, Pager, Show, Status, Table, Td
 const TABS = ["scheduled", "released", "outstanding", "settled", "cancelled", "all"];
 
 // Stops a scheduled payment, asking for the reason first; its invoice goes back to approved.
-function CancelPayment({ p, done }: { p: PaymentRow; done: () => void }) {
+// The reload that follows removes this form, so the confirmation goes to the page through done.
+function CancelPayment({ p, done }: { p: PaymentRow; done: (notice: string) => void }) {
   const user = useUser();
   const [open, setOpen] = useState(false);
   if (!open) return <button type="button" className={btnLight} onClick={() => setOpen(true)}>Cancel payment</button>;
   const cancel = async (fd: FormData) => {
     await post(org(user, `/payments/${p.payment_id}/cancel`), { reason: str(fd, "reason") ?? "" });
-    done();
-    return "Cancelled.";
+    done(`Cancelled ${p.payment_id} (${money(p.amount, p.currency)} to ${p.vendor}). Invoice ${p.invoice_id} is back to approved.`);
   };
   return (
     <ApiForm inline submit={cancel} confirm={`Cancel the ${money(p.amount, p.currency)} payment to ${p.vendor}? Its invoice goes back to approved.`}>
@@ -43,6 +43,7 @@ export function Payments() {
       : Promise.resolve([] as InvoiceRow[])),
     String(readyPage),
   );
+  const [notice, setNotice] = useState<string | null>(null);
   if (!can(user, "payment.view")) return <NotFound />;
 
   const release = (id: string) => async () => {
@@ -60,6 +61,7 @@ export function Payments() {
   return (
     <div className="space-y-5">
       <PageTitle sub="The AP clerk prepares payments for approved invoices; the payment policies say who may release them; a payment settles when the bank statement shows it.">Payments</PageTitle>
+      {notice && <p className="form-ok">{notice}</p>}
       {can(user, "payment.prepare") && (ready.data?.length ?? 0) > 0 && (
         <Card id="ready" title={`${ready.data![0].total_count} ready to pay`}>
           <Table head={["Invoice", "Vendor", "Invoice #", "Due", "Total", ""]}>
@@ -106,7 +108,7 @@ export function Payments() {
                     <Td>
                       {p.can_release && <ApiForm submit={release(p.payment_id)} confirm={`Release ${money(p.amount, p.currency)} to ${p.vendor}?`}><button className={btn}>Release</button></ApiForm>}
                       {p.release_blocked && <span className="text-xs muted">{p.release_blocked}</span>}
-                      {p.can_cancel && <div className="mt-1"><CancelPayment p={p} done={() => { rows.reload(); ready.reload(); }} /></div>}
+                      {p.can_cancel && <div className="mt-1"><CancelPayment p={p} done={(n) => { setNotice(n); rows.reload(); ready.reload(); }} /></div>}
                     </Td>
                   </tr>
                 ))}
@@ -131,6 +133,7 @@ export function Payment() {
     const [inv, gl] = await Promise.all([get<PaymentView["inv"]>(org(user, `/invoices/${p.invoice_id}`)), get<PaymentView["gl"]>(org(user, "/gl-accounts"))]);
     return { p, inv, gl };
   }, id);
+  const [notice, setNotice] = useState<string | null>(null);
   if (!can(user, "payment.view")) return <NotFound />;
   const release = async () => {
     await post(org(user, `/payments/${id}/release`));
@@ -145,10 +148,11 @@ export function Payment() {
         return (
           <div className="space-y-5">
             <PageTitle sub={<Status value={p.status} />}>{p.payment_id} · {p.vendor} · {money(p.amount, p.currency)}</PageTitle>
+            {notice && <p className="form-ok">{notice}</p>}
             <div className="grid gap-5 lg:grid-cols-2">
               <Card title="Payment" actions={<div className="flex flex-wrap items-center gap-2">
                 {p.can_release ? <ApiForm inline submit={release} confirm={`Release ${money(p.amount, p.currency)} to ${p.vendor}?`}><button className={btn}>Release</button></ApiForm> : p.release_blocked && <span className="text-xs muted">{p.release_blocked}</span>}
-                {p.can_cancel && <CancelPayment p={p} done={load.reload} />}
+                {p.can_cancel && <CancelPayment p={p} done={(n) => { setNotice(n); load.reload(); }} />}
               </div>}>
                 <dl className="grid grid-cols-2 gap-2 text-sm">
                   <dt className="muted">Method</dt><dd>{p.method}</dd>
