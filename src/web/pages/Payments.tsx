@@ -34,7 +34,9 @@ export function Payments() {
   const user = useUser();
   const { sp, search, draft, setDraft, term } = useListFilter();
   // a search with no tab chosen looks through every payment, so "did we pay this?" finds settled ones
-  const status = TABS.includes(sp.get("status") ?? "") ? sp.get("status")! : search ? "all" : "scheduled";
+  // a tab the user picked; with none, a search covers every status and no tab is highlighted
+  const chosen = TABS.includes(sp.get("status") ?? "") ? sp.get("status") : null;
+  const status = chosen ?? (search ? "all" : "scheduled");
   const page = pageParam(sp.get("page"));
   const readyPage = pageParam(sp.get("readyPage"));
   const path = org(user, `/payments${qs({ status: status === "all" ? null : status, q: search || null, page, size: PAGE_SIZE })}`);
@@ -90,7 +92,7 @@ export function Payments() {
           <div className="flex flex-wrap items-center gap-1 text-xs">
             <SearchBox label="Filter payments" placeholder="Payment, invoice, vendor, or reference" value={draft} onChange={setDraft} />
             {TABS.map((s) => (
-              <Link key={s} to={withParams(sp, { status: s, q: term || null, page: null })} className="chip" aria-current={s === status}>{s}</Link>
+              <Link key={s} to={withParams(sp, { status: s, q: term || null, page: null })} className="chip" aria-current={s === status && !(search && !chosen)}>{s}</Link>
             ))}
           </div>
         }

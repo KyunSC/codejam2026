@@ -21,7 +21,9 @@ export function PurchaseOrders() {
   const user = useUser();
   const { sp, search, draft, setDraft, term } = useListFilter();
   // a search with no tab chosen looks through every order, not just the open ones
-  const status = TABS.includes(sp.get("status") ?? "") ? sp.get("status")! : search ? "all" : "open";
+  // a tab the user picked; with none, a search covers every status and no tab is highlighted
+  const chosen = TABS.includes(sp.get("status") ?? "") ? sp.get("status") : null;
+  const status = chosen ?? (search ? "all" : "open");
   const page = pageParam(sp.get("page"));
   const path = org(user, `/purchase-orders${qs({ status: status === "all" ? null : status, q: search || null, page, size: PAGE_SIZE })}`);
   const load = useLoad(() => get<PurchaseOrderRow[]>(path), path);
@@ -35,7 +37,7 @@ export function PurchaseOrders() {
           <div className="flex flex-wrap items-center gap-1 text-xs">
             <SearchBox label="Filter purchase orders" placeholder="PO #, vendor, department, or description" value={draft} onChange={setDraft} />
             {TABS.map((s) => (
-              <Link key={s} to={withParams(sp, { status: s, q: term || null, page: null })} className="chip" aria-current={s === status}>{s.replace(/_/g, " ")}</Link>
+              <Link key={s} to={withParams(sp, { status: s, q: term || null, page: null })} className="chip" aria-current={s === status && !(search && !chosen)}>{s.replace(/_/g, " ")}</Link>
             ))}
           </div>
         }
