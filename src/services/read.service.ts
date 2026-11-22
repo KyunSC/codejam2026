@@ -22,10 +22,9 @@ export type RawItemRow = {
   handling_outcome: HandlingOutcome | null; handled_at: string | null; handled_by_name: string | null; handling_note: string | null;
 };
 
-// "open": everything not settled yet, i.e. todo plus waiting; "todo": still needs someone, i.e. being read, or no invoice /
-// not readable and nobody has handled it (the clerk's everyday view); "needs": no invoice or not readable, and nobody has
-// handled it; "waiting": asked the sender to send it again; "handled": dealt with in another way.
-export const ATTENTION = ["open", "todo", "needs", "waiting", "handled"] as const;
+// Each raw item is in exactly one of these: being read, read into a parsed invoice, or (no invoice in it or not readable)
+// needing attention, waiting on the sender, or handled.
+export const ATTENTION = ["reading", "needs", "waiting", "handled", "read"] as const;
 export type Attention = (typeof ATTENTION)[number];
 
 // Raw items not yet extracted come first. The AP clerk sees them all; everyone else sees only what they submitted.
@@ -50,9 +49,9 @@ export async function listRawItems(
        LEFT JOIN users hu ON hu.user_id=h.handled_by
       WHERE r.organization_id=$1 AND ($2::text IS NULL OR r.kind=$2) AND ($3::text IS NULL OR r.status=$3) AND ($4::text IS NULL OR r.submitted_by=$4)
         AND ($5::text IS NULL
-              OR ($5 = 'open' AND (r.status = 'new' OR (r.status = ANY($6) AND (h.outcome IS NULL OR h.outcome = 'requested'))))
-              OR ($5 = 'todo' AND (r.status = 'new' OR (r.status = ANY($6) AND h.outcome IS NULL)))
-              OR ($5 NOT IN ('open', 'todo') AND r.status = ANY($6) AND CASE $5
+              OR ($5 = 'reading' AND r.status = 'new')
+              OR ($5 = 'read' AND r.status = 'extracted')
+              OR ($5 IN ('needs', 'waiting', 'handled') AND r.status = ANY($6) AND CASE $5
                     WHEN 'needs' THEN h.outcome IS NULL
                     WHEN 'waiting' THEN h.outcome = 'requested'
                     ELSE h.outcome IS NOT NULL AND h.outcome <> 'requested' END))

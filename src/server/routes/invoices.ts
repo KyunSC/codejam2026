@@ -20,7 +20,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 
 export const invoices = Router({ mergeParams: true });
 
 // --- raw items ---
-// attention=open (todo + waiting) | todo (what still needs someone) | needs | waiting | handled; q searches id, sender, subject and file names;
+// attention=reading | needs | waiting | handled | read: one state each, none overlapping; q searches id, sender, subject and file names;
 // from/to (YYYY-MM-DD) bound the day received.
 invoices.get("/raw-items", route(async ({ user, params, query }) => (
   listRawItems(user, params.orgId, {

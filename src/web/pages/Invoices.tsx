@@ -12,9 +12,9 @@ import { A, Badge, Card, PageTitle, Pager, Show, Status, Table, Td, btn, btnLigh
 
 const STATUSES = ["all", "pending_approval", "approved", "scheduled", "paid", "rejected"];
 const KINDS = ["email", "pdf", "form"];
-// The raw list's views. "todo" (what still needs someone) is the clerk's default; "open" is everything not settled
-// (to do + waiting on sender); "all" is the archive.
-const RAW_VIEWS = ["open", "todo", "needs", "waiting", "handled", "all"];
+// The raw list's views: every raw item is in exactly one state, and "all" is no filter.
+// "needs" (what someone has to deal with) is the clerk's default.
+const RAW_VIEWS = ["all", "reading", "needs", "waiting", "handled", "read"];
 const FLAG_FILTERS = [[null, "All"], ["blocking", "Blocking"], ["warning", "Warning"], ["clear", "Clear"]] as const;
 
 // The typed search box in a list's header; it filters as you type.
@@ -36,7 +36,7 @@ export function Invoices() {
   const rawKind = KINDS.includes(sp.get("rawKind") ?? "") ? sp.get("rawKind") : null;
   // the clerk deals with raw items and sees their workload; a submitter sees all of their own submissions
   const handles = can(user, "parsed.review");
-  const rawView = RAW_VIEWS.includes(sp.get("raw") ?? "") ? sp.get("raw")! : handles ? "todo" : "all";
+  const rawView = RAW_VIEWS.includes(sp.get("raw") ?? "") ? sp.get("raw")! : handles ? "needs" : "all";
   const attention = handles && rawView !== "all" ? rawView : null;
   const rawQ = sp.get("rawQ") ?? "";
   const rawFrom = sp.get("rawFrom") ?? "";
@@ -67,8 +67,8 @@ export function Invoices() {
       else next.delete(k);
     }
     next.delete("rawPage");
-    // searching looks through the archive, not just today's to-do list
-    if (handles && (next.get("rawQ") || next.get("rawFrom") || next.get("rawTo")) && rawView === "todo") next.set("raw", "all");
+    // searching looks through everything received, not just what needs attention
+    if (handles && (next.get("rawQ") || next.get("rawFrom") || next.get("rawTo")) && rawView === "needs") next.set("raw", "all");
     setSp(next);
   };
   const parsedPath = org(user, `/parsed-invoices${qs({ q: parsedFilter.search || null, flags: parsedFlags, page: parsedPage, size: PAGE_SIZE })}`);
@@ -119,16 +119,16 @@ export function Invoices() {
             </span>}
             {handles && <span className="flex gap-1 normal-case">
               {([
-                ["open", `All (${counts.data?.open ?? 0})`, "Everything still to address: to do, needing attention and waiting on the sender"],
-                ["todo", `To do (${counts.data?.todo ?? 0})`, "Being read, or with no invoice and not dealt with yet"],
+                ["all", "All", "Everything received"],
+                ["reading", `Reading (${counts.data?.reading ?? 0})`, "Being read"],
                 ["needs", `Needs attention (${counts.data?.needs ?? 0})`, "No invoice in it or not readable, and nobody has dealt with it"],
                 ["waiting", `Waiting on sender (${counts.data?.waiting ?? 0})`, "You asked the sender to send it again"],
-                ["handled", "Handled", "Fully dealt with: reviewed, answered, forwarded or dismissed. A request to the sender stays under Waiting on sender"],
-                ["all", "Archive", "Everything ever received"],
+                ["handled", "Handled", "Dealt with: reviewed, answered, forwarded or dismissed"],
+                ["read", "Read", "Read into a parsed invoice"],
               ] as const).map(([k, label, hint]) => (
                 <Link
                   key={k}
-                  to={withParams(sp, { raw: k === "todo" ? null : k, rawPage: null })}
+                  to={withParams(sp, { raw: k === "needs" ? null : k, rawPage: null })}
                   className={`chip ${k === "needs" && (counts.data?.needs ?? 0) > 0 ? "chip--red" : ""}`}
                   aria-current={rawView === k}
                   title={hint}
@@ -175,11 +175,11 @@ export function Invoices() {
                 empty={
                   !ap ? "You have not submitted anything yet."
                     : rawSearching ? "Nothing received matches this search."
-                    : rawView === "open" ? "Nothing to address: every email and upload has been read or dealt with. See Archive for everything received."
-                    : rawView === "todo" ? "Nothing to do: every email and upload has been read or dealt with. See Archive for everything received."
+                    : rawView === "reading" ? "Nothing is being read."
                     : rawView === "needs" ? "Nothing needs attention."
                     : rawView === "waiting" ? "Nothing is waiting on a sender."
                     : rawView === "handled" ? "Nothing handled yet."
+                    : rawView === "read" ? "Nothing has been read into an invoice yet."
                     : "No raw items yet."
                 }
               >
