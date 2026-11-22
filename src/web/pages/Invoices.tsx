@@ -13,7 +13,8 @@ const KINDS = ["email", "pdf", "form"];
 
 export function Invoices() {
   const user = useUser();
-  const [sp] = useSearchParams();
+  const [sp, setParams] = useSearchParams();
+  const search = sp.get("q") ?? "";
   const notice = (useLocation().state as { notice?: string } | null)?.notice;
   // AP sees the whole pipeline; someone who only submits sees their submissions and what happened to them
   const ap = can(user, "raw.extract") || can(user, "parsed.review");
@@ -26,8 +27,8 @@ export function Invoices() {
   const raw = useLoad(() => get<RawItemRow[]>(org(user, `/raw-items${qs({ kind: rawKind, page: rawPage, size: PAGE_SIZE })}`)), `${rawKind}:${rawPage}`);
   const parsed = useLoad(() => get<ParsedRow[]>(org(user, `/parsed-invoices${qs({ page: parsedPage, size: PAGE_SIZE })}`)), `${parsedPage}`);
   const invoices = useLoad(
-    () => get<InvoiceRow[]>(org(user, `/invoices${qs({ status: status === "all" ? null : status, page: invPage, size: PAGE_SIZE })}`)),
-    `${status}:${invPage}`,
+    () => get<InvoiceRow[]>(org(user, `/invoices${qs({ q: search || null, status: status === "all" ? null : status, page: invPage, size: PAGE_SIZE })}`)),
+    `${status}:${invPage}:${search}`,
   );
   // while something is being read, look again every few seconds
   const readingNow = (raw.data ?? []).some((r) => r.status === "new");
@@ -144,10 +145,22 @@ export function Invoices() {
           </div>
         }
       >
+        <form role="search" className="mb-4 flex flex-wrap items-end gap-2" onSubmit={(event) => {
+          event.preventDefault();
+          const term = String(new FormData(event.currentTarget).get("q") ?? "").trim();
+          setParams(withParams(sp, { q: term || null, page: null }));
+        }}>
+          <label className="grid gap-1">
+            Search invoices
+            <input key={search} className="input" type="search" name="q" defaultValue={search} placeholder="Invoice ID, number, or vendor" />
+          </label>
+          <button type="submit" className={btn}>Search</button>
+          {search && <Link className={btnLight} to={withParams(sp, { q: null, page: null })}>Clear search</Link>}
+        </form>
         <Show load={invoices}>
           {(rows) => (
             <>
-              <Table head={["Invoice", "Vendor", "Invoice #", "Date", "Total", "Department", "Status", "Waiting on"]} empty="No invoices.">
+              <Table head={["Invoice", "Vendor", "Invoice #", "Date", "Total", "Department", "Status", "Waiting on"]} empty={search ? "No invoices match your search." : "No invoices."}>
                 {rows.map((i) => (
                   <tr key={i.invoice_id} className={i.mine ? "row-mine" : ""}>
                     <Td className="font-mono text-xs"><A href={`/invoices/${i.invoice_id}`}>{i.invoice_id}</A></Td>
