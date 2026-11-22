@@ -17,11 +17,11 @@ type InboxEmail = {
   attachments: string[];
 };
 
-// Simulated AP inbox: the dataset's emails.json stands in for the mail server.
+// The AP mailbox, read from its export (inbox/emails.json in FEEDS_DIR).
 // Each email is stored once, as a raw email with its attachments.
 export async function pollInbox(actor: User | null): Promise<{ added: number; skipped: number }> {
   assertCan(actor, "raw.poll");
-  const dir = process.env.DATASET_DIR!;
+  const dir = process.env.FEEDS_DIR!;
   const emails: InboxEmail[] = JSON.parse(readFileSync(path.join(dir, "inbox", "emails.json"), "utf8"));
   let added = 0;
   let skipped = 0;

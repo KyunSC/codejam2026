@@ -15,7 +15,8 @@ session.get("/session", route(async ({ user }) => {
 
 // Sign in with email and password. `portal` limits the login to Brim employees ("brim") or to organization users ("organization").
 session.post("/session", route(async ({ res, body }) => {
-  const portal = body.portal === "brim" || body.portal === "organization" ? body.portal : undefined;
+  const portal = body.portal === "brim" || body.portal === "organization" ? body.portal : null;
+  if (!portal) throw new ValidationError('Say which login: "organization" or "brim".');
   const user = await signIn(String(body.email ?? ""), String(body.password ?? ""), portal);
   res.cookie(SESSION_COOKIE, sessionValue(user.user_id), { httpOnly: true, sameSite: "lax", path: "/" });
   return user;

@@ -5,7 +5,7 @@ import type { AuditRow } from "@/services/audit.service";
 import { get, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { AuditFilters } from "../components/AuditFilters";
-import { A, Badge, Card, NotFound, PageTitle, Pager, Show, Table, Td, btnLight, dateTime, pageParam } from "../components/ui";
+import { A, Badge, Card, NotFound, Pager, Show, Table, Td, btnLight, dateTime, pageParam } from "../components/ui";
 
 type Options = { invoices: string[]; people: { user_id: string; full_name: string }[]; actions: string[] };
 
@@ -19,7 +19,6 @@ export function Audit() {
   if (!can(user, "audit.view")) return <NotFound />;
   return (
     <div className="space-y-5">
-      <PageTitle sub="Every action, who took it and when. The log cannot be edited or deleted.">Audit</PageTitle>
       <Card title="Events" actions={<a href={org(user, `/audit-events/export${qs(filter)}`)} className={btnLight}>Export CSV</a>}>
         {options.data && <div className="mb-4"><AuditFilters organizationId={user.organization_id!} {...options.data} /></div>}
         <Show load={rows}>

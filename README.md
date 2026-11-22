@@ -6,7 +6,7 @@ Accounts payable for Brim business card customers: an Express API over Postgres,
 - `src/services` — business rules and permissions.
 - `src/lib` — database, auth, permissions, shared helpers.
 - `src/web` — the React app; it reaches the server only through `/api`.
-- `scripts` — database reset and the dataset loader, which calls the API.
+- `scripts` — database reset, the loader for Harborline's existing records, and `bank.ts`, which plays the bank outside the app.
 
 ## Run
 
@@ -18,11 +18,21 @@ Express serves the API and, in development, the React app through Vite on http:/
 
 Every loaded account, and the Brim employee `ops@brim.example`, gets the password in `DEMO_PASSWORD` in `.env.local`.
 
-Load the dataset (with the server running):
+Load Harborline's existing records, then poll the AP inbox (the last step needs the server running):
 
 ```bash
 ./scripts/reset-db.sh && npx tsx scripts/ingest.ts setup && npx tsx scripts/ingest.ts history && npx tsx scripts/ingest.ts inbox
 ```
+
+## Payments and the bank
+
+Releasing a payment sends it to the bank: its instruction goes to `BANK_DIR/outbox`. The bank answers with statement lines and virtual card charges in `BANK_DIR`; outside the app, `scripts/bank.ts` gives those answers for every instruction due by the business date:
+
+```bash
+npx tsx scripts/bank.ts
+```
+
+"Import bank statement" on the Payments page then reads them and settles each payment a line confirms.
 
 ## Agents (MCP)
 

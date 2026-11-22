@@ -86,7 +86,7 @@ function serverFor(user: User) {
     { payment_id: z.string() }, false, (a) => getPaymentRecord(user, org, a.payment_id));
   tool("list_vendor_names", null, "The organization's vendors by name and id, to pick the vendor of an invoice.", {}, false, () => listVendorChoices(user, org));
   tool("list_vendors", "vendor.view", "Vendors with their status, number of invoices, unverified bank changes and lookalike names. Filter by status (active, pending_review, on_hold).",
-    { status: z.string().optional() }, false, (a) => listVendors(user, org, a.status));
+    { status: z.string().optional(), page }, false, (a) => listVendors(user, org, { status: a.status, page: a.page }));
   tool("get_vendor", "vendor.view", "One vendor's details and bank details changes.", { vendor_id: z.string() }, false, async (a) => ({
     ...(await getVendor(user, org, a.vendor_id)), bank_changes: await listBankChanges(user, org, { vendorId: a.vendor_id }),
   }));
@@ -113,7 +113,7 @@ function serverFor(user: User) {
       document_type: "invoice", vendor_id: a.vendor_id, vendor_invoice_number: a.vendor_invoice_number, invoice_date: a.invoice_date, due_date: a.due_date ?? null,
       currency: a.currency, po_reference: a.po_reference ?? null, ship_to_province: a.ship_to_province, bill_to_address: a.bill_to_address ?? null, bill_to_name: (await getOrganization(user, org)).legal_name,
       subtotal, taxes: a.taxes.map((t) => ({ label: t.label, rate: null, amount: t.amount })), total: Math.round((subtotal + tax) * 100) / 100, lines, manual: ["vendor_id", "ship_to_province"],
-    }, { organizationId: org });
+    });
   });
   tool("poll_inbox", "raw.poll", "Reads the AP inbox and stores each new email as a raw item; new and earlier unread items are then read in the background into parsed invoices.", {}, true, () => pollAndRead(user));
   tool("edit_parsed_invoice", "parsed.review", "The clerk's corrections on a pending parsed invoice: header fields and line coding. The checks run again.", {

@@ -1,3 +1,6 @@
+import { mkdirSync, writeFileSync } from "fs";
+import path from "path";
+import { randomInt } from "crypto";
 import { ConflictError, ForbiddenError, NotFoundError } from "@/lib/errors";
 import { tx, query, one, nextId, pool } from "@/lib/db";
 import { matches, RELEASE_RANK, REQUIREMENTS, type Policy } from "@/lib/policies";
@@ -31,12 +34,16 @@ export async function preparePayment(actor: User | null, organizationId: string,
   });
 }
 
+const reference = (kind: string) => `BRIM-${kind}-${String(randomInt(10_000_000, 99_999_999))}`;
+
 // Release: who may release comes from the payment policies, never by an approver of the invoice,
-// refused while the vendor's latest bank change is unverified; the bank account is snapshotted.
+// refused while the vendor's latest bank change is unverified. The payment goes to the bank: it gets its reference (a cheque its number,
+// and it is then outstanding until it clears), the bank account is snapshotted, and the instruction is written to the bank's outbox.
 export async function releasePayment(actor: User | null, organizationId: string, paymentId: string) {
   assertCan(actor, "payment.release");
-  await tx(async (c) => {
-    const pay = await one<{ payment_id: string; organization_id: string; invoice_id: string; vendor_id: string; amount_cad: number; status: string }>(
+  const instruction = await tx(async (c) => {
+    const pay = await one<{ payment_id: string; organization_id: string; invoice_id: string; vendor_id: string; method: string; scheduled_date: string | null;
+      currency: string; amount: number; amount_cad: number; status: string }>(
       "SELECT * FROM payments WHERE payment_id=$1 AND organization_id=$2 FOR UPDATE",
       [paymentId, organizationId],
       c,
@@ -56,14 +63,40 @@ export async function releasePayment(actor: User | null, organizationId: string,
     );
     if (change && (!change.verified_by_callback || change.status === "pending")) throw new ConflictError(`The vendor's bank change ${change.change_id} is not verified.`);
 
-    const v = (await one<{ bank_institution: string | null; bank_transit: string | null; bank_account: string | null }>("SELECT bank_institution, bank_transit, bank_account FROM vendors WHERE vendor_id=$1", [pay.vendor_id], c))!;
+    const v = (await one<{ legal_name: string; bank_institution: string | null; bank_transit: string | null; bank_account: string | null }>(
+      "SELECT legal_name, bank_institution, bank_transit, bank_account FROM vendors WHERE vendor_id=$1",
+      [pay.vendor_id],
+      c,
+    ))!;
+    const kind = pay.method === "EFT" ? "EFT" : pay.method === "CHEQUE" ? "CHQ" : "VC";
+    const ref = reference(kind);
+    // cheques are numbered after the highest number issued or cleared so far
+    const chequeNumber = pay.method === "CHEQUE"
+      ? (await one<{ n: number }>(
+          `SELECT GREATEST(5000, (SELECT max(cheque_number) FROM payments WHERE organization_id=$1),
+             (SELECT max(reference::int) FROM statement_lines WHERE organization_id=$1 AND kind='cheque')) + 1 AS n`,
+          [pay.organization_id],
+          c,
+        ))!.n
+      : null;
     await query(
-      "UPDATE payments SET status='released', released_by=$2, released_at=now(), snapshot_institution=$3, snapshot_transit=$4, snapshot_account=$5 WHERE payment_id=$1",
-      [paymentId, actor.user_id, v.bank_institution, v.bank_transit, v.bank_account],
+      `UPDATE payments SET status=$7, released_by=$2, released_at=now(), snapshot_institution=$3, snapshot_transit=$4, snapshot_account=$5,
+         bank_reference=$6, card_reference=$8, cheque_number=$9 WHERE payment_id=$1`,
+      [paymentId, actor.user_id, v.bank_institution, v.bank_transit, v.bank_account, kind === "VC" ? null : ref,
+        pay.method === "CHEQUE" ? "outstanding" : "released", kind === "VC" ? ref : null, chequeNumber],
       c,
     );
-    await writeAudit(c, { organizationId: pay.organization_id, actor, action: "payment.release", entityType: "payment", entityId: paymentId, invoiceId: pay.invoice_id, paymentId, vendorId: pay.vendor_id, after: v });
+    await writeAudit(c, { organizationId: pay.organization_id, actor, action: "payment.release", entityType: "payment", entityId: paymentId, invoiceId: pay.invoice_id, paymentId, vendorId: pay.vendor_id, after: { ...v, reference: ref, cheque_number: chequeNumber } });
+    return {
+      payment_id: paymentId, invoice_id: pay.invoice_id, method: pay.method, scheduled_date: pay.scheduled_date, currency: pay.currency, amount: pay.amount,
+      amount_cad: pay.amount_cad, vendor: v.legal_name, institution: v.bank_institution, transit: v.bank_transit, account: v.bank_account,
+      reference: ref, cheque_number: chequeNumber, card_id: pay.method === "CARD" ? `VC-${pay.invoice_id}` : null, released_by: actor.user_id,
+    };
   });
+  // the bank picks the instruction up from its outbox once the payment is committed
+  const outbox = path.join(process.env.BANK_DIR!, "outbox");
+  mkdirSync(outbox, { recursive: true });
+  writeFileSync(path.join(outbox, `${paymentId}.json`), JSON.stringify(instruction, null, 2));
 }
 
 // Why the user cannot release each scheduled payment, or null when they can: the same rules as releasePayment.

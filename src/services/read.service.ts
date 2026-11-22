@@ -1,4 +1,5 @@
 import { query, one } from "@/lib/db";
+import { today } from "@/lib/dates";
 import { assertMember, authorize, can, invoiceScope } from "@/lib/authz";
 import { NotFoundError } from "@/lib/errors";
 import { window, type Paging } from "@/lib/paging";
@@ -27,7 +28,6 @@ export async function listRawItems(user: User | null, organizationId: string, f:
             r.status, r.no_invoice_reason, r.failure_reason, count(*) OVER ()::int AS total_count
        FROM raw_items r LEFT JOIN users u ON u.user_id=r.submitted_by
       WHERE r.organization_id=$1 AND ($2::text IS NULL OR r.kind=$2) AND ($3::text IS NULL OR r.status=$3) AND ($4::text IS NULL OR r.submitted_by=$4)
-        AND NOT EXISTS (SELECT 1 FROM parsed_invoices p JOIN invoices i ON i.parsed_invoice_id=p.parsed_invoice_id WHERE p.raw_item_id=r.raw_item_id AND i.is_historical)
       ORDER BY (r.status='new') DESC, r.received_at DESC LIMIT ${limit} OFFSET ${offset}`,
     [organizationId, f.kind || null, f.status || null, can(user, "invoice.view_all") ? null : user.user_id],
   );
@@ -104,7 +104,7 @@ export type InvoiceRow = {
 };
 
 // Invoices the user may see; those waiting on the user's approval come first.
-export async function listInvoices(user: User | null, organizationId: string, f: Paging & { status?: string | null; vendor_id?: string | null; type?: string | null } = {}) {
+export async function listInvoices(user: User | null, organizationId: string, f: Paging & { status?: string | null; vendor_id?: string | null; type?: string | null; po_id?: string | null } = {}) {
   assertMember(user, organizationId);
   const { limit, offset } = window(f);
   const s = invoiceScope(user);
@@ -116,9 +116,9 @@ export async function listInvoices(user: User | null, organizationId: string, f:
             EXISTS (SELECT 1 FROM approvals a LEFT JOIN users au ON au.user_id=a.assigned_user_id WHERE a.invoice_id=i.invoice_id AND ${pendingForUserSql(`$${n + 1}`)}) AS mine
        FROM invoices i LEFT JOIN vendors v ON v.vendor_id=i.vendor_id LEFT JOIN departments d ON d.department_id=i.department_id
       WHERE ${s.sql} AND ($${n + 2}::text IS NULL OR i.status=$${n + 2}) AND ($${n + 3}::text IS NULL OR i.vendor_id=$${n + 3})
-        AND ($${n + 4}::text IS NULL OR i.type=$${n + 4})
+        AND ($${n + 4}::text IS NULL OR i.type=$${n + 4}) AND ($${n + 5}::text IS NULL OR i.po_id=$${n + 5})
       ORDER BY mine DESC, i.invoice_date DESC, i.invoice_id DESC LIMIT ${limit} OFFSET ${offset}`,
-    [...s.params, user.user_id, f.status || null, f.vendor_id || null, f.type || null],
+    [...s.params, user.user_id, f.status || null, f.vendor_id || null, f.type || null, f.po_id || null],
   );
 }
 
@@ -139,6 +139,7 @@ export type PaymentRow = {
   total_count: number; payment_id: string; invoice_id: string; vendor_id: string; vendor: string; method: string; amount: number; currency: string; amount_cad: number;
   fx_rate_to_cad: number; scheduled_date: string | null; paid_date: string | null; status: string; preparer: string | null; releaser: string | null; released_at: string | null;
   snapshot_institution: string | null; snapshot_transit: string | null; snapshot_account: string | null; bank_reference: string | null; card_reference: string | null; discount_taken: number;
+  cheque_number: number | null;
   // for a scheduled payment: whether the signed-in user may release it, and if not, why
   can_release?: boolean; release_blocked?: string | null;
 };
@@ -196,20 +197,16 @@ export async function listPayments(user: User | null, organizationId: string, f:
   return withRelease(user, organizationId, rows);
 }
 
-// Count and CAD total of the payments in each status.
-export async function paymentTotals(user: User | null, organizationId: string) {
-  authorize(user, organizationId, "payment.view");
-  return query<{ status: string; n: number; total: number }>(
-    "SELECT status, count(*)::int n, sum(amount_cad)::float total FROM payments WHERE organization_id=$1 GROUP BY status",
-    [organizationId],
-  );
-}
-
 export async function getPaymentRecord(user: User | null, organizationId: string, id: string) {
   authorize(user, organizationId, "payment.view");
   const p = await one<PaymentRow>(`${PAYMENT_SELECT} WHERE p.payment_id=$1 AND p.organization_id=$2`, [id, organizationId]);
   if (!p) throw new NotFoundError("No such payment");
-  return (await withRelease(user, organizationId, [p]))[0];
+  // the bank statement line or virtual card charge that settled it
+  const statement = await one<{ line_id: string; source: string; posted_date: string; description: string; amount: number }>(
+    "SELECT line_id, source, posted_date::text, description, amount::float FROM statement_lines WHERE payment_id=$1",
+    [id],
+  );
+  return { ...(await withRelease(user, organizationId, [p]))[0], statement };
 }
 
 // --- approvals waiting on the user ---
@@ -242,8 +239,9 @@ export async function departmentSpend(user: User | null, organizationId: string)
   return query<{ department: string; month: string; total: number }>(
     `SELECT d.name department, to_char(i.invoice_date,'YYYY-MM') AS month, sum(i.total_cad)::float AS total FROM invoices i JOIN departments d USING (department_id)
       WHERE i.organization_id=$1 AND i.status IN ('approved','scheduled','paid') AND ($2::text IS NULL OR i.department_id=$2)
-        AND i.invoice_date >= date_trunc('month', current_date) - interval '2 months'
+        AND i.invoice_date >= date_trunc('month', $3::date) - interval '2 months'
       GROUP BY 1,2 ORDER BY 1,2`,
-    [organizationId, can(user, "invoice.view_all") ? null : user.department_id],
+    [organizationId, can(user, "invoice.view_all") ? null : user.department_id, today()],
   );
 }
+

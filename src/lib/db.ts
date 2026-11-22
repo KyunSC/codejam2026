@@ -1,4 +1,5 @@
 import { Pool, PoolClient, types } from "pg";
+import { today } from "@/lib/dates";
 
 // numeric → number, date → 'YYYY-MM-DD' string
 types.setTypeParser(1700, (v) => (v === null ? null : parseFloat(v)));
@@ -36,7 +37,7 @@ export async function tx<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
   }
 }
 
-// How each kind of record is numbered: the dataset's own formats (V001, AP-00001, PAY-00001…), continued from the highest number in use.
+// How each kind of record is numbered (V001, AP-00001, PAY-00001…), continued from the highest number in use.
 const ID_FORMATS: Record<string, { table: string; column: string; prefix: () => string; width: number }> = {
   ORG: { table: "organizations", column: "organization_id", prefix: () => "ORG-", width: 3 },
   U: { table: "users", column: "user_id", prefix: () => "U", width: 3 },
@@ -51,7 +52,7 @@ const ID_FORMATS: Record<string, { table: string; column: string; prefix: () => 
   D: { table: "departments", column: "department_id", prefix: () => "D", width: 2 },
   GL: { table: "gl_accounts", column: "account_number", prefix: () => "", width: 4 },
   C: { table: "contracts", column: "contract_id", prefix: () => "C", width: 3 },
-  PO: { table: "purchase_orders", column: "po_id", prefix: () => `PO-${new Date().getFullYear()}-`, width: 4 },
+  PO: { table: "purchase_orders", column: "po_id", prefix: () => `PO-${today().slice(0, 4)}-`, width: 4 },
   P: { table: "approval_policies", column: "rule_id", prefix: () => "P", width: 2 },
   TOK: { table: "api_tokens", column: "token_id", prefix: () => "TOK-", width: 4 },
 };

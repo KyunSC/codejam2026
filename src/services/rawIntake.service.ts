@@ -99,24 +99,19 @@ async function checkFormInvoice(organizationId: string, f: Record<string, unknow
   if (typeof f.total !== "number" || cents(f.total) !== total) fail("The total is the subtotal plus the taxes.");
 }
 
-// A form entry: the invoice typed in by hand. `submittedBy` lets an import record whose form it was.
-export async function submitForm(
-  actor: User | null,
-  form: Record<string, unknown>,
-  opts: { submittedBy?: string; receivedAt?: string; organizationId?: string; scan?: { fileName: string; bytes: Buffer } } = {},
-) {
-  assertCan(actor, actor?.role === "brim_employee" ? "org.manage" : "raw.submit");
-  const orgId = actor.role === "brim_employee" ? opts.organizationId! : actor.organization_id!;
-  // a Brim employee importing past invoices keeps them as recorded, mistakes included, so the checks can flag them
-  if (actor.role !== "brim_employee") await checkFormInvoice(orgId, form);
+// A form entry: the invoice typed in by hand.
+export async function submitForm(actor: User | null, form: Record<string, unknown>, opts: { scan?: { fileName: string; bytes: Buffer } } = {}) {
+  assertCan(actor, "raw.submit");
+  const orgId = actor.organization_id!;
+  await checkFormInvoice(orgId, form);
   if (opts.scan && !/\.(pdf|png|jpe?g)$/i.test(opts.scan.fileName)) throw new ValidationError("Attach the invoice as a PDF, PNG or JPEG.");
   return tx(async (c) => {
     const id = await nextId("RAW", c);
     const files = opts.scan ? [storeFile(id, opts.scan.fileName, opts.scan.bytes)] : [];
     await query(
-      `INSERT INTO raw_items (raw_item_id, organization_id, kind, form_json, files, submitted_by, received_at)
-       VALUES ($1,$2,'form',$3,$4,$5,COALESCE($6::timestamptz, now()))`,
-      [id, orgId, JSON.stringify(form), JSON.stringify(files), opts.submittedBy ?? actor.user_id, opts.receivedAt ?? null],
+      `INSERT INTO raw_items (raw_item_id, organization_id, kind, form_json, files, submitted_by)
+       VALUES ($1,$2,'form',$3,$4,$5)`,
+      [id, orgId, JSON.stringify(form), JSON.stringify(files), actor.user_id],
       c,
     );
     await writeAudit(c, { organizationId: orgId, actor, action: "raw_item.form", entityType: "raw_item", entityId: id, after: form });

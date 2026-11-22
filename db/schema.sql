@@ -99,6 +99,7 @@ CREATE TABLE vendors (
   requires_po              boolean NOT NULL DEFAULT false,
   status                   text NOT NULL DEFAULT 'pending_review' CHECK (status IN ('active','pending_review','on_hold')),
   onboarded_at             date,
+  onboarded_by             text REFERENCES users,
   approved_by              text REFERENCES users
 );
 
@@ -280,7 +281,27 @@ CREATE TABLE payments (
   snapshot_account     text,
   bank_reference       text,
   card_reference       text,
+  -- a cheque's number, given when it is issued; the bank statement reports it when the cheque clears
+  cheque_number        integer,
   failure_reason       text
+);
+
+-- What the bank and the card feed report: bank statement lines (EFT payments, cleared cheques, fees) and virtual card charges.
+-- A line that settles a payment points to it.
+CREATE TABLE statement_lines (
+  line_id         text PRIMARY KEY,
+  organization_id text NOT NULL REFERENCES organizations,
+  source          text NOT NULL CHECK (source IN ('bank','card')),
+  posted_date     date NOT NULL,
+  description     text NOT NULL,
+  -- money out, in CAD
+  amount          numeric(14,2) NOT NULL,
+  -- what it is, read from the line: an EFT payment (reference: the last 6 digits of the payment's), a cleared cheque (its number),
+  -- a virtual card charge (the card), or anything else, such as a bank fee
+  kind            text NOT NULL CHECK (kind IN ('eft','cheque','card','other')),
+  reference       text,
+  payment_id      text REFERENCES payments,
+  imported_at     timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE audit_events (

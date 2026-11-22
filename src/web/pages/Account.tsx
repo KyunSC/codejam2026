@@ -60,7 +60,7 @@ export function Account() {
                 <Td>{t.name}</Td>
                 <Td className="text-xs">{dateTime(t.created_at)}</Td>
                 <Td className="text-xs">{t.revoked_at ? `revoked ${dateTime(t.revoked_at)}` : dateTime(t.last_used_at)}</Td>
-                <Td>{!t.revoked_at && <ApiForm inline submit={revoke(t.token_id)}><button className={btnDanger}>Revoke</button></ApiForm>}</Td>
+                <Td>{!t.revoked_at && <ApiForm inline submit={revoke(t.token_id)} confirm={`Revoke "${t.name}"? Agents using it stop working.`}><button className={btnDanger}>Revoke</button></ApiForm>}</Td>
               </tr>
             ))}
           </Table>

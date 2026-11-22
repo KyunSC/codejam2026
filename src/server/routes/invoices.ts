@@ -7,7 +7,7 @@ import {
 import { invoiceTrail, parsedInvoiceTrail } from "@/services/audit.service";
 import { readStoredFile } from "@/services/rawIntake.service";
 import { pollAndRead, submitInvoiceForm, uploadInvoice } from "@/services/intake.service";
-import { approve, importInvoice, reject, resolveFlag, saveEdits, type ReviewEdit } from "@/services/parsedInvoiceReview.service";
+import { approve, reject, resolveFlag, saveEdits, type ReviewEdit } from "@/services/parsedInvoiceReview.service";
 import { decide } from "@/services/approval.service";
 import { pagingOf, param, route } from "../http";
 
@@ -27,7 +27,7 @@ invoices.post("/raw-items/uploads", upload.single("file"), route(async ({ req, u
 }, { gate: "raw.submit" }));
 // The invoice as typed into the form: checked, then a parsed invoice for review at once. Answers the raw item and parsed invoice ids.
 // JSON, or multipart with the invoice as JSON in field "invoice" and the scan of the paper invoice in field "file".
-invoices.post("/raw-items/forms", upload.single("file"), route(async ({ req, user, params, body }) => {
+invoices.post("/raw-items/forms", upload.single("file"), route(async ({ req, user, body }) => {
   let form = body;
   if (req.file || typeof body.invoice === "string") {
     try {
@@ -37,8 +37,8 @@ invoices.post("/raw-items/forms", upload.single("file"), route(async ({ req, use
     }
   }
   const scan = req.file ? { fileName: req.file.originalname, bytes: req.file.buffer } : undefined;
-  return submitInvoiceForm(user, form, { organizationId: params.orgId, scan });
-}, { gate: "raw.submit", brim: "raw.submit" }));
+  return submitInvoiceForm(user, form, { scan });
+}, { gate: "raw.submit" }));
 // Reads the AP inbox, stores each new email as a raw item, and starts reading everything not yet read.
 invoices.post("/raw-items/poll", route(async ({ user }) => pollAndRead(user), { gate: "raw.poll" }));
 invoices.get("/raw-items/:id", route(async ({ user, params }) => getRawItemRecord(user, params.orgId, params.id)));
@@ -74,7 +74,7 @@ invoices.patch("/flags/:id", route(async ({ user, params, body }) => {
 
 // --- invoices ---
 invoices.get("/invoices", route(async ({ user, params, query }) => (
-  listInvoices(user, params.orgId, { status: param(query, "status"), vendor_id: param(query, "vendor_id"), type: param(query, "type"), ...pagingOf(query) })
+  listInvoices(user, params.orgId, { status: param(query, "status"), vendor_id: param(query, "vendor_id"), type: param(query, "type"), po_id: param(query, "po_id"), ...pagingOf(query) })
 )));
 // The invoice with its approval chain (each step saying whether you may act on it) and payments.
 invoices.get("/invoices/:id", route(async ({ user, params }) => getInvoiceRecord(user, params.orgId, params.id)));
@@ -82,7 +82,6 @@ invoices.get("/invoices/:id", route(async ({ user, params }) => getInvoiceRecord
 invoices.get("/invoices/:id/audit-events", route(async ({ user, params }) => invoiceTrail(user, params.orgId, params.id)));
 invoices.get("/parsed-invoices/:id/audit-events", route(async ({ user, params }) => parsedInvoiceTrail(user, params.orgId, params.id)));
 // A past invoice with its recorded approvals and payments, for an organization being set up.
-invoices.post("/invoice-imports", route(async ({ user, params, body }) => ({ id: await importInvoice(user, params.orgId, body as Parameters<typeof importInvoice>[2]) }), { gate: "org.manage", brim: "raw.extract" }));
 
 // --- approvals ---
 // ?waiting_on=me: the steps waiting on the signed-in user, or on someone on leave they cover.

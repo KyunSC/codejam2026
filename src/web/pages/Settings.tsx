@@ -1,21 +1,31 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { can } from "@/lib/authz";
 import { money } from "@/lib/format";
 import { FIELDS, POLICY_TYPES, REQUIREMENTS, operatorsFor, requiredLabels, type Operator, type Policy, type PolicyType } from "@/lib/policies";
 import type { User } from "@/lib/types";
-import { del, get, patch, post, useLoad } from "../api";
+import { del, get, patch, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { ApiForm, numOrNull, str } from "../components/ApiForm";
-import { Badge, Card, Field, NotFound, OptionalFields, Show, Status, Table, Td, btn, btnDanger, btnLight, dateTime, input } from "../components/ui";
+import { Badge, Card, Field, NotFound, OptionalFields, PAGE_SIZE, Pager, Show, Status, Table, Td, btn, btnDanger, btnLight, dateTime, input, pageParam } from "../components/ui";
 
 const ROLES = ["employee", "ap_clerk", "approver", "finance_manager", "controller_admin", "auditor"];
 
 export function UsersSettings() {
   const user = useUser();
+  const [sp] = useSearchParams();
+  const page = pageParam(sp.get("page"));
+  // one page of users to show; everyone, for the manager and delegate pickers
   const load = useLoad(async () => {
-    const [users, depts] = await Promise.all([get<User[]>(org(user, "/users")), get<{ department_id: string; name: string }[]>(org(user, "/departments"))]);
-    return { users, depts };
-  }, "");
+    const [users, everyone, depts] = await Promise.all([
+      get<(User & { total_count: number })[]>(org(user, `/users${qs({ page, size: PAGE_SIZE })}`)),
+      get<User[]>(org(user, "/user-choices")),
+      get<{ department_id: string; name: string }[]>(org(user, "/departments")),
+    ]);
+    return { users, everyone, depts };
+  }, String(page));
+  // "+ Add user" opens an empty row at the top of the list
+  const [adding, setAdding] = useState(false);
   if (!can(user, "users.manage")) return <NotFound />;
 
   // one form per user: "Save" saves it, "Remove user" (its other button) removes the user
@@ -41,16 +51,17 @@ export function UsersSettings() {
     };
     if (id) await patch(org(user, `/users/${id}`), input);
     else await post(org(user, "/users"), input);
+    setAdding(false);
     load.reload();
     return "Saved.";
   };
 
   return (
     <Show load={load}>
-      {({ users, depts }) => {
-        const active = users.filter((u) => u.status !== "terminated");
+      {({ users, everyone, depts }) => {
+        const active = everyone.filter((u) => u.status !== "terminated");
         const form = (u: Partial<User>) => (
-          <ApiForm submit={save} className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <ApiForm submit={save} className="grid grid-cols-2 gap-2 sm:grid-cols-4" confirm={(fd) => (fd.get("intent") === "remove" ? `Remove ${u.full_name}? They can no longer sign in.` : null)}>
             {u.user_id && <input type="hidden" name="user_id" value={u.user_id} />}
             <Field label="Name"><input name="full_name" defaultValue={u.full_name} className={input} required /></Field>
             <Field label="Email"><input name="email" type="email" defaultValue={u.email} className={input} required /></Field>
@@ -71,14 +82,23 @@ export function UsersSettings() {
             <div className="col-span-2 flex gap-2 sm:col-span-4">
               <button className={u.user_id ? btnLight : btn}>{u.user_id ? "Save" : "Add user"}</button>
               {u.user_id && u.user_id !== user.user_id && <button name="intent" value="remove" formNoValidate className={btnDanger}>Remove user</button>}
+              {!u.user_id && <button type="button" className={btnLight} onClick={() => setAdding(false)}>Cancel</button>}
             </div>
           </ApiForm>
         );
         return (
           <div className="space-y-5">
-            <Card title="Add a user">{form({})}</Card>
-            <Card title={`${active.length} users`}>
+            <Card title={`${users[0]?.total_count ?? 0} users`} actions={!adding && <button className={btnLight} onClick={() => setAdding(true)}>+ Add user</button>}>
               <ul className="divide-y divide-line">
+                {adding && (
+                  <li className="py-3">
+                    <div className="flex items-center gap-3 text-sm">
+                      <span className="w-16 font-mono text-xs muted">new</span>
+                      <span className="font-medium">New user</span>
+                    </div>
+                    <div className="mt-3 space-y-2 pl-16">{form({})}</div>
+                  </li>
+                )}
                 {users.map((u) => (
                   <li key={u.user_id} className="py-3">
                     <details>
@@ -98,6 +118,7 @@ export function UsersSettings() {
                   </li>
                 ))}
               </ul>
+              <Pager param="page" page={page} total={users[0]?.total_count ?? 0} />
             </Card>
           </div>
         );
@@ -115,7 +136,7 @@ export function PoliciesSettings() {
   const user = useUser();
   // vendor category values come from the vendors on file
   const load = useLoad(async () => {
-    const [rows, vendors] = await Promise.all([get<PolicyRow[]>(org(user, "/policies")), get<{ category: string | null }[]>(org(user, "/vendors"))]);
+    const [rows, vendors] = await Promise.all([get<PolicyRow[]>(org(user, "/policies")), get<{ category: string | null }[]>(org(user, "/vendor-choices"))]);
     return { rows, categories: [...new Set(vendors.map((v) => v.category).filter((c): c is string => !!c))].sort() };
   }, "");
   const [editing, setEditing] = useState<string | null>(null);

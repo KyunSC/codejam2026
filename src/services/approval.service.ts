@@ -1,4 +1,5 @@
 import { ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
+import { today } from "@/lib/dates";
 import { tx, query, one } from "@/lib/db";
 import { assertCan, assertMember } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
@@ -75,8 +76,8 @@ export async function setDelegate(actor: User | null, onLeave: boolean, delegate
       if (!d || d.organization_id !== actor.organization_id || d.status !== "active" || delegateUserId === actor.user_id) throw new ValidationError("Pick an active colleague as delegate");
     }
     await query(
-      "UPDATE users SET status=$2, status_since=current_date, delegate_user_id=$3 WHERE user_id=$1",
-      [actor.user_id, onLeave ? "on_leave" : "active", onLeave ? delegateUserId : null],
+      "UPDATE users SET status=$2, status_since=$4, delegate_user_id=$3 WHERE user_id=$1",
+      [actor.user_id, onLeave ? "on_leave" : "active", onLeave ? delegateUserId : null, today()],
       c,
     );
     await writeAudit(c, { organizationId: actor.organization_id, actor, action: onLeave ? "delegate.set" : "delegate.clear", entityType: "user", entityId: actor.user_id, after: { delegateUserId } });

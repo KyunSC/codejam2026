@@ -50,7 +50,7 @@ export function Organization() {
     const [org, depts, users] = await Promise.all([
       get<OrganizationRecord>(base),
       get<{ department_id: string; name: string; cost_centre: string; manager: string | null }[]>(`${base}/departments`),
-      get<User[]>(`${base}/users`),
+      get<User[]>(`${base}/user-choices`),
     ]);
     return { org, depts, users };
   }, id);

@@ -4,7 +4,7 @@ import { readCsv } from "@/lib/csv";
 let rates: { date: string; rate: number }[] | null = null;
 
 function load() {
-  rates ??= readCsv(path.join(process.env.DATASET_DIR!, "data", "fx_rates.csv"))
+  rates ??= readCsv(path.join(process.env.FEEDS_DIR!, "data", "fx_rates.csv"))
     .map((r) => ({ date: r.date, rate: parseFloat(r.usd_to_cad) }))
     .sort((a, b) => a.date.localeCompare(b.date));
   return rates;

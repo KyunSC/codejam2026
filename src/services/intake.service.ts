@@ -68,9 +68,9 @@ export async function pollAndRead(actor: User | null) {
 }
 
 // The invoice form: checked, stored as typed, and turned into a parsed invoice for the clerk's review in the same request.
-export async function submitInvoiceForm(actor: User | null, form: Record<string, unknown>, opts: { organizationId?: string; scan?: { fileName: string; bytes: Buffer } } = {}) {
+export async function submitInvoiceForm(actor: User | null, form: Record<string, unknown>, opts: { scan?: { fileName: string; bytes: Buffer } } = {}) {
   const rawItemId = await submitForm(actor, form, opts);
-  const { parsed } = await readRawItem(actor!.role === "brim_employee" ? opts.organizationId! : actor!.organization_id!, rawItemId);
+  const { parsed } = await readRawItem(actor!.organization_id!, rawItemId);
   return { id: rawItemId, parsed_invoice_id: parsed[0] ?? null };
 }
 

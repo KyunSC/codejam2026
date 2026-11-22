@@ -1,12 +1,13 @@
+import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { can } from "@/lib/authz";
 import { money } from "@/lib/format";
 import type { getVendor, listBankChanges, listVendors } from "@/services/vendor.service";
 import type { InvoiceRow } from "@/services/read.service";
-import { get, patch, post, qs, useLoad } from "../api";
+import { del, get, patch, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { ApiForm, numOrNull, str } from "../components/ApiForm";
-import { A, Badge, Card, Field, NotFound, OptionalFields, PageTitle, Show, Status, Table, Td, btn, btnDanger, btnLight, date, input } from "../components/ui";
+import { A, Badge, Card, Field, NotFound, OptionalFields, PAGE_SIZE, PageTitle, Pager, Show, Status, Table, Td, btn, btnDanger, btnLight, date, input, pageParam } from "../components/ui";
 
 type VendorRow = Awaited<ReturnType<typeof listVendors>>[number];
 
@@ -14,13 +15,14 @@ export function Vendors() {
   const user = useUser();
   const [sp] = useSearchParams();
   const status = sp.get("status") ?? "all";
-  const load = useLoad(() => get<VendorRow[]>(org(user, `/vendors${qs({ status: status === "all" ? null : status })}`)), status);
+  const page = pageParam(sp.get("page"));
+  const load = useLoad(() => get<VendorRow[]>(org(user, `/vendors${qs({ status: status === "all" ? null : status, page, size: PAGE_SIZE })}`)), `${status}:${page}`);
   if (!can(user, "vendor.view")) return <NotFound />;
   return (
     <div className="space-y-5">
       <PageTitle sub="New vendors wait for finance manager approval. A change of bank details is a request that must be verified by callback.">Vendors</PageTitle>
       <Card
-        title={`${load.data?.length ?? 0} vendors`}
+        title={`${load.data?.[0]?.total_count ?? 0} vendors`}
         actions={
           <>
             {["all", "active", "pending_review", "on_hold"].map((s) => (
@@ -32,7 +34,8 @@ export function Vendors() {
       >
         <Show load={load}>
           {(vendors) => (
-            <Table head={["Vendor", "Category", "Location", "GST/HST", "Pays by", "Invoices", "Status", "Warnings"]}>
+            <>
+              <Table head={["Vendor", "Category", "Location", "GST/HST", "Pays by", "Invoices", "Status", "Warnings"]}>
               {vendors.map((v) => (
                 <tr key={v.vendor_id}>
                   <Td><A href={`/vendors/${v.vendor_id}`}>{v.legal_name}</A> <span className="text-xs muted">{v.vendor_id}</span></Td>
@@ -49,6 +52,8 @@ export function Vendors() {
                 </tr>
               ))}
             </Table>
+              <Pager param="page" page={page} total={vendors[0]?.total_count ?? 0} />
+            </>
           )}
         </Show>
       </Card>
@@ -63,14 +68,19 @@ type VendorView = { v: Awaited<ReturnType<typeof getVendor>>; changes: Awaited<R
 // The vendor fields a clerk edits on the vendor page; a vendor needs at least a name, a country and a way to be paid.
 const ESSENTIAL_DETAILS = ["legal_name", "country", "preferred_payment_method"];
 const DETAIL_FIELDS: [string, string][] = [
-  ["legal_name", "Legal name"], ["category", "Category"], ["default_gl_account", "Default GL account"], ["address", "Address"],
-  ["province_or_state", "Province / state"], ["country", "Country"], ["gst_hst_number", "GST/HST number"], ["qst_number", "QST number"],
-  ["payment_terms_days", "Payment terms (days)"], ["preferred_payment_method", "Pays by (EFT, CHEQUE, CARD)"], ["ap_contact_email", "Billing email"], ["phone", "Phone"],
+  ["legal_name", "Legal name"], ["category", "Category"], ["default_gl_account", "Default GL"], ["address", "Address"],
+  ["province_or_state", "Province / state"], ["country", "Country"], ["gst_hst_number", "GST/HST"], ["qst_number", "QST"],
+  ["payment_terms_days", "Terms (days)"], ["preferred_payment_method", "Pays by"], ["ap_contact_email", "Billing email"], ["phone", "Phone"],
 ];
+// the choices of the fields that have a fixed set of values
+const DETAIL_CHOICES: Record<string, string[]> = { country: ["CA", "US"], preferred_payment_method: ["EFT", "CHEQUE", "CARD"] };
 
 export function Vendor() {
   const user = useUser();
   const { id = "" } = useParams();
+  const navigate = useNavigate();
+  // Edit turns the details into inputs where they stand
+  const [editing, setEditing] = useState(false);
   const load = useLoad(async (): Promise<VendorView> => {
     const [v, changes, contracts, pos, invoices, depts] = await Promise.all([
       get<VendorView["v"]>(org(user, `/vendors/${id}`)),
@@ -104,11 +114,16 @@ export function Vendor() {
     await post(org(user, `/bank-changes/${changeId}/${rejected ? "reject" : "approve"}`), { verified_by_callback: fd.get("verified") === "on" });
     return done(`Change ${rejected ? "rejected" : "approved"}.`);
   };
+  const deleteVendor = async () => {
+    await del(org(user, `/vendors/${id}`));
+    navigate("/vendors");
+  };
   const saveDetails = async (fd: FormData) => {
     const body: Record<string, unknown> = {};
     for (const k of DETAIL_FIELDS.map(([k]) => k)) body[k] = k === "payment_terms_days" ? numOrNull(fd, k) : str(fd, k);
     body.requires_po = fd.get("requires_po") === "on";
     await patch(org(user, `/vendors/${id}`), body);
+    setEditing(false);
     return done("Saved.");
   };
   const addContract = async (fd: FormData) => {
@@ -134,12 +149,14 @@ export function Vendor() {
   return (
     <Show load={load}>
       {({ v, changes, contracts, pos, invoices, depts }) => {
-        const row = (k: string, label: string) => (
-          <>
-            <dt className="muted">{label}</dt>
-            <dd>{v[k] === true ? "yes" : v[k] === false ? "no" : String(v[k] ?? "—")}</dd>
-          </>
-        );
+        const shown = (k: string) => (v[k] === true ? "yes" : v[k] === false ? "no" : String(v[k] ?? "—"));
+        // a detail as text, or while editing as its input
+        const field = (k: string) => {
+          const value = v[k] == null ? "" : String(v[k]);
+          const required = ESSENTIAL_DETAILS.includes(k);
+          if (DETAIL_CHOICES[k]) return <select name={k} defaultValue={value} className={input} required={required}>{DETAIL_CHOICES[k].map((c) => <option key={c}>{c}</option>)}</select>;
+          return <input name={k} type={k === "payment_terms_days" ? "number" : k === "ap_contact_email" ? "email" : "text"} defaultValue={value} className={input} required={required} />;
+        };
         return (
           <div className="space-y-5">
             <PageTitle sub={<Status value={v.status} />}>{v.legal_name} <span className="text-base font-normal muted">{id}</span></PageTitle>
@@ -151,37 +168,35 @@ export function Vendor() {
             <div className="grid gap-5 lg:grid-cols-2">
               <Card
                 title="Details"
-                actions={can(user, "vendor.approve") && (
+                actions={
                   <>
-                    {v.status !== "active" && <ApiForm submit={setStatus("approve")}><button className={btn}>Approve vendor</button></ApiForm>}
-                    {v.status !== "on_hold" && <ApiForm submit={setStatus("hold")}><button className={btnDanger}>Put on hold</button></ApiForm>}
+                    {can(user, "vendor.onboard") && !editing && <button className={btnLight} onClick={() => setEditing(true)}>Edit</button>}
+                    {can(user, "vendor.approve") && v.status !== "active" && <ApiForm submit={setStatus("approve")} confirm={`Approve ${v.legal_name} as an active vendor?`}><button className={btn}>Approve vendor</button></ApiForm>}
+                    {can(user, "vendor.approve") && v.status !== "on_hold" && <ApiForm submit={setStatus("hold")} confirm={`Put ${v.legal_name} on hold? Its new invoices are blocked until it is approved again.`}><button className={btnDanger}>Put on hold</button></ApiForm>}
                   </>
-                )}
+                }
               >
-                <dl className="grid grid-cols-2 gap-2 text-sm">
-                  {row("category", "Category")}{row("default_gl_account", "Default GL")}{row("address", "Address")}{row("country", "Country")}
-                  {row("gst_hst_number", "GST/HST")}{row("qst_number", "QST")}{row("payment_terms_days", "Terms (days)")}{row("early_pay_discount", "Early-pay discount")}
-                  {row("preferred_payment_method", "Pays by")}{row("ap_contact_email", "Billing email")}{row("phone", "Phone")}{row("requires_po", "Requires a purchase order")}{row("onboarded_at", "Onboarded")}
-                  <dt className="muted">Bank account</dt><dd className="font-mono">{v.bank_account ? `${v.bank_institution}-${v.bank_transit}-${v.bank_account}` : "—"}</dd>
-                </dl>
-                {can(user, "vendor.onboard") && (
-                  <details className="mt-4 border-t border-line pt-3">
-                    <summary className="cursor-pointer text-sm font-bold">Edit details</summary>
-                    <ApiForm submit={saveDetails} className="mt-3 grid grid-cols-2 gap-2">
-                      {DETAIL_FIELDS.filter(([k]) => ESSENTIAL_DETAILS.includes(k)).map(([k, label]) => (
-                        <Field key={k} label={label}><input name={k} defaultValue={v[k] == null ? "" : String(v[k])} className={input} required /></Field>
-                      ))}
-                      <OptionalFields className="grid grid-cols-2 gap-2">
-                        {DETAIL_FIELDS.filter(([k]) => !ESSENTIAL_DETAILS.includes(k)).map(([k, label]) => (
-                          <Field key={k} label={label}><input name={k} defaultValue={v[k] == null ? "" : String(v[k])} className={input} /></Field>
-                        ))}
-                        <label className="col-span-2 flex items-center gap-2 text-sm"><input type="checkbox" name="requires_po" defaultChecked={!!v.requires_po} /> Requires a purchase order</label>
-                      </OptionalFields>
-                      <div className="col-span-2 text-xs muted">Bank details change through a bank change request.</div>
-                      <div className="col-span-2"><button className={btnLight}>Save details</button></div>
-                    </ApiForm>
-                  </details>
-                )}
+                <ApiForm key={String(editing)} submit={saveDetails}>
+                  <dl className="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-2 text-sm">
+                    {DETAIL_FIELDS.filter(([k]) => editing || k !== "legal_name").map(([k, label]) => (
+                      <div key={k} className="contents">
+                        <dt className="muted">{label}</dt>
+                        <dd>{editing ? field(k) : shown(k)}</dd>
+                      </div>
+                    ))}
+                    <dt className="muted">Requires a purchase order</dt>
+                    <dd>{editing ? <input type="checkbox" name="requires_po" defaultChecked={!!v.requires_po} /> : shown("requires_po")}</dd>
+                    <dt className="muted">Early-pay discount</dt><dd>{shown("early_pay_discount")}</dd>
+                    <dt className="muted">Onboarded</dt><dd>{shown("onboarded_at")}</dd>
+                    <dt className="muted">Bank account</dt><dd className="font-mono">{v.bank_account ? `${v.bank_institution}-${v.bank_transit}-${v.bank_account}` : "—"}</dd>
+                  </dl>
+                  {editing && (
+                    <div className="mt-4 flex gap-2">
+                      <button className={btn}>Save details</button>
+                      <button type="button" className={btnLight} onClick={() => setEditing(false)}>Cancel</button>
+                    </div>
+                  )}
+                </ApiForm>
               </Card>
 
               <Card title="Bank details changes">
@@ -196,7 +211,9 @@ export function Vendor() {
                       <Td><Status value={c.status} /></Td>
                       <Td>
                         {can(user, "bank_change.approve") && c.status === "pending" && (
-                          <ApiForm submit={decideChange(c.change_id)} className="space-y-1">
+                          <ApiForm submit={decideChange(c.change_id)} className="space-y-1" confirm={(fd) => fd.get("decision") === "rejected"
+                            ? `Reject the change of ${v.legal_name}'s bank account to ${c.new_account}?`
+                            : `Approve the change of ${v.legal_name}'s bank account to ${c.new_account}? Payments will go to the new account.`}>
                             <label className="flex items-center gap-1 text-xs"><input type="checkbox" name="verified" /> called the vendor</label>
                             <div className="flex gap-1">
                               <button name="decision" value="approved" className={btn}>Approve</button>
@@ -205,7 +222,7 @@ export function Vendor() {
                           </ApiForm>
                         )}
                         {can(user, "bank_change.approve") && c.status === "approved" && !c.verified_by_callback && (
-                          <ApiForm submit={confirmCallback(c.change_id)}><button className={btnLight}>Confirmed by callback</button></ApiForm>
+                          <ApiForm submit={confirmCallback(c.change_id)} confirm={`Confirm you called ${v.legal_name} on the number on file and they confirmed account ${c.new_account}?`}><button className={btnLight}>Confirmed by callback</button></ApiForm>
                         )}
                       </Td>
                     </tr>
@@ -295,6 +312,11 @@ export function Vendor() {
                 </Table>
               </Card>
             </div>
+            {can(user, "vendor.onboard") && (
+              <ApiForm submit={deleteVendor} confirm={`Delete ${v.legal_name}? This cannot be undone.`} className="border-t border-line pt-5">
+                <button className={btnDanger}>Delete vendor</button>
+              </ApiForm>
+            )}
           </div>
         );
       }}
@@ -330,14 +352,14 @@ export function NewVendor() {
   };
   const text = (name: string, label: string, required = false) => <Field label={label}><input name={name} className={input} required={required} /></Field>;
   return (
-    <div className="max-w-3xl">
+    <div>
       <PageTitle sub="The vendor is created as pending review; the finance manager approves it before its invoices can be paid.">Onboard a vendor</PageTitle>
       <Card>
-        <ApiForm submit={create} className="grid grid-cols-2 gap-3">
+        <ApiForm submit={create} className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {text("legal_name", "Legal name", true)}
           <Field label="Country"><select name="country" className={input}><option>CA</option><option>US</option></select></Field>
           <Field label="Pays by"><select name="preferred_payment_method" className={input}><option>EFT</option><option>CHEQUE</option><option>CARD</option></select></Field>
-          <OptionalFields className="grid grid-cols-2 gap-3">
+          <OptionalFields className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {text("category", "Category")}
           <Field label="Default GL account">
             <select name="default_gl_account" className={input}>
@@ -356,8 +378,11 @@ export function NewVendor() {
           {text("ap_contact_email", "Billing email")}
           {text("phone", "Phone (for bank change callbacks)")}
           </OptionalFields>
-          <label className="col-span-2 flex items-center gap-2 text-sm"><input type="checkbox" name="requires_po" /> Requires a purchase order</label>
-          <div className="col-span-2"><button className={btn}>Create vendor</button></div>
+          <label className="col-span-full flex items-center gap-2 text-sm"><input type="checkbox" name="requires_po" /> Requires a purchase order</label>
+          <div className="col-span-full flex gap-3">
+            <button className={btn}>Create vendor</button>
+            <Link to="/vendors" className={btnLight}>Cancel</Link>
+          </div>
         </ApiForm>
       </Card>
     </div>

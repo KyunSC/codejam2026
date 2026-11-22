@@ -1,10 +1,12 @@
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
+import { today } from "@/lib/dates";
 import { query, tx, nextId, one, type Db } from "@/lib/db";
 import { assertCan, assertMember, authorize } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 import { blankToNull } from "@/lib/values";
 import { setPassword } from "./auth.service";
 import type { User } from "@/lib/types";
+import { window, type Paging } from "@/lib/paging";
 
 // --- organizations (Brim employees) ---
 
@@ -26,10 +28,10 @@ export async function getOrganization(actor: User | null, id: string) {
   return org;
 }
 
-export async function createOrganization(actor: User | null, input: { organization_id?: string; legal_name: string; gst_hst_number?: string | null; base_currency?: string }) {
+export async function createOrganization(actor: User | null, input: { legal_name: string; gst_hst_number?: string | null; base_currency?: string }) {
   assertCan(actor, "org.manage");
   return tx(async (c) => {
-    const id = input.organization_id || (await nextId("ORG", c));
+    const id = await nextId("ORG", c);
     await query(
       "INSERT INTO organizations (organization_id, legal_name, gst_hst_number, base_currency) VALUES ($1,$2,$3,$4)",
       [id, input.legal_name, input.gst_hst_number ?? null, input.base_currency ?? "CAD"],
@@ -53,7 +55,7 @@ export async function updateOrganization(actor: User | null, id: string, input: 
 
 // --- users ---
 
-const USER_FIELDS = ["full_name", "email", "title", "department_id", "manager_id", "role", "approval_limit_cad", "work_province", "status", "status_since", "delegate_user_id"] as const;
+const USER_FIELDS = ["full_name", "email", "title", "department_id", "manager_id", "role", "approval_limit_cad", "work_province", "status", "delegate_user_id"] as const;
 // `password` sets the user's password; it is never stored with the user or written to the audit log.
 type UserInput = Partial<Record<(typeof USER_FIELDS)[number], unknown>> & { user_id?: string; password?: unknown };
 
@@ -69,13 +71,27 @@ async function keepOneAdmin(c: Db, organizationId: string, leavingUserId: string
 }
 
 // The organization's users, removed ones last.
-export async function listUsers(actor: User | null, organizationId: string) {
+export async function listUsers(actor: User | null, organizationId: string, f: Paging = {}) {
   assertMember(actor, organizationId, { brim: true });
-  return query<User>("SELECT * FROM users WHERE organization_id=$1 ORDER BY status='terminated', full_name", [organizationId]);
+  const { limit, offset } = window(f);
+  return query<User & { total_count: number }>(
+    `SELECT *, count(*) OVER ()::int AS total_count FROM users WHERE organization_id=$1 ORDER BY status='terminated', full_name LIMIT ${limit} OFFSET ${offset}`,
+    [organizationId],
+  );
+}
+
+// Everyone in the organization, with what a picker needs: for choosing a requester, manager or delegate.
+export async function listUserChoices(actor: User | null, organizationId: string) {
+  assertMember(actor, organizationId, { brim: true });
+  return query<Pick<User, "user_id" | "full_name" | "title" | "role" | "status" | "department_id">>(
+    "SELECT user_id, full_name, title, role, status, department_id FROM users WHERE organization_id=$1 ORDER BY status='terminated', full_name",
+    [organizationId],
+  );
 }
 
 export async function getOrgUser(actor: User | null, organizationId: string, userId: string) {
-  const u = (await listUsers(actor, organizationId)).find((x) => x.user_id === userId);
+  assertMember(actor, organizationId, { brim: true });
+  const u = await one<User>("SELECT * FROM users WHERE organization_id=$1 AND user_id=$2", [organizationId, userId]);
   if (!u) throw new NotFoundError("No such user");
   return u;
 }
@@ -87,7 +103,7 @@ export async function createUser(actor: User | null, organizationId: string, inp
   if (typeof password !== "string") throw new ValidationError("Give the new user a password");
   checkUserFields(fields);
   return tx(async (c) => {
-    const id = input.user_id || (await nextId("U", c));
+    const id = await nextId("U", c);
     const cols = USER_FIELDS.filter((f) => f in input);
     await query(
       `INSERT INTO users (user_id, organization_id, ${cols.join(",")}) VALUES ($1,$2,${cols.map((_, i) => `$${i + 3}`).join(",")})`,
@@ -130,7 +146,7 @@ export async function deleteUser(actor: User | null, organizationId: string, use
     if (!before) throw new NotFoundError("No such user");
     if (before.user_id === actor.user_id) throw new ForbiddenError("Cannot remove yourself");
     if (before.role === "controller_admin") await keepOneAdmin(c, organizationId, userId);
-    await query("UPDATE users SET status='terminated', status_since=current_date WHERE user_id=$1", [userId], c);
+    await query("UPDATE users SET status='terminated', status_since=$2 WHERE user_id=$1", [userId, today()], c);
     await writeAudit(c, { organizationId, actor, action: "user.delete", entityType: "user", entityId: userId, before });
   });
 }

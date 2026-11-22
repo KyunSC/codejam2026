@@ -12,7 +12,8 @@ import type { Flag } from "./checks/types";
 
 type Found = { file_name: string | null; sha256: string | null; data: InvoiceData; language: string | null; model: string | null; extra: Flag[] };
 
-const EMPTY: InvoiceData = {
+// an invoice with nothing read yet; a form fills in what it has
+export const EMPTY: InvoiceData = {
   document_type: "invoice", vendor_name: null, vendor_address: null, vendor_gst_hst_number: null, vendor_qst_number: null,
   vendor_invoice_number: null, invoice_date: null, due_date: null, payment_terms: null, po_reference: null, credit_note_reference: null,
   bill_to_name: null, bill_to_address: null, bill_to_tax_number: null, currency: "CAD", subtotal: null, taxes: [], total: null,

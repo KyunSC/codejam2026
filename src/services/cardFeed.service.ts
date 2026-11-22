@@ -15,7 +15,7 @@ export type CardTxn = {
 let txns: CardTxn[] | null = null;
 
 function load() {
-  txns ??= readCsv(path.join(process.env.DATASET_DIR!, "data", "card_transactions.csv")).map((r) => ({
+  txns ??= readCsv(path.join(process.env.FEEDS_DIR!, "data", "card_transactions.csv")).map((r) => ({
     txn_id: r.txn_id,
     card_id: r.card_id,
     cardholder_user_id: r.cardholder_user_id,

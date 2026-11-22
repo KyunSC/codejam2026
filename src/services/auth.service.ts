@@ -8,9 +8,8 @@ import type { User } from "@/lib/types";
 
 const MIN_LENGTH = 8;
 
-// Sign-in by email and password. Brim employees sign in on the employee login ("brim"), everyone else on the organization login;
-// without a portal (the dataset loader) any active account may sign in.
-export async function signIn(email: string, password: string, portal?: "brim" | "organization") {
+// Sign-in by email and password. Brim employees sign in on the employee login ("brim"), everyone else on the organization login.
+export async function signIn(email: string, password: string, portal: "brim" | "organization") {
   const user = await one<{ user_id: string; role: string; organization_id: string | null; password_hash: string | null }>(
     `SELECT u.user_id, u.role, u.organization_id, p.password_hash FROM users u LEFT JOIN user_passwords p USING (user_id)
       WHERE lower(u.email)=lower($1) AND u.status<>'terminated'`,
@@ -18,7 +17,7 @@ export async function signIn(email: string, password: string, portal?: "brim" | 
   );
   const ok = !!user && (await verifyPassword(password, user.password_hash));
   const brim = user?.role === "brim_employee";
-  if (!ok || (portal === "brim" && !brim) || (portal === "organization" && brim)) throw new UnauthorizedError("Wrong email or password.");
+  if (!ok || (portal === "brim") !== brim) throw new UnauthorizedError("Wrong email or password.");
   return { user_id: user.user_id, role: user.role, organization_id: user.organization_id };
 }
 

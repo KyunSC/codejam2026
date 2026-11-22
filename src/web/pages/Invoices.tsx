@@ -104,7 +104,7 @@ export function Invoices() {
         </Show>
       </Card>
 
-      <Card title={`${ap ? "2. Parsed — pending approval" : "Being checked by accounts payable"} (${parsed.data?.[0]?.total_count ?? 0})`}>
+      <Card title={`${ap ? "2. Parsed — pending approval" : "Confirm data"} (${parsed.data?.[0]?.total_count ?? 0})`}>
         <Show load={parsed}>
           {(rows) => (
             <>

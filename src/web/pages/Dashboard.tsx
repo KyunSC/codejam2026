@@ -111,11 +111,11 @@ async function loadDashboard(user: User) {
     when(can(user, "approval.act"), () => get<WaitingApproval[]>(at("/approvals?waiting_on=me")), []),
     when(can(user, "payment.prepare"), () => count("/invoices?status=approved&type=invoice&size=1"), 0),
     when(can(user, "payment.release"), () => count("/payments?status=scheduled&size=1"), 0),
-    when(can(user, "vendor.approve"), () => get<unknown[]>(at("/vendors?status=pending_review")).then((r) => r.length), 0),
+    when(can(user, "vendor.approve"), () => count("/vendors?status=pending_review&size=1"), 0),
     when(can(user, "vendor.approve"), () => get<unknown[]>(at("/bank-changes?open=true")).then((r) => r.length), 0),
     when(!can(user, "approval.act") && !can(user, "parsed.review"), () => get<InvoiceRow[]>(at("/invoices?status=pending_approval&size=100")), []),
     get<{ department: string; month: string; total: number }[]>(at("/department-spend")),
-    when(can(user, "delegate.set"), () => get<User[]>(at("/users")), []),
+    when(can(user, "delegate.set"), () => get<User[]>(at("/user-choices")), []),
   ]);
 
   const tiles: { label: string; value: number; href: string }[] = [];

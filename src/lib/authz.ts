@@ -14,7 +14,7 @@ export type Action =
   | "payment.view"
   | "payment.prepare"
   | "payment.release"
-  | "payment.simulate"
+  | "payment.reconcile"
   | "vendor.view"
   | "vendor.onboard"
   | "vendor.approve"
@@ -27,24 +27,28 @@ export type Action =
   | "contract.manage"
   | "po.manage";
 
+// The everyday vendor work the AP clerk and the finance manager share: the vendor list, bank change requests, contracts,
+// purchase orders and importing the bank statement. Whoever requests a vendor or a bank change cannot also approve it (vendor.service.ts).
+const VENDOR_WORK: Action[] = ["vendor.view", "vendor.onboard", "bank_change.request", "contract.manage", "po.manage", "payment.reconcile"];
+
 const PERMISSIONS: Record<Role, Action[]> = {
   brim_employee: ["org.manage"],
   employee: ["raw.submit"],
   ap_clerk: [
     "raw.submit", "raw.poll", "raw.extract", "parsed.review", "invoice.view_all",
-    "payment.view", "payment.prepare", "payment.simulate",
-    "vendor.view", "vendor.onboard", "bank_change.request", "po.manage",
+    "payment.view", "payment.prepare", ...VENDOR_WORK,
   ],
   approver: ["raw.submit", "invoice.view_department", "approval.act", "delegate.set"],
   finance_manager: [
     "raw.submit", "invoice.view_all", "approval.act", "delegate.set",
-    "payment.view", "payment.release", "vendor.view", "vendor.approve", "bank_change.request", "bank_change.approve",
-    "contract.manage", "po.manage",
+    "payment.view", "payment.release", ...VENDOR_WORK, "vendor.approve", "bank_change.approve",
   ],
+  // the organization's admin (controller and CFO): everything except the steps only the AP clerk takes,
+  // reading and reviewing invoices and preparing payments
   controller_admin: [
     "raw.submit", "invoice.view_all", "approval.act", "delegate.set",
-    "payment.view", "payment.release", "vendor.view", "vendor.approve", "bank_change.approve",
-    "users.manage", "policies.manage", "audit.view", "org.settings", "contract.manage", "po.manage",
+    "payment.view", "payment.release", ...VENDOR_WORK, "vendor.approve", "bank_change.approve",
+    "users.manage", "policies.manage", "audit.view", "org.settings",
   ],
   auditor: ["invoice.view_all", "payment.view", "vendor.view", "audit.view"],
 };
@@ -74,7 +78,7 @@ export function invoiceScope(user: User, alias = "i"): { sql: string; params: un
 
 // For organization-scoped API calls: members act inside their own organization with their role's permission;
 // a Brim employee may act on any organization only for setup actions.
-const BRIM_SETUP: Action[] = ["org.settings", "users.manage", "policies.manage", "vendor.onboard", "vendor.approve", "contract.manage", "po.manage", "raw.submit", "raw.extract"];
+const BRIM_SETUP: Action[] = ["org.settings", "users.manage"];
 
 export function authorize(user: User | null, organizationId: string, action: Action): asserts user is User {
   if (!user) throw new UnauthorizedError("Sign in");

@@ -5,6 +5,7 @@ import { writeAudit } from "@/lib/audit";
 import { blankToNull } from "@/lib/values";
 import { policyProblem, type Policy } from "@/lib/policies";
 import type { User } from "@/lib/types";
+import { window } from "@/lib/paging";
 
 // Simple organization records with plain create / read / update / delete.
 type Spec = {
@@ -17,7 +18,7 @@ type Spec = {
   write: Action;
   // DELETE either removes the row or sets a closing value
   remove: { kind: "delete" } | { kind: "set"; column: string; value: unknown };
-  // names of the people a row points to, returned alongside it
+  // values from other tables shown alongside a row, such as the names of the people it points to
   names?: string;
   // what is wrong with a row as it would be saved, or null
   problem?: (row: Record<string, unknown>) => string | null;
@@ -42,6 +43,12 @@ export const SPECS = {
     table: "purchase_orders", key: "po_id", idPrefix: "PO",
     columns: ["vendor_id", "department_id", "requester_user_id", "issue_date", "description", "total_amount", "currency", "status", "approved_by"],
     scope: "vendor", write: "po.manage", remove: { kind: "set", column: "status", value: "closed" },
+    // billed: the subtotal of the invoices against the order that are not rejected or void, as the purchase order check counts it
+    names: `(SELECT v.legal_name FROM vendors v WHERE v.vendor_id = r.vendor_id) AS vendor_name,
+      (SELECT d.name FROM departments d WHERE d.department_id = r.department_id) AS department,
+      (SELECT u.full_name FROM users u WHERE u.user_id = r.requester_user_id) AS requester,
+      (SELECT u.full_name FROM users u WHERE u.user_id = r.approved_by) AS approver,
+      (SELECT COALESCE(SUM(i.subtotal), 0)::float FROM invoices i WHERE i.po_id = r.po_id AND i.status NOT IN ('rejected','void')) AS billed`,
   },
   approval_policies: {
     table: "approval_policies", key: "rule_id", idPrefix: "P", columns: ["rule_type", "field", "operator", "value", "required", "is_active"],
@@ -69,7 +76,12 @@ export async function listRecords<T = Record<string, unknown>>(user: User | null
     params.push(v);
     where.push(`r.${k} = $${params.length}`);
   }
-  return query<T>(`SELECT r.*${s.names ? `, ${s.names}` : ""} FROM ${s.table} r WHERE ${where.join(" AND ")} ORDER BY r.${s.key}`, params);
+  const paged = filter.page || filter.size;
+  const { limit, offset } = window({ page: Number(filter.page) || undefined, size: Number(filter.size) || undefined });
+  return query<T>(
+    `SELECT r.*${s.names ? `, ${s.names}` : ""}, count(*) OVER ()::int AS total_count FROM ${s.table} r WHERE ${where.join(" AND ")} ORDER BY r.${s.key}${paged ? ` LIMIT ${limit} OFFSET ${offset}` : ""}`,
+    params,
+  );
 }
 
 export async function getRecord(user: User | null, organizationId: string, kind: RecordKind, id: string) {
@@ -90,7 +102,7 @@ export async function createRecord(user: User | null, organizationId: string, ki
     }
     const problem = s.problem?.(body);
     if (problem) throw new ValidationError(problem);
-    const id = String(body[s.key] ?? (await nextId(s.idPrefix, c)));
+    const id = await nextId(s.idPrefix, c);
     const cols = [s.key, ...(s.scope === "organization" ? ["organization_id"] : []), ...s.columns.filter((col) => col in body)];
     const vals = cols.map((col) => (col === s.key ? id : col === "organization_id" ? organizationId : blankToNull(body[col])));
     await query(`INSERT INTO ${s.table} (${cols.join(",")}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(",")})`, vals, c);
