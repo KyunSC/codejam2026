@@ -36,8 +36,8 @@ export const DASHBOARD_TILES: Def<TileId>[] = [
   { id: "due_week", label: "Due in the next 7 days", action: SEES_SPEND, byDefault: false },
   { id: "paid_month", label: "Paid this month (CAD)", action: "payment.view", byDefault: false },
   { id: "outstanding_cheques", label: "Outstanding cheques", action: "payment.view", byDefault: false },
-  { id: "open_pos", label: "Open purchase orders", byDefault: false },
-  { id: "contracts_ending", label: "Contracts ending in 60 days", byDefault: false },
+  { id: "open_pos", label: "Open purchase orders", action: "po.manage", byDefault: false },
+  { id: "contracts_ending", label: "Contracts ending in 60 days", action: "contract.manage", byDefault: false },
 ];
 
 export const CARD_IDS = ["pending", "spend", "delegate", "monthly_spend", "vendor_spend", "account_spend", "invoice_status", "payment_methods", "upcoming_due"] as const;
@@ -45,7 +45,7 @@ export type CardId = (typeof CARD_IDS)[number];
 
 export const DASHBOARD_CARDS: Def<CardId>[] = [
   { id: "pending", label: "Pending approval" },
-  { id: "spend", label: "Spend by department" },
+  { id: "spend", label: "Spend by department", action: SEES_SPEND },
   { id: "delegate", label: "Away? Delegate your approvals", action: "delegate.set" },
   // in the palette
   { id: "monthly_spend", label: "Monthly spend", action: SEES_SPEND, byDefault: false },
