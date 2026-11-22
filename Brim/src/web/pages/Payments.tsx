@@ -5,9 +5,23 @@ import type { getInvoiceRecord, PaymentRow } from "@/services/read.service";
 import { get, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { ApiForm } from "../components/ApiForm";
+import { DataTable, type Column } from "../components/DataTable";
 import { A, Card, NotFound, PageTitle, Show, Status, Table, Td, btn, btnLight, date, dateTime } from "../components/ui";
 
 const TABS = ["scheduled", "released", "outstanding", "settled", "all"];
+
+// The payments table's columns (ids and labels in TABLES.payments, src/lib/preferences.ts).
+const PAYMENT_COLUMNS: Column<PaymentRow>[] = [
+  { id: "id", render: (p) => <A href={`/payments/${p.payment_id}`}>{p.payment_id}</A> },
+  { id: "invoice", render: (p) => <A href={`/invoices/${p.invoice_id}`}>{p.invoice_id}</A> },
+  { id: "vendor", render: (p) => p.vendor },
+  { id: "method", render: (p) => p.method },
+  { id: "amount", className: "whitespace-nowrap", render: (p) => money(p.amount, p.currency) },
+  { id: "scheduled", render: (p) => date(p.scheduled_date) },
+  { id: "paid", render: (p) => date(p.paid_date) },
+  { id: "prepared_released", className: "text-xs", render: (p) => <>{p.preparer ?? "—"} / {p.releaser ?? "—"}</> },
+  { id: "status", render: (p) => <Status value={p.status} /> },
+];
 
 export function Payments() {
   const user = useUser();
@@ -55,26 +69,16 @@ export function Payments() {
       >
         <Show load={rows}>
           {(list) => (
-            <Table head={["Payment", "Invoice", "Vendor", "Method", "Amount", "Scheduled", "Paid", "Prepared / released", "Status", ""]} empty="No payments.">
-              {list.map((p) => (
-                <tr key={p.payment_id}>
-                  <Td><A href={`/payments/${p.payment_id}`}>{p.payment_id}</A></Td>
-                  <Td><A href={`/invoices/${p.invoice_id}`}>{p.invoice_id}</A></Td>
-                  <Td>{p.vendor}</Td>
-                  <Td>{p.method}</Td>
-                  <Td className="whitespace-nowrap">{money(p.amount, p.currency)}</Td>
-                  <Td>{date(p.scheduled_date)}</Td>
-                  <Td>{date(p.paid_date)}</Td>
-                  <Td className="text-xs">{p.preparer ?? "—"} / {p.releaser ?? "—"}</Td>
-                  <Td><Status value={p.status} /></Td>
-                  <Td>
-                    {p.status === "scheduled" && can(user, "payment.release") && (
-                      <ApiForm submit={release(p.payment_id)}><button className={btn}>Release</button></ApiForm>
-                    )}
-                  </Td>
-                </tr>
-              ))}
-            </Table>
+            <DataTable
+              table="payments"
+              rows={list}
+              rowKey={(p) => p.payment_id}
+              columns={PAYMENT_COLUMNS}
+              trailing={(p) => p.status === "scheduled" && can(user, "payment.release") && (
+                <ApiForm submit={release(p.payment_id)}><button className={btn}>Release</button></ApiForm>
+              )}
+              empty="No payments."
+            />
           )}
         </Show>
       </Card>

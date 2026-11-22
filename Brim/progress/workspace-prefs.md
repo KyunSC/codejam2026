@@ -62,7 +62,9 @@ Checks for every commit (from `Brim/`): `npm run typecheck`, `npm run lint -- --
 - [x] 8c. Parsed table.
   - Parsed table on the Invoices page uses `DataTable table="parsed"` with module-level `PARSED_COLUMNS`; the Review link is the `trailing` column. `Table` and `Td` are no longer imported by `Invoices.tsx` (all three of its tables go through `DataTable`).
   - Verified identical outside edit mode (scratchpad render-and-compare): 3 rows covering a known vendor with blocking + warning, an unknown vendor ("(not in master)") on a credit note with no date and 2 warnings, an unknown vendor that is clear; and 0 rows.
-- [ ] 8d. Payments table.
+- [x] 8d. Payments table.
+  - Payments list uses `DataTable table="payments"` with module-level `PAYMENT_COLUMNS`; Release is the `trailing` column (still only for `scheduled` and `payment.release`). The payment detail page's tables (approval chain, accounting codes) keep `<Table>`.
+  - Verified identical outside edit mode (scratchpad render-and-compare): 2 rows (scheduled with Release, settled without; preparer/releaser missing on either side; CAD and USD) and 0 rows.
 - [ ] 8e. Vendors table.
 - [ ] 8f. Audit table.
 - [ ] 9. Default filters: URL, then prefs, then old default; "all" writes the parameter; ☆ while editing.
