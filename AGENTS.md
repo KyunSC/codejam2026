@@ -6,10 +6,10 @@ CodeJam 16 (McGill) hackathon repo. The app is `Brim/`: accounts payable automat
 
 | Path | What |
 | -- | -- |
-| `Brim/` | The Next.js app. Read `Brim/AGENTS.md` and `Brim/README.md` before working in it |
-| `Brim/PLAN.md` | What to build and why |
-| `Brim/BUILD_PLAN.md` | Exact rules, contracts and build order |
-| `Brim/loops/` | Overnight agent loop prompts |
+| `Brim/` | The app: an Express API and a React/Vite frontend over Postgres (`db/schema.sql`). Read `Brim/AGENTS.md` and `Brim/README.md` before working in it |
+| `Brim/PLAN.md` | What to build and why (written for the earlier Next.js version; business rules still apply) |
+| `Brim/BUILD_PLAN.md` | Exact rules, contracts and build order (same caveat) |
+| `Brim/loops/` | Overnight agent loop prompts (obsolete for the current stack) |
 | `Brim/brim_ap_dataset/` | The Harborline dataset (CSVs, inbox emails, incoming invoice PDFs/scans) |
 | `*.pdf` (root) | Hackathon brief and opening ceremony slides |
 
@@ -19,5 +19,5 @@ CodeJam 16 (McGill) hackathon repo. The app is `Brim/`: accounts payable automat
 
 - **Never push without asking first.** Make the changes, show what changed, and wait for an explicit go-ahead. Approval for push does not carry over to the next.
 - Never force-push, rewrite history, or delete branches without asking.
-- Never commit `.env` or other secrets. `Brim/.env.example` is the template.
+- Never commit `.env`, `.env.local` or other secrets. `Brim/.env.example` is the template; copy it to `Brim/.env.local`.
 - If on `main`, create a branch before committing.

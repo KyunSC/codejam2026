@@ -1,5 +1,7 @@
 # Loop B progress: rules engine
 
+> **Obsolete for the current stack.** This was written for the earlier Next.js/Prisma version (loops, Neon, Prisma, vitest). The app is now an Express API and a React/Vite frontend over Postgres (`db/schema.sql`); see `README.md`. Kept for history.
+
 Branch `loop/rules`. Spec: BUILD_PLAN.md (Roles and permissions, Resolution, Checks, Duplicate detection,
 Smart coding, Approval routing). One item per loop run: implement, test, commit, tick.
 
