@@ -88,12 +88,24 @@ async function keepOneAdmin(c: Db, organizationId: string, leavingUserId: string
 }
 
 // The organization's users, removed ones last.
-export async function listUsers(actor: User | null, organizationId: string, f: Paging = {}) {
+// q matches the name, email, title or user id; role and status narrow to one of each.
+export async function listUsers(
+  actor: User | null,
+  organizationId: string,
+  f: Paging & { q?: string | null; role?: string | null; status?: string | null } = {},
+) {
   assertMember(actor, organizationId);
   const { limit, offset } = window(f);
+  const q = f.q?.trim() || null;
   return query<User & { total_count: number }>(
-    `SELECT *, count(*) OVER ()::int AS total_count FROM users WHERE organization_id=$1 ORDER BY status='terminated', full_name LIMIT ${limit} OFFSET ${offset}`,
-    [organizationId],
+    `SELECT *, count(*) OVER ()::int AS total_count FROM users
+      WHERE organization_id=$1
+        AND ($2::text IS NULL OR strpos(lower(full_name), lower($2)) > 0 OR strpos(lower(email), lower($2)) > 0
+              OR strpos(lower(coalesce(title, '')), lower($2)) > 0 OR strpos(lower(user_id), lower($2)) > 0)
+        AND ($3::text IS NULL OR role=$3)
+        AND ($4::text IS NULL OR status=$4)
+      ORDER BY status='terminated', full_name LIMIT ${limit} OFFSET ${offset}`,
+    [organizationId, q, f.role || null, f.status || null],
   );
 }
 

@@ -1,29 +1,44 @@
 import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { can } from "@/lib/authz";
 import { money } from "@/lib/format";
 import { FIELDS, POLICY_TYPES, REQUIREMENTS, operatorsFor, requiredLabels, type Operator, type Policy, type PolicyType } from "@/lib/policies";
 import type { User } from "@/lib/types";
 import { del, get, patch, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
+import { useListFilter } from "../useListFilter";
 import { ApiForm, numOrNull, str } from "../components/ApiForm";
-import { Badge, Card, Field, NotFound, OptionalFields, PAGE_SIZE, Pager, Show, Status, Table, Td, btn, btnDanger, btnLight, dateTime, input, pageParam } from "../components/ui";
+import { Badge, Card, Field, NotFound, OptionalFields, PAGE_SIZE, Pager, Show, Status, Table, Td, btn, btnDanger, btnLight, dateTime, input, pageParam, withParams } from "../components/ui";
 
 const ROLES = ["employee", "ap_clerk", "approver", "finance_manager", "controller_admin", "auditor"];
 
+const ROLE_LABEL: Record<string, string> = {
+  employee: "Employee",
+  ap_clerk: "AP clerk",
+  approver: "Approver",
+  finance_manager: "Finance manager",
+  controller_admin: "Controller / admin",
+  auditor: "Auditor",
+};
+const STATUSES = ["active", "on_leave", "terminated"];
+
 export function UsersSettings() {
   const user = useUser();
-  const [sp] = useSearchParams();
+  // the name search filters as you type (q in the URL); role and status are chips
+  const { sp, search, draft, setDraft, term } = useListFilter();
   const page = pageParam(sp.get("page"));
-  // one page of users to show; everyone, for the manager and delegate pickers
+  const role = ROLES.includes(sp.get("role") ?? "") ? sp.get("role") : null;
+  const status = STATUSES.includes(sp.get("status") ?? "") ? sp.get("status") : null;
+  // one page of users to show; everyone, for the manager and delegate pickers and the counts per role
   const load = useLoad(async () => {
     const [users, everyone, depts] = await Promise.all([
-      get<(User & { total_count: number })[]>(org(user, `/users${qs({ page, size: PAGE_SIZE })}`)),
+      get<(User & { total_count: number })[]>(org(user, `/users${qs({ q: search || null, role, status, page, size: PAGE_SIZE })}`)),
       get<User[]>(org(user, "/user-choices")),
       get<{ department_id: string; name: string }[]>(org(user, "/departments")),
     ]);
     return { users, everyone, depts };
-  }, String(page));
+  }, `${search}:${role}:${status}:${page}`);
+  const busy = term !== search || !!load.stale;
   // "+ Add user" opens an empty row at the top of the list
   const [adding, setAdding] = useState(false);
   if (!can(user, "users.manage")) return <NotFound />;
@@ -86,10 +101,39 @@ export function UsersSettings() {
             </div>
           </ApiForm>
         );
+        const perRole = (r: string | null) => everyone.filter((u) => (r === null || u.role === r) && (!status || u.status === status)).length;
+        const filtered = !!(search || role || status);
         return (
           <div className="space-y-5">
-            <Card title={`${users[0]?.total_count ?? 0} users`} actions={!adding && <button className={btnLight} onClick={() => setAdding(true)}>+ Add user</button>}>
-              <ul className="divide-y divide-line">
+            <Card title={`${users[0]?.total_count ?? 0} ${filtered ? "matching " : ""}users`} actions={!adding && <button className={btnLight} onClick={() => setAdding(true)}>+ Add user</button>}>
+              <div className="mb-4 flex flex-col gap-3">
+                <input
+                  className="input max-w-md"
+                  type="search"
+                  aria-label="Search users"
+                  placeholder="Search by name, email, title or ID"
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                />
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className="mr-1 text-xs muted">Role</span>
+                  {([null, ...ROLES] as (string | null)[]).map((r) => (
+                    <Link key={r ?? "all"} to={withParams(sp, { role: r, q: term || null, page: null })} className="chip" aria-current={role === r}>
+                      {r ? ROLE_LABEL[r] : "All"} ({perRole(r)})
+                    </Link>
+                  ))}
+                </div>
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className="mr-1 text-xs muted">Status</span>
+                  {([null, ...STATUSES] as (string | null)[]).map((s) => (
+                    <Link key={s ?? "all"} to={withParams(sp, { status: s, q: term || null, page: null })} className="chip" aria-current={status === s}>
+                      {s ? s.replace("_", " ") : "All"}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+              {!adding && users.length === 0 && <p className="m-0 py-3 text-sm muted">No users match. Change the search or the filters.</p>}
+              <ul className={`divide-y divide-line ${busy ? "opacity-60 transition-opacity" : "transition-opacity"}`} aria-busy={busy}>
                 {adding && (
                   <li className="py-3">
                     <div className="flex items-center gap-3 text-sm">
@@ -106,7 +150,7 @@ export function UsersSettings() {
                         <span className="w-16 font-mono text-xs muted">{u.user_id}</span>
                         <span className="w-48 font-medium">{u.full_name}</span>
                         <span className="w-56 muted">{u.title}</span>
-                        <span className="w-36">{u.role.replace("_", " ")}</span>
+                        <span className="w-36">{ROLE_LABEL[u.role] ?? u.role.replace("_", " ")}</span>
                         <Status value={u.status} />
                       </summary>
                       {u.status !== "terminated" && (
