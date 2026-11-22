@@ -201,6 +201,14 @@
   .tray__label { font-size: 12px; font-weight: 700; color: var(--muted); margin-right: 4px; }
   .tray__add { cursor: pointer; height: 28px; }
   .tray__add:hover { --chip-bg: var(--btn-bg); --chip-fg: var(--btn-fg); border-color: var(--btn-bg); }
+
+  .wtabs--editing { align-items: flex-end; }
+  .wtab-item { display: inline-flex; align-items: center; gap: 2px; padding: 0 6px 0 2px; margin-bottom: -2px; border: 2px dashed var(--line); border-bottom: 0; border-radius: 6px 6px 0 0; background: var(--surface); }
+  .wtab-item--locked { padding-left: 6px; }
+  .wtabs--editing .wtab-item a { margin-bottom: 0; border-color: transparent; padding-left: 8px; padding-right: 8px; }
+  .wtabs--editing .wtab-item a[aria-current="page"] { box-shadow: inset 0 3px 0 var(--accent); background: transparent; }
+  .wtab-item .x-btn { width: 18px; height: 18px; font-size: 12px; }
+  .wtab-home { display: inline-block; margin-right: 5px; color: var(--accent); vertical-align: -1px; }
 }
 
 /* ---------- Workspace preferences (src/web/preferences.tsx sets these attributes on <html>) ----------

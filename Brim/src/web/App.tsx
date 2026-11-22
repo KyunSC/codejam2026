@@ -1,10 +1,9 @@
 import { useEffect } from "react";
 import { Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { can } from "@/lib/authz";
 import type { Organization } from "@/services/organization.service";
 import { del, get, useLoad } from "./api";
 import { org, useSession } from "./session";
-import { NavTabs, SubTabs } from "./components/NavTabs";
+import { SubTabs, WorkspaceTabs } from "./components/NavTabs";
 import { NotFound, PageTitle } from "./components/ui";
 import { Home } from "./pages/Home";
 import { EmployeeLogin, Login } from "./pages/Login";
@@ -77,14 +76,6 @@ function WorkspaceLayout() {
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
   if (user.role === "brim_employee") return <Navigate to="/organizations" replace />;
-  const tabs = [
-    { href: "/dashboard", label: "Dashboard", match: "/dashboard" },
-    { href: "/invoices", label: "Invoices", match: "/invoices" },
-    ...(can(user, "payment.view") ? [{ href: "/payments", label: "Payments", match: "/payments" }] : []),
-    ...(can(user, "vendor.view") ? [{ href: "/vendors", label: "Vendors", match: "/vendors" }] : []),
-    ...(can(user, "audit.view") ? [{ href: "/audit", label: "Audit", match: "/audit" }] : []),
-    ...(can(user, "users.manage") ? [{ href: "/settings/users", label: "Settings", match: "/settings" }] : []),
-  ];
   return (
     <EditModeProvider>
     <div className="flex min-h-screen flex-col">
@@ -101,7 +92,7 @@ function WorkspaceLayout() {
             <LogoutButton />
           </div>
           <div className="basis-full">
-            <NavTabs items={tabs} />
+            <WorkspaceTabs />
           </div>
         </div>
         <EditBar workspace />
