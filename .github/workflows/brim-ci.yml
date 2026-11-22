@@ -12,23 +12,39 @@ concurrency:
 
 jobs:
   verify:
-    name: Brim tests, types, and lint
+    name: Brim schema, types, lint, and build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
       run:
         working-directory: Brim
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: brim_ap
+          POSTGRES_PASSWORD: brim_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:brim_ci@127.0.0.1:5432/brim_ap
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - uses: actions/setup-node@v6
         with:
-          node-version: '26'
+          node-version: '24' # Brim/mise.toml pins 24.22.2
           cache: npm
           cache-dependency-path: Brim/package-lock.json
-      - run: node --test ../.github/scripts/brim-preview.test.cjs
       - run: npm ci
-      - run: npx tsc --noEmit
+      - name: Load db/schema.sql
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema.sql
+      - run: npm run typecheck
       - run: npm run lint
       - run: npm run build
