@@ -149,23 +149,24 @@ export function Invoices() {
           </div>
         }
       >
-        {term !== search
-          ? <p role="status" className="muted">Filtering invoices…</p>
-          : <InvoiceResults key={JSON.stringify([term, status, invPage])} term={term} status={status} page={invPage} />}
+        <InvoiceResults search={search} status={status} page={invPage} filtering={term !== search} />
       </Card>
     </div>
   );
 }
 
-function InvoiceResults({ term, status, page }: { term: string; status: string; page: number }) {
+// The rows stay on screen, dimmed, while a typed filter waits to apply or the next page loads.
+function InvoiceResults({ search, status, page, filtering }: { search: string; status: string; page: number; filtering: boolean }) {
   const user = useUser();
-  const path = org(user, `/invoices${qs({ q: term, status: status === "all" ? null : status, page, size: PAGE_SIZE })}`);
+  const path = org(user, `/invoices${qs({ q: search, status: status === "all" ? null : status, page, size: PAGE_SIZE })}`);
   const invoices = useLoad(() => get<InvoiceRow[]>(path), path);
+  const busy = filtering || !!invoices.stale;
   return (
+    <div aria-busy={busy} className={busy ? "opacity-60 transition-opacity" : "transition-opacity"}>
     <Show load={invoices}>
       {(rows) => (
         <>
-          <Table head={["Invoice", "Vendor", "Invoice #", "Date", "Total", "Department", "Status", "Waiting on"]} empty={term ? "No invoices match your filter." : "No invoices."}>
+          <Table head={["Invoice", "Vendor", "Invoice #", "Date", "Total", "Department", "Status", "Waiting on"]} empty={search ? "No invoices match your filter." : "No invoices."}>
             {rows.map((i) => (
               <tr key={i.invoice_id} className={i.mine ? "row-mine" : ""}>
                 <Td className="font-mono text-xs"><A href={`/invoices/${i.invoice_id}`}>{i.invoice_id}</A></Td>
@@ -183,5 +184,6 @@ function InvoiceResults({ term, status, page }: { term: string; status: string; 
         </>
       )}
     </Show>
+    </div>
   );
 }

@@ -30,7 +30,8 @@ export const qs = (v: Record<string, string | number | null | undefined>) => {
   return q.size ? `?${q}` : "";
 };
 
-export type Loaded<T> = { data?: T; error?: Error; reload: () => void };
+// `stale` is true while the shown data belongs to an earlier key and the next is on its way.
+export type Loaded<T> = { data?: T; error?: Error; stale?: boolean; reload: () => void };
 
 // Data for a screen: loads when `key` changes and again on reload(). The previous data stays shown while the next arrives.
 export function useLoad<T>(load: () => Promise<T>, key: string, { keepPrevious = true } = {}): Loaded<T> {
@@ -49,5 +50,5 @@ export function useLoad<T>(load: () => Promise<T>, key: string, { keepPrevious =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, n]);
   const current = keepPrevious || state.key === key ? state : {};
-  return { data: current.data, error: current.error, reload: () => setN((x) => x + 1) };
+  return { data: current.data, error: current.error, stale: state.key !== key, reload: () => setN((x) => x + 1) };
 }

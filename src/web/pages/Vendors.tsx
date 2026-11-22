@@ -18,14 +18,15 @@ export function Vendors() {
   const status = sp.get("status") ?? "all";
   const page = pageParam(sp.get("page"));
   const path = org(user, `/vendors${qs({ q: search, status: status === "all" ? null : status, page, size: PAGE_SIZE })}`);
-  const load = useLoad(() => get<VendorRow[]>(path), path, { keepPrevious: false });
-  const filtering = term !== search;
+  const load = useLoad(() => get<VendorRow[]>(path), path);
+  // The rows stay on screen, dimmed, while a typed filter waits to apply or the next page loads.
+  const busy = term !== search || !!load.stale;
   if (!can(user, "vendor.view")) return <NotFound />;
   return (
     <div className="space-y-5">
       <PageTitle sub="New vendors wait for finance manager approval. A change of bank details is a request that must be verified by callback.">Vendors</PageTitle>
       <Card
-        title={filtering || !load.data ? "Vendors" : `${load.data[0]?.total_count ?? 0} vendors`}
+        title={busy || !load.data ? "Vendors" : `${load.data[0]?.total_count ?? 0} vendors`}
         actions={
           <>
             <input
@@ -43,10 +44,10 @@ export function Vendors() {
           </>
         }
       >
-        {filtering ? <p role="status" className="muted">Filtering vendors…</p> : <Show load={load}>
+        <div aria-busy={busy} className={busy ? "opacity-60 transition-opacity" : "transition-opacity"}><Show load={load}>
           {(vendors) => (
             <>
-              <Table head={["Vendor", "Category", "Location", "GST/HST", "Pays by", "Invoices", "Status", "Warnings"]} empty={term ? "No vendors match your filter." : "No vendors."}>
+              <Table head={["Vendor", "Category", "Location", "GST/HST", "Pays by", "Invoices", "Status", "Warnings"]} empty={search ? "No vendors match your filter." : "No vendors."}>
               {vendors.map((v) => (
                 <tr key={v.vendor_id}>
                   <Td><A href={`/vendors/${v.vendor_id}`}>{v.legal_name}</A> <span className="text-xs muted">{v.vendor_id}</span></Td>
@@ -66,7 +67,7 @@ export function Vendors() {
               <Pager param="page" page={page} total={vendors[0]?.total_count ?? 0} />
             </>
           )}
-        </Show>}
+        </Show></div>
       </Card>
     </div>
   );
