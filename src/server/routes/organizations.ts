@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { dashboardWidgets } from "@/services/dashboard.service";
 import type { Action } from "@/lib/authz";
 import {
   createOrganization, createUser, deleteUser, getOrganization, getOrgUser, listOrganizations, listUserChoices, listUsers, updateOrganization, updateUser,
@@ -24,6 +25,8 @@ organization.patch("/", route(async ({ user, params, body }) => {
 
 // Invoice spend in CAD by department and month, for the three months up to today.
 organization.get("/department-spend", route(async ({ user, params }) => departmentSpend(user, params.orgId)));
+// Data for the dashboard widgets the user has on the page (ids=a,b,c); each only when the role may see it.
+organization.get("/dashboard-widgets", route(async ({ user, params, query }) => dashboardWidgets(user, params.orgId, String(query.get("ids") ?? "").split(",").filter(Boolean))));
 
 organization.get("/users", route(async ({ user, params, query }) => listUsers(user, params.orgId, pagingOf(query))));
 // Everyone's name, role and status, for picking a person.
