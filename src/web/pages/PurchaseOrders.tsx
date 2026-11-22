@@ -4,6 +4,7 @@ import type { InvoiceRow } from "@/services/read.service";
 import { get, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { A, Card, PAGE_SIZE, PageTitle, Pager, Show, Status, Table, Td, date, pageParam } from "../components/ui";
+import { VendorLink } from "../components/VendorLink";
 
 // A purchase order as the records endpoint returns it, with the values it shows alongside
 type PurchaseOrderRow = {
@@ -41,7 +42,7 @@ export function PurchaseOrders() {
                 {rows.map((p) => (
                   <tr key={p.po_id}>
                     <Td className="whitespace-nowrap"><A href={`/purchase-orders/${p.po_id}`}>{p.po_id}</A></Td>
-                    <Td><A href={`/vendors/${p.vendor_id}`}>{p.vendor_name}</A></Td>
+                    <Td><VendorLink id={p.vendor_id}>{p.vendor_name}</VendorLink></Td>
                     <Td>{p.department ?? "—"}</Td>
                     <Td>{p.description}</Td>
                     <Td className="whitespace-nowrap">{money(p.total_amount)}</Td>
@@ -76,7 +77,7 @@ export function PurchaseOrder() {
           <div className="grid gap-5 lg:grid-cols-2">
             <Card title="Details">
               <dl className="grid grid-cols-2 gap-2 text-sm">
-                <dt className="muted">Vendor</dt><dd><A href={`/vendors/${p.vendor_id}`}>{p.vendor_name}</A></dd>
+                <dt className="muted">Vendor</dt><dd><VendorLink id={p.vendor_id}>{p.vendor_name}</VendorLink></dd>
                 <dt className="muted">Description</dt><dd>{p.description ?? "—"}</dd>
                 <dt className="muted">Department</dt><dd>{p.department ?? "—"}</dd>
                 <dt className="muted">Requester</dt><dd>{p.requester ?? "—"}</dd>

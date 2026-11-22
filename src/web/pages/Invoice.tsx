@@ -14,6 +14,7 @@ import { org, useUser } from "../session";
 import { ApiForm, str } from "../components/ApiForm";
 import { InvoiceEntry, type EnteredInvoice } from "./InvoiceIntake";
 import { A, Badge, Card, Field, PageTitle, Show, Status, Table, Td, btn, btnDanger, btnLight, date, dateTime, input } from "../components/ui";
+import { VendorLink } from "../components/VendorLink";
 
 type InvoiceRecord = Awaited<ReturnType<typeof getInvoiceRecord>>;
 type RawRecord = Awaited<ReturnType<typeof getRawItemRecord>>;
@@ -202,7 +203,7 @@ export function Invoice() {
                     ) : (
                       <div className="space-y-4">
                         <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
-                          <Item k="Vendor">{invoice ? <A href={`/vendors/${invoice.vendor_id}`}>{invoice.vendor_name}</A> : vendorName(d.vendor_id) ?? d.vendor_name}</Item>
+                          <Item k="Vendor">{invoice ? <VendorLink id={invoice.vendor_id}>{invoice.vendor_name}</VendorLink> : vendorName(d.vendor_id) ?? d.vendor_name}</Item>
                           <Item k="Invoice number">{d.vendor_invoice_number}</Item>
                           <Item k="Invoice date">{date(d.invoice_date)}</Item>
                           <Item k="Due date">{date(d.due_date)}</Item>
