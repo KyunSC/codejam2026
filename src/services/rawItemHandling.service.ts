@@ -87,17 +87,20 @@ export async function handlingHistory(organizationId: string, rawItemId: string)
   );
 }
 
-// How many raw items still need handling, and how many wait on their sender. For the AP clerk's tabs and dashboard.
+// The AP clerk's raw-item workload, for the list's tabs and the dashboard: being read, needing handling (no invoice or
+// not readable, nobody has dealt with it), waiting on the sender; todo = reading + needs.
 export async function attentionCounts(user: User | null, organizationId: string) {
   assertMember(user, organizationId);
   assertCan(user, "parsed.review");
-  const r = await one<{ needs: number; waiting: number }>(
-    `SELECT count(*) FILTER (WHERE h.outcome IS NULL)::int AS needs,
-            count(*) FILTER (WHERE h.outcome = 'requested')::int AS waiting
+  const r = await one<{ reading: number; needs: number; waiting: number }>(
+    `SELECT count(*) FILTER (WHERE r.status = 'new')::int AS reading,
+            count(*) FILTER (WHERE r.status = ANY($2) AND h.outcome IS NULL)::int AS needs,
+            count(*) FILTER (WHERE r.status = ANY($2) AND h.outcome = 'requested')::int AS waiting
        FROM raw_items r
        LEFT JOIN LATERAL (SELECT outcome FROM raw_item_handling WHERE raw_item_id=r.raw_item_id ORDER BY handling_id DESC LIMIT 1) h ON true
-      WHERE r.organization_id=$1 AND r.status = ANY($2)`,
+      WHERE r.organization_id=$1 AND (r.status = 'new' OR r.status = ANY($2))`,
     [organizationId, HANDLEABLE],
   );
-  return r ?? { needs: 0, waiting: 0 };
+  const c = r ?? { reading: 0, needs: 0, waiting: 0 };
+  return { ...c, todo: c.reading + c.needs };
 }
