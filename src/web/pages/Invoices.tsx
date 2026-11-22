@@ -1,0 +1,257 @@
+import { Fragment, useEffect } from "react";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { can } from "@/lib/authz";
+import { money } from "@/lib/format";
+import type { InvoiceRow, ParsedRow, RawItemRow } from "@/services/read.service";
+import { get, post, qs, useLoad } from "../api";
+import { org, useUser } from "../session";
+import { ApiForm } from "../components/ApiForm";
+import { DataTable, type Column } from "../components/DataTable";
+import { useEditMode } from "../customize/EditMode";
+import { FilterStar } from "../customize/FilterStar";
+import { HiddenTray } from "../customize/HiddenTray";
+import { HideButton } from "../customize/HideButton";
+import { reorder, setVisible } from "../customize/lists";
+import { RowsPerPage } from "../customize/RowsPerPage";
+import { SortableArea, SortableItem } from "../customize/Sortable";
+import { usePreferences } from "../preferences";
+import { A, Badge, Card, PageTitle, Pager, Show, Status, btn, btnLight, date, PAGE_SIZE, pageParam, withParams } from "../components/ui";
+
+const STATUSES = ["all", "pending_approval", "approved", "scheduled", "paid", "rejected"];
+const KINDS = ["all", "email", "pdf", "form"];
+
+// The parsed invoices table's columns (ids and labels in TABLES.parsed, src/lib/preferences.ts).
+const PARSED_COLUMNS: Column<ParsedRow>[] = [
+  { id: "id", className: "font-mono text-xs", render: (p) => <A href={`/invoices/${p.parsed_invoice_id}`}>{p.parsed_invoice_id}</A> },
+  { id: "vendor", render: (p) => p.vendor_name ?? <span className="text-flag">{p.invoice_json.vendor_name ?? "Unknown"} (not in master)</span> },
+  { id: "number", render: (p) => <>{p.invoice_json.vendor_invoice_number}{p.invoice_json.document_type === "credit_note" && <Badge tone="violet">credit note</Badge>}</> },
+  { id: "date", render: (p) => date(p.invoice_json.invoice_date) },
+  { id: "total", className: "whitespace-nowrap", render: (p) => money(p.invoice_json.total, p.invoice_json.currency) },
+  {
+    id: "flags",
+    className: "space-x-1",
+    render: (p) => (
+      <>
+        {p.blocking > 0 && <Badge tone="red">{p.blocking} blocking</Badge>}
+        {p.warnings > 0 && <Badge tone="gold">{p.warnings} warning{p.warnings > 1 ? "s" : ""}</Badge>}
+        {!p.blocking && !p.warnings && <Badge tone="green">clear</Badge>}
+      </>
+    ),
+  },
+];
+
+// The invoices table's columns (ids and labels in TABLES.invoices, src/lib/preferences.ts).
+const INVOICE_COLUMNS: Column<InvoiceRow>[] = [
+  { id: "id", className: "font-mono text-xs", render: (i) => <A href={`/invoices/${i.invoice_id}`}>{i.invoice_id}</A> },
+  { id: "vendor", render: (i) => i.vendor_name },
+  { id: "number", render: (i) => i.vendor_invoice_number },
+  { id: "date", className: "whitespace-nowrap", render: (i) => date(i.invoice_date) },
+  { id: "total", className: "whitespace-nowrap", render: (i) => money(i.total, i.currency) },
+  { id: "department", render: (i) => i.department },
+  { id: "status", render: (i) => <Status value={i.status} /> },
+  { id: "waiting_on", render: (i) => (i.mine ? <Badge tone="gold">you</Badge> : i.waiting_on) },
+];
+
+export function Invoices() {
+  const user = useUser();
+  const [sp] = useSearchParams();
+  const notice = (useLocation().state as { notice?: string } | null)?.notice;
+  const { prefs, update } = usePreferences();
+  const { editing } = useEditMode();
+  // AP sees the whole pipeline; someone who only submits sees their submissions and what happened to them
+  const ap = can(user, "raw.extract") || can(user, "parsed.review");
+  // Which sections show, in the user's order (plan 6.8). A hidden section isn't fetched.
+  const sections = prefs.sections.invoices;
+  const on = (id: string) => sections.some((x) => x.id === id && x.visible);
+  // The filter in the URL wins; without one, the table opens on the user's default (plan 6.6).
+  const status = STATUSES.includes(sp.get("status") ?? "") ? sp.get("status")! : (prefs.tables.invoices.filter ?? "all");
+  const rawFilter = KINDS.includes(sp.get("rawKind") ?? "") ? sp.get("rawKind")! : (prefs.tables.raw.filter ?? "all");
+  const rawKind = rawFilter === "all" ? null : rawFilter;
+  const rawPage = pageParam(sp.get("rawPage"));
+  const parsedPage = pageParam(sp.get("parsedPage"));
+  const invPage = pageParam(sp.get("page"));
+  // Rows per page come from the user's preferences (plan 6.6); PAGE_SIZE is the fallback.
+  const rawSize = prefs.tables.raw.pageSize ?? PAGE_SIZE;
+  const parsedSize = prefs.tables.parsed.pageSize ?? PAGE_SIZE;
+  const invSize = prefs.tables.invoices.pageSize ?? PAGE_SIZE;
+
+  const skip = <T,>(): Promise<T[]> => Promise.resolve([]);
+  const raw = useLoad(
+    () => (on("raw") ? get<RawItemRow[]>(org(user, `/raw-items${qs({ kind: rawKind, page: rawPage, size: rawSize })}`)) : skip<RawItemRow>()),
+    `${on("raw")}:${rawKind}:${rawPage}:${rawSize}`,
+  );
+  const parsed = useLoad(
+    () => (on("parsed") ? get<ParsedRow[]>(org(user, `/parsed-invoices${qs({ page: parsedPage, size: parsedSize })}`)) : skip<ParsedRow>()),
+    `${on("parsed")}:${parsedPage}:${parsedSize}`,
+  );
+  const invoices = useLoad(
+    () => (on("invoices") ? get<InvoiceRow[]>(org(user, `/invoices${qs({ status: status === "all" ? null : status, page: invPage, size: invSize })}`)) : skip<InvoiceRow>()),
+    `${on("invoices")}:${status}:${invPage}:${invSize}`,
+  );
+  // while something is being read, look again every few seconds
+  const readingNow = (raw.data ?? []).some((r) => r.status === "new");
+  useEffect(() => {
+    if (!readingNow) return;
+    const t = setInterval(() => {
+      raw.reload();
+      parsed.reload();
+    }, 3000);
+    return () => clearInterval(t);
+    // reload functions change every render; readingNow is what matters
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readingNow]);
+
+  const poll = async () => {
+    const r = await post<{ added: number; skipped: number; reading: number }>(org(user, "/raw-items/poll"));
+    raw.reload();
+    return `${r.added} new email${r.added === 1 ? "" : "s"}; ${r.reading} being read.`;
+  };
+
+  // The raw items table's columns (ids and labels in TABLES.raw, src/lib/preferences.ts).
+  const rawColumns: Column<RawItemRow>[] = [
+    { id: "id", label: ap ? "Raw item" : "Submission", className: "font-mono text-xs", render: (r) => <A href={`/invoices/${r.raw_item_id}`}>{r.raw_item_id}</A> },
+    { id: "kind", render: (r) => <Badge>{r.kind}</Badge> },
+    {
+      id: "from",
+      render: (r) => (
+        <>
+          {r.kind === "email" && <div><span className="font-medium">{r.from_name}</span> — {r.subject}</div>}
+          {r.kind === "pdf" && r.submitter && <div className="muted">uploaded by {r.submitter}</div>}
+          {r.kind === "form" && <div>Form: {r.form_json?.vendor_invoice_number} {r.submitter && <span className="muted">by {r.submitter}</span>}</div>}
+          <div className="text-xs muted">
+            {r.files.map((f) => <a key={f.file_name} href={org(user, `/raw-items/${r.raw_item_id}/files/${encodeURIComponent(f.file_name)}`)} target="_blank" rel="noreferrer" className="mr-2 link">{f.file_name}</a>)}
+            {r.kind === "email" && r.files.length === 0 && "no attachment"}
+          </div>
+          {r.no_invoice_reason && <div className="text-xs muted">{r.no_invoice_reason}</div>}
+          {r.status === "failed" && r.failure_reason && <div className="text-xs text-flag">{r.failure_reason}{ap && " It is tried again at the next poll."}</div>}
+        </>
+      ),
+    },
+    { id: "received", className: "whitespace-nowrap", render: (r) => date(r.received_at) },
+    {
+      id: "status",
+      render: (r) => (r.status === "new" ? <Badge tone="blue">reading</Badge> : r.status === "failed" ? <Badge tone="red">not read</Badge> : r.status === "extracted" ? <Badge tone="green">{r.kind === "form" ? "submitted" : "read"}</Badge> : <Status value={r.status} />),
+    },
+  ];
+  const parsedColumns = ap ? PARSED_COLUMNS : PARSED_COLUMNS.map((c) => (c.id === "id" ? { ...c, label: "Reference" } : c));
+
+  // The three sections; titles lost their "1. 2. 3." prefixes, since the order is now the user's.
+  const parts: Record<string, { title: React.ReactNode; actions?: React.ReactNode; body: React.ReactNode }> = {
+    raw: {
+      title: (
+        <span className="flex flex-wrap items-center gap-3">
+          {ap ? "Raw" : "Your submissions"}
+          {ap && <span className="flex gap-1 normal-case">
+            {([["all", "All"], ["email", "Emails"], ["pdf", "Uploads"], ["form", "Forms"]] as const).map(([k, label]) => (
+              <Fragment key={k}>
+                <Link to={withParams(sp, { rawKind: k, rawPage: null })} className="chip" aria-current={rawFilter === k}>{label}</Link>
+                <FilterStar table="raw" value={k} label={label} to={withParams(sp, { rawKind: k, rawPage: null })} />
+              </Fragment>
+            ))}
+          </span>}
+        </span>
+      ),
+      actions: (
+        <>
+          {can(user, "raw.poll") && <ApiForm inline submit={poll}><button className={btnLight}>Poll AP inbox</button></ApiForm>}
+          {can(user, "raw.submit") && <Link to="/invoices/upload" className={btnLight}>Upload PDF</Link>}
+          {can(user, "raw.submit") && <Link to="/invoices/form" className={btn}>Fill form</Link>}
+        </>
+      ),
+      body: (
+        <Show load={raw}>
+          {(rows) => (
+            <>
+              <DataTable table="raw" rows={rows} rowKey={(r) => r.raw_item_id} columns={rawColumns} empty={ap ? "No raw items yet." : "You have not submitted anything yet."} />
+              <Pager param="rawPage" page={rawPage} total={rows[0]?.total_count ?? 0} size={rawSize} />
+              <RowsPerPage table="raw" param="rawPage" />
+            </>
+          )}
+        </Show>
+      ),
+    },
+    parsed: {
+      title: `${ap ? "Parsed — pending approval" : "Confirm data"} (${parsed.data?.[0]?.total_count ?? 0})`,
+      body: (
+        <Show load={parsed}>
+          {(rows) => (
+            <>
+              <DataTable table="parsed" rows={rows} rowKey={(p) => p.parsed_invoice_id} columns={parsedColumns} empty="Nothing waiting for review." />
+              <Pager param="parsedPage" page={parsedPage} total={rows[0]?.total_count ?? 0} size={parsedSize} />
+              <RowsPerPage table="parsed" param="parsedPage" />
+            </>
+          )}
+        </Show>
+      ),
+    },
+    invoices: {
+      title: "Invoices",
+      actions: (
+        <div className="flex gap-1 text-xs">
+          {STATUSES.map((s) => (
+            <Fragment key={s}>
+              <Link to={withParams(sp, { status: s, page: null })} className="chip" aria-current={s === status}>
+                {s.replace(/_/g, " ")}
+              </Link>
+              <FilterStar table="invoices" value={s} label={s.replace(/_/g, " ")} to={withParams(sp, { status: s, page: null })} />
+            </Fragment>
+          ))}
+        </div>
+      ),
+      body: (
+        <Show load={invoices}>
+          {(rows) => (
+            <>
+              <DataTable table="invoices" rows={rows} rowKey={(i) => i.invoice_id} rowClassName={(i) => (i.mine ? "row-mine" : "")} columns={INVOICE_COLUMNS} empty="No invoices." />
+              <Pager param="page" page={invPage} total={rows[0]?.total_count ?? 0} size={invSize} />
+              <RowsPerPage table="invoices" param="page" />
+            </>
+          )}
+        </Show>
+      ),
+    },
+  };
+  const shown = sections.filter((x) => x.visible && parts[x.id]);
+  const path = { kind: "section", page: "invoices" } as const;
+
+  return (
+    <div className="space-y-6">
+      <PageTitle sub={ap
+        ? "Raw items stay as they arrived. Uploads and emails are read automatically into parsed invoices, and a form is one already; approving a parsed invoice adds it to the invoices."
+        : "Submit an invoice by uploading it or filling the form. Accounts payable checks it, then it goes to its approvers."}>Invoices</PageTitle>
+      {notice && <p className="form-ok">{notice}</p>}
+
+      {!editing && shown.map((x) => (
+        <Card key={x.id} id={x.id} title={parts[x.id]!.title} actions={parts[x.id]!.actions}>{parts[x.id]!.body}</Card>
+      ))}
+      {!editing && !shown.length && <p className="card p-6 muted">All sections are hidden. Click Customize to bring them back.</p>}
+
+      {editing && (
+        <>
+          <SortableArea
+            ids={shown.map((x) => x.id)}
+            labels={Object.fromEntries(sections.map((x) => [x.id, `the ${x.label} section`]))}
+            strategy="vertical"
+            onReorder={(ids) => update(reorder(path, sections, ids))}
+          >
+            {shown.map((x) => (
+              <SortableItem key={x.id} id={x.id} handle className="dash-card">
+                {({ grip, dragProps }) => (
+                  <Card
+                    id={x.id}
+                    headerProps={dragProps}
+                    title={<span className="inline-flex items-center gap-2">{grip}{parts[x.id]!.title}</span>}
+                    actions={<>{parts[x.id]!.actions}<HideButton label={`the ${x.label} section`} onHide={() => update(setVisible(path, sections, x.id, false))} /></>}
+                  >
+                    {parts[x.id]!.body}
+                  </Card>
+                )}
+              </SortableItem>
+            ))}
+          </SortableArea>
+          <HiddenTray what="sections" items={sections} onShow={(id) => update(setVisible(path, sections, id, true))} />
+        </>
+      )}
+    </div>
+  );
+}
