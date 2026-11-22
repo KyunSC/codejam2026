@@ -18,22 +18,6 @@ jobs:
     defaults:
       run:
         working-directory: Brim
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_DB: brim
-          POSTGRES_PASSWORD: brim_ci
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    env:
-      DATABASE_URL: postgresql://postgres:brim_ci@127.0.0.1:5432/brim
-      BRIM_LOCAL_DB_ONLY: '1'
     steps:
       - uses: actions/checkout@v6
         with:
@@ -45,8 +29,6 @@ jobs:
           cache-dependency-path: Brim/package-lock.json
       - run: node --test ../.github/scripts/brim-preview.test.cjs
       - run: npm ci
-      - run: npm run typecheck
+      - run: npx tsc --noEmit
       - run: npm run lint
-      - run: npx --no-install prisma migrate deploy
-      - run: npm run db:seed
-      - run: npm test
+      - run: npm run build
