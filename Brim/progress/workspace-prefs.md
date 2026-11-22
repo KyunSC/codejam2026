@@ -2,7 +2,7 @@
 
 Branch `feature/workspace-preferences`. Builds `WORKSPACE_PREFS_PLAN.md`. One item per run; notes under each item. Prompt: `loops/loop-d-workspace-prefs.md`.
 
-Checks for every commit (from `Brim/`): `npm run typecheck`, `npm run lint -- --ignore-pattern '.next/**'`, `npm run build`. (Plain `npm run lint` reports ~11,700 problems, all in a stale, gitignored `.next/` folder left from the Next.js version; CI never sees it. See questions.md.) Running app for curl checks: `PORT=3100 npm run dev`. Database: the local one in `.env.local`, read-only except item 1's migration.
+Checks for every commit (from `Brim/`): `npm run typecheck`, `npm run lint -- --ignore-pattern '.next/**'`, `npm run build`. (Plain `npm run lint` reports ~11,700 problems, all in a stale, gitignored `.next/` folder left from the Next.js version; CI never sees it. See questions.md.) Running app for curl checks: `PORT=3100 npm run dev`; stop it with `kill $(lsof -tiTCP:3100 -sTCP:LISTEN)` (never a pattern-based pkill: something else listens on 3000). Database: the local one in `.env.local`, read-only except item 1's migration.
 
 - [x] 0. Commit WORKSPACE_PREFS_PLAN.md as it is. Create progress/workspace-prefs.md.
 - [x] 1. Storage: user_preferences in db/schema.sql, db/migrations/001_user_preferences.sql, README line; migration applied twice.
@@ -17,7 +17,14 @@ Checks for every commit (from `Brim/`): `npm run typecheck`, `npm run lint -- --
   - **Schema strictness (the plan said both "stripped" and "rejected"):** unknown top-level keys are dropped; unknown ids or values inside lists and tables are refused with the field's path (e.g. `tables.invoices.pageSize`, `tabs.0.id`). A `filter` on a table with no filters, or a `pageSize` on an unpaged table, is refused as an unknown key. Duplicate ids are dropped, first wins; lists capped at 30.
   - **Locked items keep their default position**, as plan 1.2 says ("can't be dragged out of place"), unlike the prototype, where the Dashboard tab could move. So the Payments `totals` section can be hidden but not moved, since `list` is locked after it.
   - `scripts/check-preferences.ts`: 14 checks (node:assert): empty doc, forbidden tabs, stored order plus appended ids, unknown ids, locked items, landing page fallback (hidden and forbidden), a new column not in the stored order, invalid filter/page size, role-based tiles and cards, schema accept/refuse with paths, top-level key stripping, sanitize, resetPage. `npx tsx scripts/check-preferences.ts` → 14 passed.
-- [ ] 3. API: preferences.service.ts + /api/me/preferences (GET, PUT, DELETE); curl flow and audit rows checked.
+- [x] 3. API: preferences.service.ts + /api/me/preferences (GET, PUT, DELETE); curl flow and audit rows checked.
+  - `src/services/preferences.service.ts` (`getPreferences`, `savePreferences`, `resetPreferences`) and three routes in `src/server/routes/session.ts`, next to `/me/delegation`. Each route throws 401 without a user and always acts on the session user; no role gate.
+  - Unchanged documents are compared with key-sorted JSON (array order counts): no write and no audit row. Validation errors name the field: `theme: Invalid option…`, `tables.invoices.pageSize: must be one of: 5, 10, 20`.
+  - **Difference from the plan:** reset empties the row (`UPDATE … SET prefs='{}'`) instead of deleting it. Same effect for the user (no settings = defaults), the audit row is the same, and the app never issues a DELETE. A reset when nothing is stored writes nothing.
+  - PUT reads `req.body` directly (not route()'s `body ?? {}`), so a JSON array is refused with 400 instead of being treated as an object.
+  - Verified on port 3100 as the AP clerk (U004): GET → `{}` with defaults; PUT theme+pageSize → saved; identical PUT with keys reordered → no row; `theme: neon` → 400; `pageSize: 7` → 400; hiding `audit` (which a clerk can't see) → accepted, no effect on resolved tabs; array body → 400; DELETE → `{}`; second DELETE → nothing written; no cookie → 401 on GET and PUT.
+  - `audit_events` for U004 after the run: exactly `preferences.update` ×2 (the two real changes), `preferences.reset` ×1, with `actor_role` ap_clerk, the org id, and before/after JSON.
+  - Brim operator (`ops@brim.example`) GET works (defaults; audit rows would carry a null organization, which the table allows). `GET /api/session` and the users list show no preference fields.
 - [ ] 4. Provider + appearance: src/web/preferences.tsx, data-* on <html>, globals.css, no-flash script in index.html.
 - [ ] 5. Edit mode shell: @dnd-kit, src/web/customize/*, Customize button, Undo / Reset this page / Reset all / Esc.
 - [ ] 6. Tabs and start page: tab bar from prefs, drag/hide/tray, house icon, Login.tsx to the start page.
