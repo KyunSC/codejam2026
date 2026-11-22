@@ -7,7 +7,7 @@ import { pagingOf, param, route } from "../http";
 // /api/organizations/:orgId: payments.
 export const payments = Router({ mergeParams: true });
 
-payments.get("/payments", route(async ({ user, params, query }) => listPayments(user, params.orgId, { status: param(query, "status"), ...pagingOf(query) }), { gate: "payment.view" }));
+payments.get("/payments", route(async ({ user, params, query }) => listPayments(user, params.orgId, { status: param(query, "status"), q: param(query, "q"), ...pagingOf(query) }), { gate: "payment.view" }));
 // Prepare the payment for an approved invoice.
 payments.post("/payments", route(async ({ user, params, body }) => {
   if (!body.invoice_id) throw new ValidationError("invoice_id is required");

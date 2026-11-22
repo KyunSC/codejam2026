@@ -22,6 +22,8 @@ type Spec = {
   names?: string;
   // what is wrong with a row as it would be saved, or null
   problem?: (row: Record<string, unknown>) => string | null;
+  // text the list's q filter matches, case-insensitively and anywhere in it, as SQL on alias r
+  search?: string[];
 };
 
 export const SPECS = {
@@ -49,6 +51,12 @@ export const SPECS = {
       (SELECT u.full_name FROM users u WHERE u.user_id = r.requester_user_id) AS requester,
       (SELECT u.full_name FROM users u WHERE u.user_id = r.approved_by) AS approver,
       (SELECT COALESCE(SUM(i.subtotal), 0)::float FROM invoices i WHERE i.po_id = r.po_id AND i.status NOT IN ('rejected','void')) AS billed`,
+    search: [
+      "r.po_id",
+      "r.description",
+      "(SELECT v.legal_name FROM vendors v WHERE v.vendor_id = r.vendor_id)",
+      "(SELECT d.name FROM departments d WHERE d.department_id = r.department_id)",
+    ],
   },
   approval_policies: {
     table: "approval_policies", key: "rule_id", idPrefix: "P", columns: ["rule_type", "field", "operator", "value", "required", "is_active"],
@@ -75,6 +83,11 @@ export async function listRecords<T = Record<string, unknown>>(user: User | null
     if (!v || !(s.columns.includes(k) || k === s.key)) continue;
     params.push(v);
     where.push(`r.${k} = $${params.length}`);
+  }
+  const q = filter.q?.trim();
+  if (q && s.search) {
+    params.push(q);
+    where.push(`(${s.search.map((expr) => `strpos(lower(${expr}), lower($${params.length})) > 0`).join(" OR ")})`);
   }
   const paged = filter.page || filter.size;
   const { limit, offset } = window({ page: Number(filter.page) || undefined, size: Number(filter.size) || undefined });

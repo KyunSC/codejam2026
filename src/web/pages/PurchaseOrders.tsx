@@ -3,7 +3,8 @@ import { money } from "@/lib/format";
 import type { InvoiceRow } from "@/services/read.service";
 import { get, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
-import { A, Card, PAGE_SIZE, PageTitle, Pager, Show, Status, Table, Td, date, pageParam } from "../components/ui";
+import { useListFilter } from "../useListFilter";
+import { A, Card, PAGE_SIZE, PageTitle, Pager, SearchBox, Show, Status, Table, Td, date, dimWhile, pageParam, withParams } from "../components/ui";
 
 // A purchase order as the records endpoint returns it, with the values it shows alongside
 type PurchaseOrderRow = {
@@ -18,26 +19,32 @@ const Remaining = ({ value }: { value: number }) => <span className={value < 0 ?
 
 export function PurchaseOrders() {
   const user = useUser();
-  const [sp] = useSearchParams();
-  const status = TABS.includes(sp.get("status") ?? "") ? sp.get("status")! : "open";
+  const { sp, search, draft, setDraft, term } = useListFilter();
+  // a search with no tab chosen looks through every order, not just the open ones
+  const status = TABS.includes(sp.get("status") ?? "") ? sp.get("status")! : search ? "all" : "open";
   const page = pageParam(sp.get("page"));
-  const load = useLoad(
-    () => get<PurchaseOrderRow[]>(org(user, `/purchase-orders${qs({ status: status === "all" ? null : status, page, size: PAGE_SIZE })}`)),
-    `${status}:${page}`,
-  );
+  const path = org(user, `/purchase-orders${qs({ status: status === "all" ? null : status, q: search || null, page, size: PAGE_SIZE })}`);
+  const load = useLoad(() => get<PurchaseOrderRow[]>(path), path);
+  const busy = term !== search || !!load.stale;
   return (
     <div className="space-y-5">
       <PageTitle>Purchase orders</PageTitle>
       <Card
         title={`${load.data?.[0]?.total_count ?? 0} purchase orders`}
-        actions={TABS.map((s) => (
-          <Link key={s} to={`/purchase-orders?status=${s}`} className="chip" aria-current={s === status}>{s.replace(/_/g, " ")}</Link>
-        ))}
+        actions={
+          <div className="flex flex-wrap items-center gap-1 text-xs">
+            <SearchBox label="Filter purchase orders" placeholder="PO #, vendor, department, or description" value={draft} onChange={setDraft} />
+            {TABS.map((s) => (
+              <Link key={s} to={withParams(sp, { status: s, q: term || null, page: null })} className="chip" aria-current={s === status}>{s.replace(/_/g, " ")}</Link>
+            ))}
+          </div>
+        }
       >
+        <div aria-busy={busy} className={dimWhile(busy)}>
         <Show load={load}>
           {(rows) => (
             <>
-              <Table head={["Purchase order", "Vendor", "Department", "Description", "Total", "Billed", "Remaining", "Issued", "Status"]} empty="No purchase orders.">
+              <Table head={["Purchase order", "Vendor", "Department", "Description", "Total", "Billed", "Remaining", "Issued", "Status"]} empty={search ? "No purchase orders match your filter." : "No purchase orders."}>
                 {rows.map((p) => (
                   <tr key={p.po_id}>
                     <Td className="whitespace-nowrap"><A href={`/purchase-orders/${p.po_id}`}>{p.po_id}</A></Td>
@@ -56,6 +63,7 @@ export function PurchaseOrders() {
             </>
           )}
         </Show>
+        </div>
       </Card>
     </div>
   );
