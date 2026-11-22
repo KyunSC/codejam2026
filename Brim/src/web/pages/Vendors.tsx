@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { can } from "@/lib/authz";
 import { money } from "@/lib/format";
@@ -8,6 +9,8 @@ import { get, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { ApiForm, numOrNull, str } from "../components/ApiForm";
 import { DataTable, type Column } from "../components/DataTable";
+import { FilterStar } from "../customize/FilterStar";
+import { usePreferences } from "../preferences";
 import { A, Badge, Card, Field, NotFound, PageTitle, Show, Status, Table, Td, btn, btnDanger, btnLight, date, input } from "../components/ui";
 
 type VendorRow = Awaited<ReturnType<typeof listVendors>>[number];
@@ -40,7 +43,9 @@ function vendorColumns(vendors: VendorRow[]): Column<VendorRow>[] {
 export function Vendors() {
   const user = useUser();
   const [sp] = useSearchParams();
-  const status = sp.get("status") ?? "all";
+  const { prefs } = usePreferences();
+  // The filter in the URL wins; without one, the list opens on the user's default (plan 6.6).
+  const status = sp.get("status") ?? prefs.tables.vendors.filter ?? "all";
   const load = useLoad(() => get<VendorRow[]>(org(user, `/vendors${qs({ status: status === "all" ? null : status })}`)), status);
   if (!can(user, "vendor.view")) return <NotFound />;
   return (
@@ -51,7 +56,10 @@ export function Vendors() {
         actions={
           <>
             {["all", "active", "pending_review", "on_hold"].map((s) => (
-              <Link key={s} to={s === "all" ? "/vendors" : `/vendors?status=${s}`} className="chip" aria-current={s === status}>{s.replace("_", " ")}</Link>
+              <Fragment key={s}>
+                <Link to={`/vendors?status=${s}`} className="chip" aria-current={s === status}>{s.replace("_", " ")}</Link>
+                <FilterStar table="vendors" value={s} label={s.replace("_", " ")} to={`/vendors?status=${s}`} />
+              </Fragment>
             ))}
             {can(user, "vendor.onboard") && <Link to="/vendors/new" className={btn}>Onboard vendor</Link>}
           </>

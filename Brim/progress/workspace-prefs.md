@@ -71,7 +71,11 @@ Checks for every commit (from `Brim/`): `npm run typecheck`, `npm run lint -- --
 - [x] 8f. Audit table.
   - `pages/Audit.tsx`: module-level `AUDIT_COLUMNS` (id "#", when, who, action, on, links, note) through `DataTable table="audit"`; no trailing column. `Table`/`Td` imports dropped. Pager unchanged (rows per page is item 10).
   - Verified identical outside edit mode: 2 rows (one with actor, role and all three links; one "system" event with on-behalf and no links/note) and 0 rows ("No events."). Typecheck, lint, build pass.
-- [ ] 9. Default filters: URL, then prefs, then old default; "all" writes the parameter; ☆ while editing.
+- [x] 9. Default filters (plan 6.6).
+  - Raw, Invoices, Payments and Vendors read the filter as URL → `prefs.tables[t].filter` → old default. The resolved filter already falls back to the table default, so the old literal is only a last resort.
+  - "All" links now write the parameter (`rawKind=all`, `status=all`, `/vendors?status=all`), so "all" still works when the default is something else. That's the only markup change outside edit mode: those hrefs. `KINDS` on Invoices gained "all".
+  - New `customize/FilterStar.tsx` (`FilterStar` + `setFilter` updater): ☆/★ button beside each chip, edit mode only; click saves the default and navigates there. It's a sibling of the chip `Link` (in a `Fragment`), not inside it, since a button can't nest in a link. Payments totals tiles get a `.tile-edit` wrapper with the star top-right, only while editing; the "all" link gets one too. CSS: `.star`, `.tile-edit`, `.tile-edit__tools`.
+  - Verified: typecheck, lint, build; `check-preferences.ts` (14 pass); curl on :3100 as the clerk: PUT of all four filters resolves to them, an unknown vendors filter is a 400, DELETE resets. Not seen in a browser yet.
 - [ ] 10. Rows per page: Invoices tables and Audit; RowsPerPage in edit mode.
 - [ ] 11. Sections: Invoices cards; Payments totals hideable.
 - [ ] 12. Wrap-up: README line, curl flow end to end, browser checklist notes.

@@ -218,6 +218,15 @@
   .th-edit { background: var(--surface-2); }
   .th-edit__in { display: inline-flex; align-items: center; gap: 4px; }
   .th-edit .x-btn { width: 18px; height: 18px; font-size: 12px; margin-left: 2px; }
+  .star {
+    display: inline-grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 50%; padding: 0; flex: none; align-self: center;
+    background: transparent; color: var(--muted); font: 700 16px/1 var(--font-dm-sans), system-ui, sans-serif; cursor: pointer;
+  }
+  .star:hover { color: var(--text); background: var(--line); }
+  .star[aria-pressed="true"] { color: var(--accent); }
+  .tile-edit { position: relative; outline: 2px dashed var(--muted); outline-offset: 5px; border-radius: 6px; }
+  .tile-edit > .card { display: block; height: 100%; }
+  .tile-edit__tools { position: absolute; top: 6px; right: 6px; display: flex; align-items: center; gap: 4px; }
 }
 
 /* ---------- Workspace preferences (src/web/preferences.tsx sets these attributes on <html>) ----------

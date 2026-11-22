@@ -6,6 +6,9 @@ import { get, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { ApiForm } from "../components/ApiForm";
 import { DataTable, type Column } from "../components/DataTable";
+import { useEditMode } from "../customize/EditMode";
+import { FilterStar } from "../customize/FilterStar";
+import { usePreferences } from "../preferences";
 import { A, Card, NotFound, PageTitle, Show, Status, Table, Td, btn, btnLight, date, dateTime } from "../components/ui";
 
 const TABS = ["scheduled", "released", "outstanding", "settled", "all"];
@@ -26,7 +29,10 @@ const PAYMENT_COLUMNS: Column<PaymentRow>[] = [
 export function Payments() {
   const user = useUser();
   const [sp] = useSearchParams();
-  const tab = TABS.includes(sp.get("status") ?? "") ? sp.get("status")! : "scheduled";
+  const { prefs } = usePreferences();
+  const { editing } = useEditMode();
+  // The filter in the URL wins; without one, the list opens on the user's default (plan 6.6).
+  const tab = TABS.includes(sp.get("status") ?? "") ? sp.get("status")! : (prefs.tables.payments.filter ?? "scheduled");
   const totals = useLoad(() => get<{ status: string; n: number; total: number }[]>(org(user, "/payments/totals")), "");
   const rows = useLoad(() => get<PaymentRow[]>(org(user, `/payments${qs({ status: tab === "all" ? null : tab, size: 300 })}`)), tab);
   if (!can(user, "payment.view")) return <NotFound />;
@@ -50,11 +56,19 @@ export function Payments() {
       <div className="grid gap-4 sm:grid-cols-4">
         {["scheduled", "released", "outstanding", "settled"].map((s) => {
           const t = totals.data?.find((x) => x.status === s);
-          return (
+          const tile = (
             <Link key={s} to={`/payments?status=${s}`} className="card p-4" style={tab === s ? ({ "--card-shadow": "var(--red)" } as React.CSSProperties) : undefined}>
               <div className="heading num text-4xl leading-none">{t?.n ?? 0}</div>
               <div className="label muted mt-2 text-xs">{s} · {money(t?.total ?? 0)}</div>
             </Link>
+          );
+          // In edit mode each tile (a filter) gets a ☆ beside it; the star is a sibling, since a button can't sit inside a link.
+          if (!editing) return tile;
+          return (
+            <div key={s} className="tile-edit">
+              {tile}
+              <span className="tile-edit__tools"><FilterStar table="payments" value={s} label={s} to={`/payments?status=${s}`} /></span>
+            </div>
           );
         })}
       </div>
@@ -63,6 +77,7 @@ export function Payments() {
         actions={
           <>
             <Link to="/payments?status=all" className="text-xs link">all</Link>
+            <FilterStar table="payments" value="all" label="all" to="/payments?status=all" />
             {can(user, "payment.simulate") && <ApiForm submit={simulate}><button className={btnLight}>Run bank simulation</button></ApiForm>}
           </>
         }

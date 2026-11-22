@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { can } from "@/lib/authz";
 import { money } from "@/lib/format";
@@ -5,6 +6,8 @@ import type { InvoiceRow, ParsedRow, RawItemRow } from "@/services/read.service"
 import { get, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { ApiForm } from "../components/ApiForm";
+import { FilterStar } from "../customize/FilterStar";
+import { usePreferences } from "../preferences";
 import { DataTable, type Column } from "../components/DataTable";
 import { A, Badge, Card, PageTitle, Pager, Show, Status, btn, btnLight, date, PAGE_SIZE, pageParam, withParams } from "../components/ui";
 
@@ -41,13 +44,16 @@ const INVOICE_COLUMNS: Column<InvoiceRow>[] = [
   { id: "status", render: (i) => <Status value={i.status} /> },
   { id: "waiting_on", render: (i) => (i.mine ? <Badge tone="gold">you</Badge> : i.waiting_on) },
 ];
-const KINDS = ["email", "pdf", "form"];
+const KINDS = ["all", "email", "pdf", "form"];
 
 export function Invoices() {
   const user = useUser();
   const [sp] = useSearchParams();
-  const status = STATUSES.includes(sp.get("status") ?? "") ? sp.get("status")! : "all";
-  const rawKind = KINDS.includes(sp.get("rawKind") ?? "") ? sp.get("rawKind") : null;
+  const { prefs } = usePreferences();
+  // The filter in the URL wins; without one, the table opens on the user's default (plan 6.6).
+  const status = STATUSES.includes(sp.get("status") ?? "") ? sp.get("status")! : (prefs.tables.invoices.filter ?? "all");
+  const rawFilter = KINDS.includes(sp.get("rawKind") ?? "") ? sp.get("rawKind")! : (prefs.tables.raw.filter ?? "all");
+  const rawKind = rawFilter === "all" ? null : rawFilter;
   const rawPage = pageParam(sp.get("rawPage"));
   const parsedPage = pageParam(sp.get("parsedPage"));
   const invPage = pageParam(sp.get("page"));
@@ -102,8 +108,11 @@ export function Invoices() {
           <span className="flex flex-wrap items-center gap-3">
             1. Raw
             <span className="flex gap-1 normal-case">
-              {([[null, "All"], ["email", "Emails"], ["pdf", "Uploads"], ["form", "Forms"]] as const).map(([k, label]) => (
-                <Link key={label} to={withParams(sp, { rawKind: k, rawPage: null })} className="chip" aria-current={rawKind === k}>{label}</Link>
+              {([["all", "All"], ["email", "Emails"], ["pdf", "Uploads"], ["form", "Forms"]] as const).map(([k, label]) => (
+                <Fragment key={k}>
+                  <Link to={withParams(sp, { rawKind: k, rawPage: null })} className="chip" aria-current={rawFilter === k}>{label}</Link>
+                  <FilterStar table="raw" value={k} label={label} to={withParams(sp, { rawKind: k, rawPage: null })} />
+                </Fragment>
               ))}
             </span>
           </span>
@@ -158,9 +167,12 @@ export function Invoices() {
         actions={
           <div className="flex gap-1 text-xs">
             {STATUSES.map((s) => (
-              <Link key={s} to={withParams(sp, { status: s === "all" ? null : s, page: null })} className="chip" aria-current={s === status}>
-                {s.replace(/_/g, " ")}
-              </Link>
+              <Fragment key={s}>
+                <Link to={withParams(sp, { status: s, page: null })} className="chip" aria-current={s === status}>
+                  {s.replace(/_/g, " ")}
+                </Link>
+                <FilterStar table="invoices" value={s} label={s.replace(/_/g, " ")} to={withParams(sp, { status: s, page: null })} />
+              </Fragment>
             ))}
           </div>
         }
