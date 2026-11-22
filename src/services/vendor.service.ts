@@ -14,9 +14,15 @@ const FIELDS = [
 ] as const;
 const BANK = ["bank_institution", "bank_transit", "bank_account"] as const;
 
-// Cooling-off after a bank change takes effect: payments to the vendor are held this many business days, so the real vendor
-// (told at the contact on file) or someone else in the organization can catch a fraudulent change before money leaves.
-export const BANK_CHANGE_HOLD_DAYS = Number(process.env.BANK_CHANGE_HOLD_DAYS ?? 3);
+// Cooling-off after a bank change takes effect: payments to the vendor are held this many days (on the business date), so the
+// real vendor or someone else in the organization can catch a fraudulent change before money leaves. 0 turns it off.
+export const BANK_CHANGE_HOLD_DAYS = (() => {
+  const raw = process.env.BANK_CHANGE_HOLD_DAYS;
+  if (raw === undefined || raw.trim() === "") return 3;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) throw new Error(`BANK_CHANGE_HOLD_DAYS must be a whole number of days, 0 or more; got "${raw}".`);
+  return n;
+})();
 export type VendorInput = Partial<Record<(typeof FIELDS)[number] | (typeof BANK)[number], unknown>>;
 
 export type Vendor = {
