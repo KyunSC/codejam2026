@@ -7,6 +7,7 @@ import { get, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { AuditFilters } from "../components/AuditFilters";
 import { A, Badge, Card, NotFound, Pager, Show, Table, Td, btnLight, dateTime, pageParam } from "../components/ui";
+import { VendorLink } from "../components/VendorLink";
 
 type Options = { invoices: string[]; people: { user_id: string; full_name: string }[]; actions: string[] };
 
@@ -36,7 +37,7 @@ export function Audit() {
                     <Td className="space-x-2 text-xs">
                       {e.invoice_id && <A href={`/invoices/${e.invoice_id}`}>{e.invoice_id}</A>}
                       {e.payment_id && <A href={`/payments/${e.payment_id}`}>{e.payment_id}</A>}
-                      {e.vendor_id && <A href={`/vendors/${e.vendor_id}`}>{e.vendor_id}</A>}
+                      {e.vendor_id && <VendorLink id={e.vendor_id}>{e.vendor_id}</VendorLink>}
                     </Td>
                     <Td className="max-w-xs truncate text-xs">{e.note}</Td>
                   </tr>

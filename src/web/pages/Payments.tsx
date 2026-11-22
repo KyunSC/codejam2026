@@ -1,12 +1,13 @@
 import { useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { can } from "@/lib/authz";
 import { money } from "@/lib/format";
 import type { getInvoiceRecord, InvoiceRow, PaymentRow } from "@/services/read.service";
 import { get, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { ApiForm, str } from "../components/ApiForm";
-import { A, Card, NotFound, PAGE_SIZE, PageTitle, Pager, Show, Status, Table, Td, btn, btnDanger, btnLight, date, dateTime, input, pageParam, withParams } from "../components/ui";
+import { useListFilter } from "../useListFilter";
+import { A, Card, NotFound, PAGE_SIZE, PageTitle, Pager, SearchBox, Show, Status, Table, Td, btn, btnDanger, btnLight, date, dateTime, dimWhile, input, pageParam, withParams } from "../components/ui";
 
 const TABS = ["scheduled", "released", "outstanding", "settled", "failed", "cancelled", "all"];
 
@@ -53,11 +54,16 @@ function FailPayment({ p, onFailed }: { p: { payment_id: string; status: string;
 
 export function Payments() {
   const user = useUser();
-  const [sp] = useSearchParams();
-  const status = TABS.includes(sp.get("status") ?? "") ? sp.get("status")! : "scheduled";
+  const { sp, search, draft, setDraft, term } = useListFilter();
+  // the tab the user picked; with none, a search looks through every payment (so "did we pay this?" finds settled ones)
+  // and no tab is highlighted
+  const chosen = TABS.includes(sp.get("status") ?? "") ? sp.get("status") : null;
+  const status = chosen ?? (search ? "all" : "scheduled");
   const page = pageParam(sp.get("page"));
   const readyPage = pageParam(sp.get("readyPage"));
-  const rows = useLoad(() => get<PaymentRow[]>(org(user, `/payments${qs({ status: status === "all" ? null : status, page, size: PAGE_SIZE })}`)), `${status}:${page}`);
+  const path = org(user, `/payments${qs({ status: status === "all" ? null : status, q: search || null, page, size: PAGE_SIZE })}`);
+  const rows = useLoad(() => get<PaymentRow[]>(path), path);
+  const busy = term !== search || !!rows.stale;
   // approved invoices with no payment yet, for the clerk to prepare
   const ready = useLoad(
     () => (can(user, "payment.prepare")
@@ -105,17 +111,19 @@ export function Payments() {
         id="payments"
         title={`${rows.data?.[0]?.total_count ?? 0} payments`}
         actions={
-          <>
+          <div className="flex flex-wrap items-center gap-1 text-xs">
+            <SearchBox label="Filter payments" placeholder="Payment, invoice, vendor, or reference" value={draft} onChange={setDraft} />
             {TABS.map((s) => (
-              <Link key={s} to={withParams(sp, { status: s, page: null })} className="chip" aria-current={s === status}>{s}</Link>
+              <Link key={s} to={withParams(sp, { status: s, q: term || null, page: null })} className="chip" aria-current={s === status && !(search && !chosen)}>{s}</Link>
             ))}
-          </>
+          </div>
         }
       >
+        <div aria-busy={busy} className={dimWhile(busy)}>
         <Show load={rows}>
           {(list) => (
             <>
-              <Table head={["Payment", "Invoice", "Vendor", "Method", "Amount", "Scheduled", "Paid", "Prepared / released", "Status", ""]} empty="No payments.">
+              <Table head={["Payment", "Invoice", "Vendor", "Method", "Amount", "Scheduled", "Paid", "Prepared / released", "Status", ""]} empty={search ? "No payments match your filter." : "No payments."}>
                 {list.map((p) => (
                   <tr key={p.payment_id}>
                     <Td><A href={`/payments/${p.payment_id}`}>{p.payment_id}</A></Td>
@@ -140,6 +148,7 @@ export function Payments() {
             </>
           )}
         </Show>
+        </div>
       </Card>
     </div>
   );

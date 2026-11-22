@@ -245,15 +245,24 @@ const READING_FLAGS = new Set(["date_missing", "tax_province_unknown", "vendor_u
 
 // --- payments ---
 
-export async function listPayments(user: User | null, organizationId: string, f: Paging & { status?: string | null } = {}) {
+// q matches the payment or invoice id, the vendor, the vendor's invoice #, or the bank, card or cheque reference.
+export async function listPayments(user: User | null, organizationId: string, f: Paging & { status?: string | null; q?: string | null } = {}) {
   authorize(user, organizationId, "payment.view");
   const { limit, offset } = window(f);
   // payments still to go out: the earliest due first; the rest: the latest first
   const upcoming = f.status === "scheduled" || f.status === "released";
   const rows = await query<PaymentRow>(
     `${PAYMENT_SELECT} WHERE p.organization_id=$1 AND ($2::text IS NULL OR p.status=$2)
+        AND ($3::text IS NULL
+             OR strpos(lower(p.payment_id), lower($3)) > 0
+             OR strpos(lower(p.invoice_id), lower($3)) > 0
+             OR strpos(lower(v.legal_name), lower($3)) > 0
+             OR strpos(lower(p.bank_reference), lower($3)) > 0
+             OR strpos(lower(p.card_reference), lower($3)) > 0
+             OR strpos(p.cheque_number::text, $3) > 0
+             OR EXISTS (SELECT 1 FROM invoices i WHERE i.invoice_id=p.invoice_id AND strpos(lower(i.vendor_invoice_number), lower($3)) > 0))
       ORDER BY p.scheduled_date ${upcoming ? "ASC" : "DESC"} NULLS LAST, p.payment_id DESC LIMIT ${limit} OFFSET ${offset}`,
-    [organizationId, f.status || null],
+    [organizationId, f.status || null, f.q?.trim() || null],
   );
   return withRelease(user, organizationId, rows);
 }
