@@ -26,13 +26,13 @@ session.delete("/session", route(async ({ res }) => {
   res.clearCookie(SESSION_COOKIE, { path: "/" });
 }));
 
-// The accounts listed on the login page.
-session.get("/session/demo-accounts", route(async () => listDemoAccounts()));
+// The accounts listed on a login page: ?portal=brim for the Brim employee login, otherwise the organization login.
+session.get("/session/demo-accounts", route(async ({ query }) => listDemoAccounts(query.get("portal") === "brim" ? "brim" : "organization")));
 // Signs in as one of those accounts with the demo password set on the server (DEMO_PASSWORD), so clicking a name is enough.
 session.post("/session/demo", route(async ({ res, body }) => {
   const password = process.env.DEMO_PASSWORD;
   if (!password) throw new ValidationError("Signing in by clicking an account is not set up on this server.");
-  const user = await signIn(String(body.email ?? ""), password, "organization");
+  const user = await signIn(String(body.email ?? ""), password, body.portal === "brim" ? "brim" : "organization");
   res.cookie(SESSION_COOKIE, sessionValue(user.user_id), { httpOnly: true, sameSite: "lax", path: "/" });
   return user;
 }));

@@ -16,8 +16,7 @@ export type Organization = { organization_id: string; legal_name: string; gst_hs
 export async function listOrganizations(actor: User | null) {
   assertCan(actor, "org.manage");
   return query<Organization & { users: number; invoices: number }>(
-    `SELECT o.*, (SELECT count(*)::int FROM users u WHERE u.organization_id=o.organization_id) users,
-       (SELECT count(*)::int FROM invoices i WHERE i.organization_id=o.organization_id) invoices FROM organizations o ORDER BY o.legal_name`,
+    `SELECT o.*, (SELECT count(*)::int FROM users u WHERE u.organization_id=o.organization_id) users FROM organizations o ORDER BY o.legal_name`,
   );
 }
 
@@ -28,17 +27,35 @@ export async function getOrganization(actor: User | null, id: string) {
   return org;
 }
 
+// An organization is created with a first department ("General") and a first controller / admin in it, who then sets up the rest.
+// The admin's starting password is the same as their email.
 export async function createOrganization(actor: User | null, input: { legal_name: string; gst_hst_number?: string | null; base_currency?: string }) {
   assertCan(actor, "org.manage");
+  if (!input.legal_name?.trim()) throw new ValidationError("Give the organization's legal name.");
+  const slug = input.legal_name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "organization";
+  const adminEmail = `admin@${slug}.example`;
   return tx(async (c) => {
+    if (await one("SELECT 1 FROM users WHERE lower(email)=lower($1)", [adminEmail], c)) throw new ConflictError(`An account ${adminEmail} already exists; give the organization a different name.`);
     const id = await nextId("ORG", c);
     await query(
       "INSERT INTO organizations (organization_id, legal_name, gst_hst_number, base_currency) VALUES ($1,$2,$3,$4)",
-      [id, input.legal_name, input.gst_hst_number ?? null, input.base_currency ?? "CAD"],
+      [id, input.legal_name.trim(), input.gst_hst_number ?? null, input.base_currency ?? "CAD"],
       c,
     );
-    await writeAudit(c, { organizationId: id, actor, action: "organization.create", entityType: "organization", entityId: id, after: input });
-    return id;
+    const departmentId = await nextId("D", c);
+    await query("INSERT INTO departments (department_id, organization_id, name) VALUES ($1,$2,'General')", [departmentId, id], c);
+    const adminId = await nextId("U", c);
+    await query(
+      "INSERT INTO users (user_id, organization_id, full_name, email, role, department_id) VALUES ($1,$2,'Administrator',$3,'controller_admin',$4)",
+      [adminId, id, adminEmail, departmentId],
+      c,
+    );
+    await setPassword(c, adminId, adminEmail);
+    const { legal_name, gst_hst_number, base_currency } = input;
+    await writeAudit(c, { organizationId: id, actor, action: "organization.create", entityType: "organization", entityId: id, after: { legal_name, gst_hst_number, base_currency } });
+    await writeAudit(c, { organizationId: id, actor, action: "departments.create", entityType: "departments", entityId: departmentId, after: { name: "General" } });
+    await writeAudit(c, { organizationId: id, actor, action: "user.create", entityType: "user", entityId: adminId, after: { full_name: "Administrator", email: adminEmail, role: "controller_admin", department_id: departmentId } });
+    return { id };
   });
 }
 
@@ -72,7 +89,7 @@ async function keepOneAdmin(c: Db, organizationId: string, leavingUserId: string
 
 // The organization's users, removed ones last.
 export async function listUsers(actor: User | null, organizationId: string, f: Paging = {}) {
-  assertMember(actor, organizationId, { brim: true });
+  assertMember(actor, organizationId);
   const { limit, offset } = window(f);
   return query<User & { total_count: number }>(
     `SELECT *, count(*) OVER ()::int AS total_count FROM users WHERE organization_id=$1 ORDER BY status='terminated', full_name LIMIT ${limit} OFFSET ${offset}`,
@@ -82,7 +99,7 @@ export async function listUsers(actor: User | null, organizationId: string, f: P
 
 // Everyone in the organization, with what a picker needs: for choosing a requester, manager or delegate.
 export async function listUserChoices(actor: User | null, organizationId: string) {
-  assertMember(actor, organizationId, { brim: true });
+  assertMember(actor, organizationId);
   return query<Pick<User, "user_id" | "full_name" | "title" | "role" | "status" | "department_id">>(
     "SELECT user_id, full_name, title, role, status, department_id FROM users WHERE organization_id=$1 ORDER BY status='terminated', full_name",
     [organizationId],
@@ -90,7 +107,7 @@ export async function listUserChoices(actor: User | null, organizationId: string
 }
 
 export async function getOrgUser(actor: User | null, organizationId: string, userId: string) {
-  assertMember(actor, organizationId, { brim: true });
+  assertMember(actor, organizationId);
   const u = await one<User>("SELECT * FROM users WHERE organization_id=$1 AND user_id=$2", [organizationId, userId]);
   if (!u) throw new NotFoundError("No such user");
   return u;

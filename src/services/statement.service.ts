@@ -2,9 +2,7 @@ import { readdirSync, existsSync } from "fs";
 import path from "path";
 import { readCsv } from "@/lib/csv";
 import { tx, query, one, type Db } from "@/lib/db";
-import { assertCan } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
-import type { User } from "@/lib/types";
 
 // A line as the bank or the card feed reports it, with what it is.
 export type StatementLine = {
@@ -52,11 +50,17 @@ function readBankFiles(): StatementLine[] {
   return [...csvs("statements").map(bankLine), ...csvs("card").map(cardLine).filter((l): l is StatementLine => !!l)];
 }
 
-// Imports what the bank reported since the last import, then settles every payment a line confirms: an EFT by its reference and amount,
+// Runs on its own, every minute: each organization with payments at the bank takes in what the bank reported since the last run.
+export async function importStatements() {
+  const orgs = await query<{ organization_id: string }>(
+    "SELECT DISTINCT organization_id FROM payments WHERE status IN ('released','outstanding') ORDER BY organization_id",
+  );
+  for (const o of orgs) await importStatement(o.organization_id);
+}
+
+// Stores the bank's new lines, then settles every payment a line confirms: an EFT by its reference and amount,
 // a cheque by its number, a card payment by the virtual card made for its invoice. The invoice is then paid.
-export async function importStatement(actor: User | null): Promise<{ lines: number; settled: number }> {
-  assertCan(actor, "payment.reconcile");
-  const organizationId = actor.organization_id!;
+async function importStatement(organizationId: string): Promise<{ lines: number; settled: number }> {
   const lines = readBankFiles();
   return tx(async (c) => {
     let added = 0;
@@ -83,7 +87,7 @@ export async function importStatement(actor: User | null): Promise<{ lines: numb
       await query("UPDATE statement_lines SET payment_id=$2 WHERE line_id=$1", [l.line_id, pay.payment_id], c);
       await query("UPDATE invoices SET status='paid' WHERE invoice_id=$1", [pay.invoice_id], c);
       await writeAudit(c, {
-        organizationId, actor, action: "payment.settled", entityType: "payment", entityId: pay.payment_id,
+        organizationId, actor: null, action: "payment.settled", entityType: "payment", entityId: pay.payment_id,
         invoiceId: pay.invoice_id, paymentId: pay.payment_id, vendorId: pay.vendor_id, note: l.line_id,
       });
       settled++;

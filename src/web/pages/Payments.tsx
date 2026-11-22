@@ -5,7 +5,7 @@ import type { getInvoiceRecord, InvoiceRow, PaymentRow } from "@/services/read.s
 import { get, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { ApiForm } from "../components/ApiForm";
-import { A, Card, NotFound, PAGE_SIZE, PageTitle, Pager, Show, Status, Table, Td, btn, btnLight, date, dateTime, pageParam, withParams } from "../components/ui";
+import { A, Card, NotFound, PAGE_SIZE, PageTitle, Pager, Show, Status, Table, Td, btn, date, dateTime, pageParam, withParams } from "../components/ui";
 
 const TABS = ["scheduled", "released", "outstanding", "settled", "all"];
 
@@ -36,11 +36,6 @@ export function Payments() {
     ready.reload();
     return "Scheduled.";
   };
-  const importStatement = async () => {
-    const r = await post<{ lines: number; settled: number }>(org(user, "/statement-imports"));
-    rows.reload();
-    return `${r.lines} new line${r.lines === 1 ? "" : "s"} from the bank; ${r.settled} payment${r.settled === 1 ? "" : "s"} settled.`;
-  };
 
   return (
     <div className="space-y-5">
@@ -70,7 +65,6 @@ export function Payments() {
             {TABS.map((s) => (
               <Link key={s} to={withParams(sp, { status: s, page: null })} className="chip" aria-current={s === status}>{s}</Link>
             ))}
-            {can(user, "payment.reconcile") && <ApiForm inline submit={importStatement}><button className={btnLight}>Import bank statement</button></ApiForm>}
           </>
         }
       >

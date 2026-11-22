@@ -49,3 +49,9 @@ app.listen(port, () => console.log(`http://localhost:${port}`));
 // raw items stored but not read before the last stop
 const { resumeReading } = await import("@/services/intake.service");
 void resumeReading();
+
+// what the bank reports is taken in every minute, so payments settle on their own
+const { importStatements } = await import("@/services/statement.service");
+const importBank = () => importStatements().catch((e) => console.error("bank statement import failed:", e instanceof Error ? e.message : e));
+void importBank();
+setInterval(importBank, 60_000);

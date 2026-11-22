@@ -32,7 +32,7 @@ Releasing a payment sends it to the bank: its instruction goes to `BANK_DIR/outb
 npx tsx scripts/bank.ts
 ```
 
-"Import bank statement" on the Payments page then reads them and settles each payment a line confirms.
+The app takes those in every minute and settles each payment a line confirms.
 
 ## Agents (MCP)
 

@@ -67,7 +67,7 @@ const scopeSql = (s: Spec, alias = "r") =>
 
 
 export async function listRecords<T = Record<string, unknown>>(user: User | null, organizationId: string, kind: RecordKind, filter: Record<string, string> = {}) {
-  assertMember(user, organizationId, { brim: true });
+  assertMember(user, organizationId);
   const s: Spec = SPECS[kind];
   const params: unknown[] = [organizationId];
   const where = [scopeSql(s)];
@@ -85,7 +85,7 @@ export async function listRecords<T = Record<string, unknown>>(user: User | null
 }
 
 export async function getRecord(user: User | null, organizationId: string, kind: RecordKind, id: string) {
-  assertMember(user, organizationId, { brim: true });
+  assertMember(user, organizationId);
   const s: Spec = SPECS[kind];
   const row = await one(`SELECT r.*${s.names ? `, ${s.names}` : ""} FROM ${s.table} r WHERE ${scopeSql(s)} AND r.${s.key} = $2`, [organizationId, id]);
   if (!row) throw new NotFoundError(`No such ${kind} ${id}`);

@@ -77,8 +77,9 @@ export async function revokeToken(actor: User | null, tokenId: string) {
 }
 
 // The accounts listed on the login page.
-export function listDemoAccounts() {
+export function listDemoAccounts(portal: "brim" | "organization") {
   return query<{ email: string; full_name: string; role: string; title: string }>(
-    "SELECT email, full_name, role, title FROM users WHERE role<>'brim_employee' AND status<>'terminated' ORDER BY role, full_name",
+    "SELECT email, full_name, role, title FROM users WHERE (role='brim_employee') = $1 AND status<>'terminated' ORDER BY role, full_name",
+    [portal === "brim"],
   );
 }
