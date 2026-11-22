@@ -1,14 +1,15 @@
 import { useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { can } from "@/lib/authz";
 import { money } from "@/lib/format";
 import type { getInvoiceRecord, InvoiceRow, PaymentRow } from "@/services/read.service";
 import { get, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { ApiForm, str } from "../components/ApiForm";
-import { A, Card, NotFound, PAGE_SIZE, PageTitle, Pager, Show, Status, Table, Td, btn, btnDanger, btnLight, date, dateTime, input, pageParam, withParams } from "../components/ui";
+import { useListFilter } from "../useListFilter";
+import { A, Card, NotFound, PAGE_SIZE, PageTitle, Pager, SearchBox, Show, Status, Table, Td, btn, btnDanger, btnLight, date, dateTime, dimWhile, input, pageParam, withParams } from "../components/ui";
 
-const TABS = ["scheduled", "released", "outstanding", "settled", "cancelled", "all"];
+const TABS = ["scheduled", "released", "outstanding", "settled", "failed", "cancelled", "all"];
 
 // Stops a scheduled payment, asking for the reason first; its invoice goes back to approved.
 // The reload that follows removes this form, so the confirmation goes to the page through done.
@@ -29,13 +30,40 @@ function CancelPayment({ p, done }: { p: PaymentRow; done: (notice: string) => v
   );
 }
 
+// A released or outstanding payment that will not settle is marked failed, with the reason; its invoice can then be paid again.
+function FailPayment({ p, onFailed }: { p: { payment_id: string; status: string; amount: number; currency: string; vendor: string }; onFailed: () => void }) {
+  const user = useUser();
+  const [open, setOpen] = useState(false);
+  if ((p.status !== "released" && p.status !== "outstanding") || !can(user, "payment.release")) return null;
+  if (!open) return <button type="button" className={btnDanger} onClick={() => setOpen(true)}>Mark failed</button>;
+  const fail = async (fd: FormData) => {
+    await post(org(user, `/payments/${p.payment_id}/failure`), { reason: String(fd.get("reason") ?? "") });
+    setOpen(false);
+    onFailed();
+  };
+  return (
+    <ApiForm submit={fail} className="flex flex-col gap-2" confirm={`Mark ${p.payment_id} (${money(p.amount, p.currency)} to ${p.vendor}) failed? Its invoice goes back to approved, to be paid again.`}>
+      <input name="reason" placeholder="Why it failed" className={`${input} min-w-[12rem]`} required autoFocus />
+      <span className="flex gap-2">
+        <button className={btnDanger}>Mark failed</button>
+        <button type="button" className={btnLight} onClick={() => setOpen(false)}>Cancel</button>
+      </span>
+    </ApiForm>
+  );
+}
+
 export function Payments() {
   const user = useUser();
-  const [sp] = useSearchParams();
-  const status = TABS.includes(sp.get("status") ?? "") ? sp.get("status")! : "scheduled";
+  const { sp, search, draft, setDraft, term } = useListFilter();
+  // the tab the user picked; with none, a search looks through every payment (so "did we pay this?" finds settled ones)
+  // and no tab is highlighted
+  const chosen = TABS.includes(sp.get("status") ?? "") ? sp.get("status") : null;
+  const status = chosen ?? (search ? "all" : "scheduled");
   const page = pageParam(sp.get("page"));
   const readyPage = pageParam(sp.get("readyPage"));
-  const rows = useLoad(() => get<PaymentRow[]>(org(user, `/payments${qs({ status: status === "all" ? null : status, page, size: PAGE_SIZE })}`)), `${status}:${page}`);
+  const path = org(user, `/payments${qs({ status: status === "all" ? null : status, q: search || null, page, size: PAGE_SIZE })}`);
+  const rows = useLoad(() => get<PaymentRow[]>(path), path);
+  const busy = term !== search || !!rows.stale;
   // approved invoices with no payment yet, for the clerk to prepare
   const ready = useLoad(
     () => (can(user, "payment.prepare")
@@ -83,17 +111,19 @@ export function Payments() {
         id="payments"
         title={`${rows.data?.[0]?.total_count ?? 0} payments`}
         actions={
-          <>
+          <div className="flex flex-wrap items-center gap-1 text-xs">
+            <SearchBox label="Filter payments" placeholder="Payment, invoice, vendor, or reference" value={draft} onChange={setDraft} />
             {TABS.map((s) => (
-              <Link key={s} to={withParams(sp, { status: s, page: null })} className="chip" aria-current={s === status}>{s}</Link>
+              <Link key={s} to={withParams(sp, { status: s, q: term || null, page: null })} className="chip" aria-current={s === status && !(search && !chosen)}>{s}</Link>
             ))}
-          </>
+          </div>
         }
       >
+        <div aria-busy={busy} className={dimWhile(busy)}>
         <Show load={rows}>
           {(list) => (
             <>
-              <Table head={["Payment", "Invoice", "Vendor", "Method", "Amount", "Scheduled", "Paid", "Prepared / released", "Status", ""]} empty="No payments.">
+              <Table head={["Payment", "Invoice", "Vendor", "Method", "Amount", "Scheduled", "Paid", "Prepared / released", "Status", ""]} empty={search ? "No payments match your filter." : "No payments."}>
                 {list.map((p) => (
                   <tr key={p.payment_id}>
                     <Td><A href={`/payments/${p.payment_id}`}>{p.payment_id}</A></Td>
@@ -109,6 +139,7 @@ export function Payments() {
                       {p.can_release && <ApiForm submit={release(p.payment_id)} confirm={`Release ${money(p.amount, p.currency)} to ${p.vendor}?`}><button className={btn}>Release</button></ApiForm>}
                       {p.release_blocked && <span className="text-xs muted">{p.release_blocked}</span>}
                       {p.can_cancel && <div className="mt-1"><CancelPayment p={p} done={(n) => { setNotice(n); rows.reload(); ready.reload(); }} /></div>}
+                      <FailPayment p={p} onFailed={() => rows.reload()} />
                     </Td>
                   </tr>
                 ))}
@@ -117,6 +148,7 @@ export function Payments() {
             </>
           )}
         </Show>
+        </div>
       </Card>
     </div>
   );
@@ -153,6 +185,7 @@ export function Payment() {
               <Card title="Payment" actions={<div className="flex flex-wrap items-center gap-2">
                 {p.can_release ? <ApiForm inline submit={release} confirm={`Release ${money(p.amount, p.currency)} to ${p.vendor}?`}><button className={btn}>Release</button></ApiForm> : p.release_blocked && <span className="text-xs muted">{p.release_blocked}</span>}
                 {p.can_cancel && <CancelPayment p={p} done={(n) => { setNotice(n); load.reload(); }} />}
+                <FailPayment p={p} onFailed={() => load.reload()} />
               </div>}>
                 <dl className="grid grid-cols-2 gap-2 text-sm">
                   <dt className="muted">Method</dt><dd>{p.method}</dd>
@@ -165,6 +198,7 @@ export function Payment() {
                   <dt className="muted">Bank account paid</dt><dd>{p.snapshot_account ? `${p.snapshot_institution}-${p.snapshot_transit}-${p.snapshot_account}` : "—"}</dd>
                   <dt className="muted">Reference</dt><dd className="font-mono text-xs">{p.bank_reference ?? p.card_reference ?? "—"}</dd>
                   {p.cheque_number && <><dt className="muted">Cheque</dt><dd>{p.cheque_number}</dd></>}
+                  {p.failure_reason && <><dt className="muted">Failed</dt><dd>{p.failure_reason}</dd></>}
                   <dt className="muted">Statement line</dt>
                   <dd>{p.statement ? <>{date(p.statement.posted_date)} · <span className="font-mono text-xs">{p.statement.description}</span> · {money(p.statement.amount)}</> : "—"}</dd>
                 </dl>

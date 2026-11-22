@@ -1,9 +1,8 @@
 import { useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { can } from "@/lib/authz";
-import { money } from "@/lib/format";
+import { channelName, money } from "@/lib/format";
 import type { getVendor, listBankChanges, listVendors } from "@/services/vendor.service";
-import type { InvoiceRow } from "@/services/read.service";
 import { del, get, patch, post, qs, useLoad } from "../api";
 import { useListFilter } from "../useListFilter";
 import { org, useUser } from "../session";
@@ -73,9 +72,8 @@ export function Vendors() {
   );
 }
 
-type Contract = { contract_id: string; description: string; billing_type: string; monthly_fee: number | null; hourly_rate_cap: number | null; fuel_surcharge_cap_pct: number | null; not_to_exceed_monthly: number | null; end_date: string | null; status: string; currency: string };
-type Po = { po_id: string; description: string; total_amount: number; status: string; issue_date: string };
-type VendorView = { v: Awaited<ReturnType<typeof getVendor>>; changes: Awaited<ReturnType<typeof listBankChanges>>; contracts: Contract[]; pos: Po[]; depts: { department_id: string; name: string }[] };
+type Contract = { contract_id: string; description: string; monthly_fee: number | null; hourly_rate_cap: number | null; fuel_surcharge_cap_pct: number | null; not_to_exceed_monthly: number | null; end_date: string | null; status: string; currency: string };
+type VendorView = { v: Awaited<ReturnType<typeof getVendor>>; changes: Awaited<ReturnType<typeof listBankChanges>>; contracts: Contract[] };
 
 // The vendor fields a clerk edits on the vendor page; a vendor needs at least a name, a country and a way to be paid.
 const ESSENTIAL_DETAILS = ["legal_name", "country", "preferred_payment_method"];
@@ -93,18 +91,13 @@ export function Vendor() {
   const navigate = useNavigate();
   // Edit turns the details into inputs where they stand
   const [editing, setEditing] = useState(false);
-  const [sp] = useSearchParams();
-  const invPage = pageParam(sp.get("invPage"));
-  const invoices = useLoad(() => get<InvoiceRow[]>(org(user, `/invoices${qs({ vendor_id: id, page: invPage, size: PAGE_SIZE })}`)), `${id}:${invPage}`);
   const load = useLoad(async (): Promise<VendorView> => {
-    const [v, changes, contracts, pos, depts] = await Promise.all([
+    const [v, changes, contracts] = await Promise.all([
       get<VendorView["v"]>(org(user, `/vendors/${id}`)),
       get<VendorView["changes"]>(org(user, `/vendors/${id}/bank-changes`)),
       get<Contract[]>(org(user, `/contracts${qs({ vendor_id: id })}`)),
-      get<Po[]>(org(user, `/purchase-orders${qs({ vendor_id: id })}`)),
-      get<{ department_id: string; name: string }[]>(org(user, "/departments")),
     ]);
-    return { v, changes, contracts, pos, depts };
+    return { v, changes, contracts };
   }, id);
   if (!can(user, "vendor.view")) return <NotFound />;
 
@@ -140,21 +133,6 @@ export function Vendor() {
     setEditing(false);
     return done("Saved.");
   };
-  const addContract = async (fd: FormData) => {
-    await post(org(user, "/contracts"), {
-      vendor_id: id, description: str(fd, "description"), billing_type: str(fd, "billing_type"), currency: str(fd, "currency") ?? "CAD",
-      monthly_fee: numOrNull(fd, "monthly_fee"), hourly_rate_cap: numOrNull(fd, "hourly_rate_cap"), not_to_exceed_monthly: numOrNull(fd, "not_to_exceed_monthly"),
-      start_date: str(fd, "start_date"), end_date: str(fd, "end_date"), status: "active",
-    });
-    return done("Contract added.");
-  };
-  const addPo = async (fd: FormData) => {
-    await post(org(user, "/purchase-orders"), {
-      vendor_id: id, description: str(fd, "description"), total_amount: numOrNull(fd, "total_amount"), currency: str(fd, "currency") ?? "CAD",
-      department_id: str(fd, "department_id"), issue_date: str(fd, "issue_date"), status: "open",
-    });
-    return done("Purchase order added.");
-  };
   const confirmCallback = (changeId: string) => async () => {
     await post(org(user, `/bank-changes/${changeId}/confirm-callback`));
     return done("Confirmed by callback.");
@@ -162,7 +140,7 @@ export function Vendor() {
 
   return (
     <Show load={load}>
-      {({ v, changes, contracts, pos, depts }) => {
+      {({ v, changes, contracts }) => {
         const shown = (k: string) => (v[k] === true ? "yes" : v[k] === false ? "no" : String(v[k] ?? "—"));
         // a detail as text, or while editing as its input
         const field = (k: string) => {
@@ -213,13 +191,14 @@ export function Vendor() {
                 </ApiForm>
               </Card>
 
+              <div className="space-y-5">
               <Card title="Bank details changes">
-                <Table head={["Change", "Requested", "Channel", "New account", "Callback", "Status", ""]} empty="No changes.">
+                <Table head={["Change", "Requested", "Asked through", "New account", "Callback", "Status", ""]} empty="No changes.">
                   {changes.map((c) => (
                     <tr key={c.change_id}>
                       <Td className="font-mono text-xs">{c.change_id}</Td>
                       <Td className="text-xs">{date(c.requested_at)}<br />{c.requester}</Td>
-                      <Td className="text-xs">{c.request_channel.replace(/_/g, " ")}</Td>
+                      <Td className="text-xs">{channelName(c.request_channel)}</Td>
                       <Td className="font-mono text-xs">{c.new_institution ? `${c.new_institution}-${c.new_transit}-` : "…"}{c.new_account}</Td>
                       <Td>{c.verified_by_callback ? "verified" : <span className="text-flag">not verified</span>}</Td>
                       <Td><Status value={c.status} /></Td>
@@ -243,27 +222,30 @@ export function Vendor() {
                   ))}
                 </Table>
                 {can(user, "bank_change.request") && (
-                  <ApiForm reset submit={requestChange} className="mt-4 grid grid-cols-3 gap-2 border-t border-line pt-4">
+                  <details className="mt-4 border-t border-line pt-3">
+                    <summary className="cursor-pointer text-sm font-bold">Request a bank change</summary>
+                  <ApiForm reset submit={requestChange} className="mt-3 grid grid-cols-2 gap-2">
                     <Field label="Institution"><input name="institution" className={input} required /></Field>
                     <Field label="Transit"><input name="transit" className={input} required /></Field>
                     <Field label="Account"><input name="account" className={input} required /></Field>
-                    <Field label="Requested by">
-                      <select name="channel" className={input}><option value="email_request">email</option><option value="phone_callback_verified">phone</option><option value="vendor_portal">vendor portal</option></select>
+                    <Field label="Asked through">
+                      <select name="channel" className={input}><option value="email_request">email</option><option value="phone">phone</option><option value="vendor_portal">vendor portal</option></select>
                     </Field>
-                    <OptionalFields className="grid grid-cols-1 gap-2">
+                    <OptionalFields className="grid grid-cols-2 gap-2">
                       <label className="flex items-end gap-1 pb-1 text-xs"><input type="checkbox" name="verified" /> confirmed by calling the number on file</label>
                     </OptionalFields>
-                    <div className="col-span-3"><button className={btnLight}>Request bank change</button></div>
+                    <div className="col-span-2"><button className={btnLight}>Request bank change</button></div>
                   </ApiForm>
+                  </details>
                 )}
               </Card>
 
               <Card title="Contracts">
-                <Table head={["Contract", "Type", "Terms", "Ends", "Status"]} empty="No contract.">
+                <Table head={["Contract", "Description", "Terms", "Ends", "Status"]} empty="No contract.">
                   {contracts.map((c) => (
                     <tr key={c.contract_id}>
-                      <Td>{c.contract_id}</Td>
-                      <Td>{c.billing_type.replace("_", " ")}</Td>
+                      <Td><A href={`/contracts/${c.contract_id}`}>{c.contract_id}</A></Td>
+                      <Td>{c.description}</Td>
                       <Td className="text-xs">
                         {c.monthly_fee != null && <div>Monthly fee {money(c.monthly_fee, c.currency)}</div>}
                         {c.hourly_rate_cap != null && <div>Rate cap {money(c.hourly_rate_cap)}/h</div>}
@@ -275,63 +257,9 @@ export function Vendor() {
                     </tr>
                   ))}
                 </Table>
-                {can(user, "contract.manage") && (
-                  <details className="mt-4 border-t border-line pt-3">
-                    <summary className="cursor-pointer text-sm font-bold">Add a contract</summary>
-                    <ApiForm reset submit={addContract} className="mt-3 grid grid-cols-2 gap-2">
-                      <Field label="Description"><input name="description" className={input} required /></Field>
-                      <Field label="Type"><select name="billing_type" className={input}><option value="fixed_monthly">fixed monthly</option><option value="rate_card">rate card</option><option value="retainer">retainer</option><option value="blanket">blanket</option></select></Field>
-                      <OptionalFields className="grid grid-cols-2 gap-2">
-                      <Field label="Monthly fee"><input name="monthly_fee" type="number" step="0.01" className={input} /></Field>
-                      <Field label="Hourly rate cap"><input name="hourly_rate_cap" type="number" step="0.01" className={input} /></Field>
-                      <Field label="Monthly limit"><input name="not_to_exceed_monthly" type="number" step="0.01" className={input} /></Field>
-                      <Field label="Currency"><select name="currency" className={input}><option>CAD</option><option>USD</option></select></Field>
-                      <Field label="Starts"><input name="start_date" type="date" className={input} /></Field>
-                      <Field label="Ends"><input name="end_date" type="date" className={input} /></Field>
-                      </OptionalFields>
-                      <div className="col-span-2"><button className={btnLight}>Add contract</button></div>
-                    </ApiForm>
-                  </details>
-                )}
               </Card>
 
-              <Card title="Purchase orders">
-                <Table head={["Purchase order", "Description", "Total", "Issued", "Status"]} empty="No purchase orders.">
-                  {pos.map((p) => (
-                    <tr key={p.po_id}><Td>{p.po_id}</Td><Td>{p.description}</Td><Td>{money(p.total_amount)}</Td><Td>{date(p.issue_date)}</Td><Td><Status value={p.status} /></Td></tr>
-                  ))}
-                </Table>
-                {can(user, "po.manage") && (
-                  <details className="mt-4 border-t border-line pt-3">
-                    <summary className="cursor-pointer text-sm font-bold">Add a purchase order</summary>
-                    <ApiForm reset submit={addPo} className="mt-3 grid grid-cols-2 gap-2">
-                      <Field label="Description"><input name="description" className={input} required /></Field>
-                      <Field label="Total"><input name="total_amount" type="number" step="0.01" className={input} required /></Field>
-                      <Field label="Department"><select name="department_id" className={input} required><option value="">Choose…</option>{depts.map((d) => <option key={d.department_id} value={d.department_id}>{d.name}</option>)}</select></Field>
-                      <Field label="Issued"><input name="issue_date" type="date" className={input} required /></Field>
-                      <OptionalFields className="grid grid-cols-2 gap-2">
-                        <Field label="Currency"><select name="currency" className={input}><option>CAD</option><option>USD</option></select></Field>
-                      </OptionalFields>
-                      <div className="col-span-2"><button className={btnLight}>Add purchase order</button></div>
-                    </ApiForm>
-                  </details>
-                )}
-              </Card>
-
-              <Card title={`Invoices (${invoices.data?.[0]?.total_count ?? 0})`} className="lg:col-span-2">
-                <Show load={invoices}>
-                  {(list) => (
-                    <>
-                      <Table head={["Invoice", "Number", "Date", "Total", "Status"]} empty="No invoices.">
-                        {list.map((i) => (
-                          <tr key={i.invoice_id}><Td><A href={`/invoices/${i.invoice_id}`}>{i.invoice_id}</A></Td><Td>{i.vendor_invoice_number}</Td><Td>{date(i.invoice_date)}</Td><Td>{money(i.total, i.currency)}</Td><Td><Status value={i.status} /></Td></tr>
-                        ))}
-                      </Table>
-                      <Pager param="invPage" page={invPage} total={list[0]?.total_count ?? 0} />
-                    </>
-                  )}
-                </Show>
-              </Card>
+              </div>
             </div>
             {can(user, "vendor.onboard") && (
               <ApiForm submit={deleteVendor} confirm={`Delete ${v.legal_name}? This cannot be undone.`} className="border-t border-line pt-5">

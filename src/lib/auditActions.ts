@@ -23,6 +23,7 @@ const NAMES: Record<string, string> = {
   "payment.release": "Payment released",
   "payment.cancel": "Payment cancelled",
   "payment.settled": "Payment settled",
+  "payment.failed": "Payment failed",
   "vendor.create": "Vendor onboarded",
   "vendor.update": "Vendor edited",
   "vendor.delete": "Vendor deleted",

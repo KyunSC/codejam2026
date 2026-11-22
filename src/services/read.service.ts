@@ -150,7 +150,7 @@ export type InvoiceRow = {
 };
 
 // Invoices the user may see; those waiting on the user's approval come first.
-export async function listInvoices(user: User | null, organizationId: string, f: Paging & { status?: string | null; vendor_id?: string | null; q?: string | null; type?: string | null; po_id?: string | null } = {}) {
+export async function listInvoices(user: User | null, organizationId: string, f: Paging & { status?: string | null; vendor_id?: string | null; q?: string | null; type?: string | null; po_id?: string | null; contract_id?: string | null } = {}) {
   assertMember(user, organizationId);
   const { limit, offset } = window(f);
   const s = invoiceScope(user);
@@ -162,13 +162,13 @@ export async function listInvoices(user: User | null, organizationId: string, f:
             EXISTS (SELECT 1 FROM approvals a LEFT JOIN users au ON au.user_id=a.assigned_user_id WHERE a.invoice_id=i.invoice_id AND ${pendingForUserSql(`$${n + 1}`)}) AS mine
        FROM invoices i LEFT JOIN vendors v ON v.vendor_id=i.vendor_id LEFT JOIN departments d ON d.department_id=i.department_id
       WHERE ${s.sql} AND ($${n + 2}::text IS NULL OR i.status=$${n + 2}) AND ($${n + 3}::text IS NULL OR i.vendor_id=$${n + 3})
-        AND ($${n + 4}::text IS NULL OR i.type=$${n + 4}) AND ($${n + 5}::text IS NULL OR i.po_id=$${n + 5})
+        AND ($${n + 4}::text IS NULL OR i.type=$${n + 4}) AND ($${n + 5}::text IS NULL OR i.po_id=$${n + 5}) AND ($${n + 7}::text IS NULL OR i.contract_id=$${n + 7})
         AND ($${n + 6}::text IS NULL
              OR strpos(lower(i.invoice_id), lower($${n + 6})) > 0
              OR strpos(lower(i.vendor_invoice_number), lower($${n + 6})) > 0
              OR strpos(lower(v.legal_name), lower($${n + 6})) > 0)
       ORDER BY mine DESC, i.invoice_date DESC, i.invoice_id DESC LIMIT ${limit} OFFSET ${offset}`,
-    [...s.params, user.user_id, f.status || null, f.vendor_id || null, f.type || null, f.po_id || null, f.q?.trim() || null],
+    [...s.params, user.user_id, f.status || null, f.vendor_id || null, f.type || null, f.po_id || null, f.q?.trim() || null, f.contract_id || null],
   );
 }
 
@@ -189,7 +189,7 @@ export type PaymentRow = {
   total_count: number; payment_id: string; invoice_id: string; vendor_id: string; vendor: string; method: string; amount: number; currency: string; amount_cad: number;
   fx_rate_to_cad: number; scheduled_date: string | null; paid_date: string | null; status: string; preparer: string | null; releaser: string | null; released_at: string | null;
   snapshot_institution: string | null; snapshot_transit: string | null; snapshot_account: string | null; bank_reference: string | null; card_reference: string | null; discount_taken: number;
-  cheque_number: number | null;
+  cheque_number: number | null; failure_reason: string | null;
   // for a scheduled payment: whether the signed-in user may release it, and if not, why
   can_release?: boolean; release_blocked?: string | null;
   // a cancelled payment: who stopped it, when and why; for a scheduled one, whether the signed-in user may cancel it
@@ -246,15 +246,24 @@ const READING_FLAGS = new Set(["date_missing", "tax_province_unknown", "vendor_u
 
 // --- payments ---
 
-export async function listPayments(user: User | null, organizationId: string, f: Paging & { status?: string | null } = {}) {
+// q matches the payment or invoice id, the vendor, the vendor's invoice #, or the bank, card or cheque reference.
+export async function listPayments(user: User | null, organizationId: string, f: Paging & { status?: string | null; q?: string | null } = {}) {
   authorize(user, organizationId, "payment.view");
   const { limit, offset } = window(f);
   // payments still to go out: the earliest due first; the rest: the latest first
   const upcoming = f.status === "scheduled" || f.status === "released";
   const rows = await query<PaymentRow>(
     `${PAYMENT_SELECT} WHERE p.organization_id=$1 AND ($2::text IS NULL OR p.status=$2)
+        AND ($3::text IS NULL
+             OR strpos(lower(p.payment_id), lower($3)) > 0
+             OR strpos(lower(p.invoice_id), lower($3)) > 0
+             OR strpos(lower(v.legal_name), lower($3)) > 0
+             OR strpos(lower(p.bank_reference), lower($3)) > 0
+             OR strpos(lower(p.card_reference), lower($3)) > 0
+             OR strpos(p.cheque_number::text, $3) > 0
+             OR EXISTS (SELECT 1 FROM invoices i WHERE i.invoice_id=p.invoice_id AND strpos(lower(i.vendor_invoice_number), lower($3)) > 0))
       ORDER BY p.scheduled_date ${upcoming ? "ASC" : "DESC"} NULLS LAST, p.payment_id DESC LIMIT ${limit} OFFSET ${offset}`,
-    [organizationId, f.status || null],
+    [organizationId, f.status || null, f.q?.trim() || null],
   );
   return withRelease(user, organizationId, rows);
 }

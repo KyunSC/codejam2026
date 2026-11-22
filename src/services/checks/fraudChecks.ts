@@ -1,5 +1,6 @@
 import { one } from "@/lib/db";
 import { daysBetween } from "@/lib/dates";
+import { channelName } from "@/lib/format";
 import { allowedEdits, containsName, levenshtein, sameName, taxNumber, vendorName } from "@/lib/normalize";
 import type { CheckContext, Flag } from "./types";
 
@@ -99,7 +100,7 @@ export async function fraudChecks(ctx: CheckContext): Promise<Flag[]> {
   const changedOn = change ? new Date(change.requested_at).toISOString().slice(0, 10) : "";
   if (change && (!change.verified_by_callback || change.status === "pending")) {
     fraud("bank_change_unverified",
-      `The vendor's bank details changed on ${changedOn} by ${change.request_channel.replace(/_/g, " ")}, with no callback verification (${change.change_id}). Payment is held until it is verified.`);
+      `The vendor's bank details changed on ${changedOn} by ${channelName(change.request_channel)}, with no callback verification (${change.change_id}). Payment is held until it is verified.`);
   } else if (change && d.invoice_date) {
     const days = daysBetween(changedOn, d.invoice_date);
     if (days >= 0 && days <= 30) {

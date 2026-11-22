@@ -8,7 +8,7 @@ import { get, post, qs, useLoad } from "../api";
 import { useListFilter } from "../useListFilter";
 import { org, useUser } from "../session";
 import { ApiForm } from "../components/ApiForm";
-import { A, Badge, Card, PageTitle, Pager, Show, Status, Table, Td, btn, btnLight, date, PAGE_SIZE, pageParam, withParams } from "../components/ui";
+import { A, Badge, Card, PageTitle, SearchBox, dimWhile as dim, Pager, Show, Status, Table, Td, btn, btnLight, date, PAGE_SIZE, pageParam, withParams } from "../components/ui";
 
 const STATUSES = ["all", "pending_approval", "approved", "scheduled", "paid", "rejected"];
 const KINDS = ["email", "pdf", "form"];
@@ -16,12 +16,6 @@ const KINDS = ["email", "pdf", "form"];
 // (to do + waiting on sender); "all" is the archive.
 const RAW_VIEWS = ["open", "todo", "needs", "waiting", "handled", "all"];
 const FLAG_FILTERS = [[null, "All"], ["blocking", "Blocking"], ["warning", "Warning"], ["clear", "Clear"]] as const;
-
-// The typed search box in a list's header; it filters as you type.
-function SearchBox({ label, placeholder, value, onChange }: { label: string; placeholder: string; value: string; onChange: (v: string) => void }) {
-  return <input className="input mr-1 w-60 max-w-full" type="search" aria-label={label} placeholder={placeholder} value={value} onChange={(event) => onChange(event.target.value)} />;
-}
-const dim = (busy: boolean) => (busy ? "opacity-60 transition-opacity" : "transition-opacity");
 
 export function Invoices() {
   const user = useUser();

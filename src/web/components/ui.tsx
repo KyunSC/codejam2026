@@ -166,3 +166,11 @@ export function Mark() {
     </span>
   );
 }
+
+// The typed search box in a list's header; pair it with useListFilter, which applies it as you type.
+export function SearchBox({ label, placeholder, value, onChange }: { label: string; placeholder: string; value: string; onChange: (v: string) => void }) {
+  return <input className="input mr-1 w-60 max-w-full" type="search" aria-label={label} placeholder={placeholder} value={value} onChange={(event) => onChange(event.target.value)} />;
+}
+
+// Dims a list while its typed filter waits to apply or the next page loads.
+export const dimWhile = (busy: boolean) => (busy ? "opacity-60 transition-opacity" : "transition-opacity");
