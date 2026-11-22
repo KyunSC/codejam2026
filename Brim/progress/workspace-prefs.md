@@ -59,7 +59,9 @@ Checks for every commit (from `Brim/`): `npm run typecheck`, `npm run lint -- --
 - [x] 8b. Raw table.
   - Raw table on the Invoices page uses `DataTable table="raw"`. Its columns are declared inside the component (`rawColumns`), since the file links need `user` for `org()`; the Extract button is the `trailing` column (still only for `new` items and `raw.extract`).
   - Verified identical outside edit mode with the scratchpad render-and-compare script: 4 rows covering email with attachment, email without attachment ("no attachment"), form with submitter and no-invoice reason, upload with two files, Extract shown and not shown; and 0 rows.
-- [ ] 8c. Parsed table.
+- [x] 8c. Parsed table.
+  - Parsed table on the Invoices page uses `DataTable table="parsed"` with module-level `PARSED_COLUMNS`; the Review link is the `trailing` column. `Table` and `Td` are no longer imported by `Invoices.tsx` (all three of its tables go through `DataTable`).
+  - Verified identical outside edit mode (scratchpad render-and-compare): 3 rows covering a known vendor with blocking + warning, an unknown vendor ("(not in master)") on a credit note with no date and 2 warnings, an unknown vendor that is clear; and 0 rows.
 - [ ] 8d. Payments table.
 - [ ] 8e. Vendors table.
 - [ ] 8f. Audit table.

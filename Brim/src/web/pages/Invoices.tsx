@@ -6,9 +6,29 @@ import { get, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { ApiForm } from "../components/ApiForm";
 import { DataTable, type Column } from "../components/DataTable";
-import { A, Badge, Card, PageTitle, Pager, Show, Status, Table, Td, btn, btnLight, date, PAGE_SIZE, pageParam, withParams } from "../components/ui";
+import { A, Badge, Card, PageTitle, Pager, Show, Status, btn, btnLight, date, PAGE_SIZE, pageParam, withParams } from "../components/ui";
 
 const STATUSES = ["all", "pending_approval", "approved", "scheduled", "paid", "rejected"];
+
+// The parsed invoices table's columns (ids and labels in TABLES.parsed, src/lib/preferences.ts).
+const PARSED_COLUMNS: Column<ParsedRow>[] = [
+  { id: "id", className: "font-mono text-xs", render: (p) => <A href={`/invoices/${p.parsed_invoice_id}`}>{p.parsed_invoice_id}</A> },
+  { id: "vendor", render: (p) => p.vendor_name ?? <span className="text-flag">{p.invoice_json.vendor_name ?? "Unknown"} (not in master)</span> },
+  { id: "number", render: (p) => <>{p.invoice_json.vendor_invoice_number}{p.invoice_json.document_type === "credit_note" && <Badge tone="violet">credit note</Badge>}</> },
+  { id: "date", render: (p) => date(p.invoice_json.invoice_date) },
+  { id: "total", className: "whitespace-nowrap", render: (p) => money(p.invoice_json.total, p.invoice_json.currency) },
+  {
+    id: "flags",
+    className: "space-x-1",
+    render: (p) => (
+      <>
+        {p.blocking > 0 && <Badge tone="red">{p.blocking} blocking</Badge>}
+        {p.warnings > 0 && <Badge tone="gold">{p.warnings} warning{p.warnings > 1 ? "s" : ""}</Badge>}
+        {!p.blocking && !p.warnings && <Badge tone="green">clear</Badge>}
+      </>
+    ),
+  },
+];
 
 // The invoices table's columns (ids and labels in TABLES.invoices, src/lib/preferences.ts).
 const INVOICE_COLUMNS: Column<InvoiceRow>[] = [
@@ -119,23 +139,14 @@ export function Invoices() {
         <Show load={parsed}>
           {(rows) => (
             <>
-              <Table head={["Parsed", "Vendor", "Invoice #", "Date", "Total", "Flags", ""]} empty="Nothing waiting for review.">
-                {rows.map((p) => (
-                  <tr key={p.parsed_invoice_id}>
-                    <Td className="font-mono text-xs"><A href={`/invoices/${p.parsed_invoice_id}`}>{p.parsed_invoice_id}</A></Td>
-                    <Td>{p.vendor_name ?? <span className="text-flag">{p.invoice_json.vendor_name ?? "Unknown"} (not in master)</span>}</Td>
-                    <Td>{p.invoice_json.vendor_invoice_number}{p.invoice_json.document_type === "credit_note" && <Badge tone="violet">credit note</Badge>}</Td>
-                    <Td>{date(p.invoice_json.invoice_date)}</Td>
-                    <Td className="whitespace-nowrap">{money(p.invoice_json.total, p.invoice_json.currency)}</Td>
-                    <Td className="space-x-1">
-                      {p.blocking > 0 && <Badge tone="red">{p.blocking} blocking</Badge>}
-                      {p.warnings > 0 && <Badge tone="gold">{p.warnings} warning{p.warnings > 1 ? "s" : ""}</Badge>}
-                      {!p.blocking && !p.warnings && <Badge tone="green">clear</Badge>}
-                    </Td>
-                    <Td><A href={`/invoices/${p.parsed_invoice_id}`}>Review</A></Td>
-                  </tr>
-                ))}
-              </Table>
+              <DataTable
+                table="parsed"
+                rows={rows}
+                rowKey={(p) => p.parsed_invoice_id}
+                columns={PARSED_COLUMNS}
+                trailing={(p) => <A href={`/invoices/${p.parsed_invoice_id}`}>Review</A>}
+                empty="Nothing waiting for review."
+              />
               <Pager param="parsedPage" page={parsedPage} total={rows[0]?.total_count ?? 0} />
             </>
           )}
