@@ -5,9 +5,22 @@ import type { InvoiceRow, ParsedRow, RawItemRow } from "@/services/read.service"
 import { get, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { ApiForm } from "../components/ApiForm";
+import { DataTable, type Column } from "../components/DataTable";
 import { A, Badge, Card, PageTitle, Pager, Show, Status, Table, Td, btn, btnLight, date, PAGE_SIZE, pageParam, withParams } from "../components/ui";
 
 const STATUSES = ["all", "pending_approval", "approved", "scheduled", "paid", "rejected"];
+
+// The invoices table's columns (ids and labels in TABLES.invoices, src/lib/preferences.ts).
+const INVOICE_COLUMNS: Column<InvoiceRow>[] = [
+  { id: "id", className: "font-mono text-xs", render: (i) => <A href={`/invoices/${i.invoice_id}`}>{i.invoice_id}</A> },
+  { id: "vendor", render: (i) => i.vendor_name },
+  { id: "number", render: (i) => i.vendor_invoice_number },
+  { id: "date", className: "whitespace-nowrap", render: (i) => date(i.invoice_date) },
+  { id: "total", className: "whitespace-nowrap", render: (i) => money(i.total, i.currency) },
+  { id: "department", render: (i) => i.department },
+  { id: "status", render: (i) => <Status value={i.status} /> },
+  { id: "waiting_on", render: (i) => (i.mine ? <Badge tone="gold">you</Badge> : i.waiting_on) },
+];
 const KINDS = ["email", "pdf", "form"];
 
 export function Invoices() {
@@ -136,20 +149,7 @@ export function Invoices() {
         <Show load={invoices}>
           {(rows) => (
             <>
-              <Table head={["Invoice", "Vendor", "Invoice #", "Date", "Total", "Department", "Status", "Waiting on"]} empty="No invoices.">
-                {rows.map((i) => (
-                  <tr key={i.invoice_id} className={i.mine ? "row-mine" : ""}>
-                    <Td className="font-mono text-xs"><A href={`/invoices/${i.invoice_id}`}>{i.invoice_id}</A></Td>
-                    <Td>{i.vendor_name}</Td>
-                    <Td>{i.vendor_invoice_number}</Td>
-                    <Td className="whitespace-nowrap">{date(i.invoice_date)}</Td>
-                    <Td className="whitespace-nowrap">{money(i.total, i.currency)}</Td>
-                    <Td>{i.department}</Td>
-                    <Td><Status value={i.status} /></Td>
-                    <Td>{i.mine ? <Badge tone="gold">you</Badge> : i.waiting_on}</Td>
-                  </tr>
-                ))}
-              </Table>
+              <DataTable table="invoices" rows={rows} rowKey={(i) => i.invoice_id} rowClassName={(i) => (i.mine ? "row-mine" : "")} columns={INVOICE_COLUMNS} empty="No invoices." />
               <Pager param="page" page={invPage} total={rows[0]?.total_count ?? 0} />
             </>
           )}

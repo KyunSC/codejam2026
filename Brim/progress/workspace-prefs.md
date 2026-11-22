@@ -51,7 +51,11 @@ Checks for every commit (from `Brim/`): `npm run typecheck`, `npm run lint -- --
   - `loadDashboard` (now exported, for the check below) fetches a part only when the role allows it **and** a visible tile or card needs it: approvals feed both the "Waiting for your approval" tile and the Pending card, parsed invoices feed the "Parsed" tile and (for parsed.review) the Pending card.
   - Empty state when every tile and card is hidden: "Your dashboard is empty. Click Customize to bring tiles and cards back."
   - Verified with a throwaway script (scratchpad, not committed) that stubs `fetch` and runs `loadDashboard`: with everything shown, controller, clerk and employee fetch exactly the endpoints the old dashboard fetched; hiding spend+delegate drops `/department-spend` and `/users`; hiding the approvals tile and the Pending card drops `/approvals`; clerk with everything hidden fetches nothing. **Not verified in a browser:** dragging tiles/cards, the trays, the empty state's look.
-- [ ] 8a. DataTable component + Invoices table.
+- [x] 8a. DataTable component + Invoices table.
+  - `components/DataTable.tsx`: `DataTable<Row>({ table, rows, rowKey, rowClassName, columns, trailing, empty })` with `Column<Row> = { id, render, className? }`; labels and the locked flag come from `prefs.tables[table].columns`. Outside edit mode it renders `<Table head=… empty=…>` with the same rows and `<Td>` cells as before. In edit mode it renders the same table markup itself, with the locked first heading plain, the other headings as a horizontal `SortableArea` of `<th>` items (grip, label, ×), and a "Hidden columns" tray under the table. `trailing` = an action column, always last, empty heading.
+  - Invoices page: the invoices table uses `DataTable table="invoices"` with `INVOICE_COLUMNS` declared next to the page (same cell classes and content as before, `row-mine` kept).
+  - **Verified identical outside edit mode:** a scratchpad script renders the old `<Table>` markup and the new `DataTable` (defaults, inside `MemoryRouter` + `PreferencesProvider`) with `react-dom/server` and compares the HTML: identical for 2 rows and for 0 rows (empty message). Run it with `NODE_PATH=$PWD/node_modules npx tsx --tsconfig tsconfig.json <script>` from `Brim/` (the script needs `import React`, since files outside the tsconfig `include` get the classic JSX transform). Same method for 8b–8f.
+  - **Not verified in a browser:** dragging column headings, hiding, the tray.
 - [ ] 8b. Raw table.
 - [ ] 8c. Parsed table.
 - [ ] 8d. Payments table.

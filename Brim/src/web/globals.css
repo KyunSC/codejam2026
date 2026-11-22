@@ -214,6 +214,10 @@
   .dash-tools { position: absolute; top: 6px; right: 6px; display: flex; align-items: center; gap: 4px; }
   .dash-card .card > header { cursor: grab; }
   .dash-card .card > header button { cursor: pointer; }
+
+  .th-edit { background: var(--surface-2); }
+  .th-edit__in { display: inline-flex; align-items: center; gap: 4px; }
+  .th-edit .x-btn { width: 18px; height: 18px; font-size: 12px; margin-left: 2px; }
 }
 
 /* ---------- Workspace preferences (src/web/preferences.tsx sets these attributes on <html>) ----------
