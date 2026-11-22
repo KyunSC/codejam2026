@@ -94,7 +94,7 @@ invoices.patch("/flags/:id", route(async ({ user, params, body }) => {
 
 // --- invoices ---
 invoices.get("/invoices", route(async ({ user, params, query }) => (
-  listInvoices(user, params.orgId, { status: param(query, "status"), vendor_id: param(query, "vendor_id"), type: param(query, "type"), po_id: param(query, "po_id"), ...pagingOf(query) })
+  listInvoices(user, params.orgId, { q: param(query, "q"), status: param(query, "status"), vendor_id: param(query, "vendor_id"), type: param(query, "type"), po_id: param(query, "po_id"), ...pagingOf(query) })
 )));
 // The invoice with its approval chain (each step saying whether you may act on it) and payments.
 invoices.get("/invoices/:id", route(async ({ user, params }) => getInvoiceRecord(user, params.orgId, params.id)));
