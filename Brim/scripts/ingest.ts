@@ -1,11 +1,14 @@
 // Loads the Harborline dataset by calling the app's API, the way people would enter it.
 // Usage (dev server running): npx tsx scripts/ingest.ts setup|history|inbox
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import path from "path";
 import { parseCsv } from "../src/lib/csv";
 
+const ROOT = path.resolve(import.meta.dirname, "..");
+if (existsSync(path.join(ROOT, ".env.local"))) process.loadEnvFile(path.join(ROOT, ".env.local"));
+
 const BASE = process.env.BASE_URL ?? "http://localhost:3000";
-const DATA = path.join(process.env.DATASET_DIR ?? "/Users/ming/Downloads/brim_ap_dataset", "data");
+const DATA = path.join(path.resolve(ROOT, process.env.DATASET_DIR ?? "brim_ap_dataset"), "data");
 const ORG = "ORG-HARBORLINE";
 const ORG_GST = "100000001RT0001";
 const O = `/api/organizations/${ORG}`;

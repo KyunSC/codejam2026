@@ -29,8 +29,16 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 
 # typescript
 *.tsbuildinfo
 /storage
+
+# leftovers from the old Next.js/Prisma app, and local tool state
+.next/
+next-env.d.ts
+/src/generated/
+.neon
+.vercel
