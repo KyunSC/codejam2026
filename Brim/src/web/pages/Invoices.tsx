@@ -51,6 +51,28 @@ export function Invoices() {
     return "Extracted.";
   };
 
+  // The raw items table's columns (ids and labels in TABLES.raw, src/lib/preferences.ts).
+  const rawColumns: Column<RawItemRow>[] = [
+    { id: "id", className: "font-mono text-xs", render: (r) => r.raw_item_id },
+    { id: "kind", render: (r) => <Badge>{r.kind}</Badge> },
+    {
+      id: "from",
+      render: (r) => (
+        <>
+          {r.kind === "email" && <div><span className="font-medium">{r.from_name}</span> — {r.subject}</div>}
+          {r.kind === "form" && <div>Form: {r.form_json?.vendor_invoice_number} {r.submitter && <span className="muted">by {r.submitter}</span>}</div>}
+          <div className="text-xs muted">
+            {r.files.map((f) => <a key={f.file_name} href={org(user, `/raw-items/${r.raw_item_id}/files/${encodeURIComponent(f.file_name)}`)} target="_blank" rel="noreferrer" className="mr-2 link">{f.file_name}</a>)}
+            {r.kind === "email" && r.files.length === 0 && "no attachment"}
+          </div>
+          {r.no_invoice_reason && <div className="text-xs muted">{r.no_invoice_reason}</div>}
+        </>
+      ),
+    },
+    { id: "received", className: "whitespace-nowrap", render: (r) => date(r.received_at) },
+    { id: "status", render: (r) => <Status value={r.status} /> },
+  ];
+
   return (
     <div className="space-y-6">
       <PageTitle sub="Raw items stay as they arrived. Extract turns one into a parsed invoice; approving a parsed invoice adds it to the invoices.">Invoices</PageTitle>
@@ -77,30 +99,16 @@ export function Invoices() {
         <Show load={raw}>
           {(rows) => (
             <>
-              <Table head={["Raw item", "Kind", "From / file", "Received", "Status", ""]} empty="No raw items yet.">
-                {rows.map((r) => (
-                  <tr key={r.raw_item_id}>
-                    <Td className="font-mono text-xs">{r.raw_item_id}</Td>
-                    <Td><Badge>{r.kind}</Badge></Td>
-                    <Td>
-                      {r.kind === "email" && <div><span className="font-medium">{r.from_name}</span> — {r.subject}</div>}
-                      {r.kind === "form" && <div>Form: {r.form_json?.vendor_invoice_number} {r.submitter && <span className="muted">by {r.submitter}</span>}</div>}
-                      <div className="text-xs muted">
-                        {r.files.map((f) => <a key={f.file_name} href={org(user, `/raw-items/${r.raw_item_id}/files/${encodeURIComponent(f.file_name)}`)} target="_blank" rel="noreferrer" className="mr-2 link">{f.file_name}</a>)}
-                        {r.kind === "email" && r.files.length === 0 && "no attachment"}
-                      </div>
-                      {r.no_invoice_reason && <div className="text-xs muted">{r.no_invoice_reason}</div>}
-                    </Td>
-                    <Td className="whitespace-nowrap">{date(r.received_at)}</Td>
-                    <Td><Status value={r.status} /></Td>
-                    <Td>
-                      {r.status === "new" && can(user, "raw.extract") && (
-                        <ApiForm submit={extract(r.raw_item_id)}><button className={btnLight}>Extract</button></ApiForm>
-                      )}
-                    </Td>
-                  </tr>
-                ))}
-              </Table>
+              <DataTable
+                table="raw"
+                rows={rows}
+                rowKey={(r) => r.raw_item_id}
+                columns={rawColumns}
+                trailing={(r) => r.status === "new" && can(user, "raw.extract") && (
+                  <ApiForm submit={extract(r.raw_item_id)}><button className={btnLight}>Extract</button></ApiForm>
+                )}
+                empty="No raw items yet."
+              />
               <Pager param="rawPage" page={rawPage} total={rows[0]?.total_count ?? 0} />
             </>
           )}

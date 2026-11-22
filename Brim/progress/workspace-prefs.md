@@ -56,7 +56,9 @@ Checks for every commit (from `Brim/`): `npm run typecheck`, `npm run lint -- --
   - Invoices page: the invoices table uses `DataTable table="invoices"` with `INVOICE_COLUMNS` declared next to the page (same cell classes and content as before, `row-mine` kept).
   - **Verified identical outside edit mode:** a scratchpad script renders the old `<Table>` markup and the new `DataTable` (defaults, inside `MemoryRouter` + `PreferencesProvider`) with `react-dom/server` and compares the HTML: identical for 2 rows and for 0 rows (empty message). Run it with `NODE_PATH=$PWD/node_modules npx tsx --tsconfig tsconfig.json <script>` from `Brim/` (the script needs `import React`, since files outside the tsconfig `include` get the classic JSX transform). Same method for 8b–8f.
   - **Not verified in a browser:** dragging column headings, hiding, the tray.
-- [ ] 8b. Raw table.
+- [x] 8b. Raw table.
+  - Raw table on the Invoices page uses `DataTable table="raw"`. Its columns are declared inside the component (`rawColumns`), since the file links need `user` for `org()`; the Extract button is the `trailing` column (still only for `new` items and `raw.extract`).
+  - Verified identical outside edit mode with the scratchpad render-and-compare script: 4 rows covering email with attachment, email without attachment ("no attachment"), form with submitter and no-invoice reason, upload with two files, Extract shown and not shown; and 0 rows.
 - [ ] 8c. Parsed table.
 - [ ] 8d. Payments table.
 - [ ] 8e. Vendors table.
