@@ -10,26 +10,30 @@ type LineProps = {
   currency: string;
 };
 
-type DepartmentDraft = { saved: InvoiceLine[]; lines: InvoiceLine[] } | null;
-type DepartmentEdit = { type: "discard" } | { type: "assign"; saved: InvoiceLine[]; lineNo: number; id: string };
+// Unsaved department picks, keyed by line_no so they survive a data reload
+// (which hands us a new `lines` array) until they are saved or discarded.
+type DepartmentEdits = Record<number, string>;
+type DepartmentEdit = { type: "discard" } | { type: "assign"; lineNo: number; id: string };
 
-function editDepartments(draft: DepartmentDraft, edit: DepartmentEdit): DepartmentDraft {
-  if (edit.type === "discard") return null;
-  const lines = draft?.saved === edit.saved ? draft.lines : edit.saved;
-  return {
-    saved: edit.saved,
-    lines: lines.map((line) => line.line_no === edit.lineNo ? { ...line, department_id: edit.id || null } : line),
-  };
+function editDepartments(edits: DepartmentEdits, edit: DepartmentEdit): DepartmentEdits {
+  if (edit.type === "discard") return {};
+  return { ...edits, [edit.lineNo]: edit.id };
 }
 
 export function EditableLinesTable(props: LineProps) {
-  const [draft, dispatch] = useReducer(editDepartments, null);
-  const currentDraft = draft?.saved === props.lines ? draft : null;
+  const [edits, dispatch] = useReducer(editDepartments, {});
+  // Apply only edits that still differ from the saved value; once saved they drop out.
+  const lines = props.lines.map((line) => {
+    if (!(line.line_no in edits)) return line;
+    const id = edits[line.line_no] || null;
+    return id === (line.department_id || null) ? line : { ...line, department_id: id };
+  });
+  const edited = lines.some((line, i) => line !== props.lines[i]);
   return (
     <>
-      <LinesTable {...props} lines={currentDraft?.lines ?? props.lines}
-        onAssign={(lineNo, id) => dispatch({ type: "assign", saved: props.lines, lineNo, id })} />
-      {currentDraft && <button className={btnLight} type="button" onClick={() => dispatch({ type: "discard" })}>Discard department edits</button>}
+      <LinesTable {...props} lines={lines}
+        onAssign={(lineNo, id) => dispatch({ type: "assign", lineNo, id })} />
+      {edited && <button className={btnLight} type="button" onClick={() => dispatch({ type: "discard" })}>Discard department edits</button>}
     </>
   );
 }
@@ -92,12 +96,15 @@ function DepartmentSplit({ lines, depts, currency }: Pick<LineProps, "lines" | "
     const id = line.department_id || null;
     const group = groups.get(id) ?? { amount: 0, count: 0 };
     // Round each CAD/USD line as displayed, then sum integer cents.
-    const cents = Number(decimal.format(line.amount).replace(".", ""));
+    // Parsed lines can lack an amount; count them as zero rather than poisoning the totals with NaN.
+    const cents = Number.isFinite(line.amount) ? Number(decimal.format(line.amount).replace(".", "")) : 0;
     group.amount += cents;
     group.count++;
     groups.set(id, group);
     subtotal += cents;
   }
+  // A split across one department just repeats the subtotal; only show it when lines diverge.
+  if (groups.size < 2) return null;
   const format = new Intl.NumberFormat("en-CA", { style: "currency", currency, currencyDisplay: "code" });
   return (
     <section className="space-y-2 text-sm" aria-label="Department split">
