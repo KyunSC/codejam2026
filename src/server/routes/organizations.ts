@@ -6,7 +6,7 @@ import {
 } from "@/services/organization.service";
 import { createRecord, deleteRecord, getRecord, listRecords, updateRecord, type RecordKind } from "@/services/records.service";
 import { departmentSpend } from "@/services/read.service";
-import { pagingOf, route } from "../http";
+import { pagingOf, param, route } from "../http";
 
 // /api/organizations: the organization list for Brim employees.
 export const organizations = Router();
@@ -28,7 +28,10 @@ organization.get("/department-spend", route(async ({ user, params }) => departme
 // Data for the dashboard widgets the user has on the page (ids=a,b,c); each only when the role may see it.
 organization.get("/dashboard-widgets", route(async ({ user, params, query }) => dashboardWidgets(user, params.orgId, String(query.get("ids") ?? "").split(",").filter(Boolean))));
 
-organization.get("/users", route(async ({ user, params, query }) => listUsers(user, params.orgId, pagingOf(query))));
+// ?q= (name, email, title or id), ?role=, ?status=
+organization.get("/users", route(async ({ user, params, query }) => (
+  listUsers(user, params.orgId, { q: param(query, "q"), role: param(query, "role"), status: param(query, "status"), ...pagingOf(query) })
+)));
 // Everyone's name, role and status, for picking a person.
 organization.get("/user-choices", route(async ({ user, params }) => listUserChoices(user, params.orgId)));
 organization.post("/users", route(async ({ user, params, body }) => ({ id: await createUser(user, params.orgId, body) }), { gate: "users.manage" }));
