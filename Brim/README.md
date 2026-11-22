@@ -39,6 +39,12 @@ npx tsx scripts/ingest.ts inbox     # poll the simulated AP inbox
 
 To start over, run `./scripts/reset-db.sh` again before `setup`.
 
+A database created before workspace preferences needs their table. Add it without a reset (safe to run again):
+
+```bash
+psql "$(sed -n 's/^DATABASE_URL=//p' .env.local | tr -d '"')" -f db/migrations/001_user_preferences.sql
+```
+
 For production: `npm run build`, then `npm start`.
 
 ## Signing in

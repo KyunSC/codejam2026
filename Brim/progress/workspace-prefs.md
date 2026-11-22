@@ -2,10 +2,14 @@
 
 Branch `feature/workspace-preferences`. Builds `WORKSPACE_PREFS_PLAN.md`. One item per run; notes under each item. Prompt: `loops/loop-d-workspace-prefs.md`.
 
-Checks for every commit (from `Brim/`): `npm run typecheck`, `npm run lint`, `npm run build`. Running app for curl checks: `PORT=3100 npm run dev`. Database: the local one in `.env.local`, read-only except item 1's migration.
+Checks for every commit (from `Brim/`): `npm run typecheck`, `npm run lint -- --ignore-pattern '.next/**'`, `npm run build`. (Plain `npm run lint` reports ~11,700 problems, all in a stale, gitignored `.next/` folder left from the Next.js version; CI never sees it. See questions.md.) Running app for curl checks: `PORT=3100 npm run dev`. Database: the local one in `.env.local`, read-only except item 1's migration.
 
 - [x] 0. Commit WORKSPACE_PREFS_PLAN.md as it is. Create progress/workspace-prefs.md.
-- [ ] 1. Storage: user_preferences in db/schema.sql, db/migrations/001_user_preferences.sql, README line; migration applied twice.
+- [x] 1. Storage: user_preferences in db/schema.sql, db/migrations/001_user_preferences.sql, README line; migration applied twice.
+  - Table added to `db/schema.sql` right after `users` (and the departments FK). Migration is the same statement with `IF NOT EXISTS`.
+  - Applied to the local database twice: first run `CREATE TABLE`, second run a NOTICE "already exists, skipping". `\d user_preferences` shows the PK and the cascade FK to users.
+  - Checked that the whole `schema.sql` still loads: ran it inside `BEGIN; CREATE SCHEMA …; SET LOCAL search_path …; \i db/schema.sql; ROLLBACK;` (17 tables created, schema gone after rollback). Nothing in the real schema changed except the migration.
+  - README: the migration command sits under "Run", after "To start over…", reading DATABASE_URL from `.env.local` like `reset-db.sh` does.
 - [ ] 2. Shared model: src/lib/preferences.ts + scripts/check-preferences.ts.
 - [ ] 3. API: preferences.service.ts + /api/me/preferences (GET, PUT, DELETE); curl flow and audit rows checked.
 - [ ] 4. Provider + appearance: src/web/preferences.tsx, data-* on <html>, globals.css, no-flash script in index.html.

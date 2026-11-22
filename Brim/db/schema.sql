@@ -34,6 +34,14 @@ CREATE TABLE users (
 
 ALTER TABLE departments ADD FOREIGN KEY (manager_user_id) REFERENCES users DEFERRABLE INITIALLY DEFERRED;
 
+-- Each user's workspace preferences: only the settings they changed, merged over defaults in code (src/lib/preferences.ts).
+CREATE TABLE user_preferences (
+  user_id    text PRIMARY KEY REFERENCES users ON DELETE CASCADE,
+  prefs      jsonb NOT NULL DEFAULT '{}'::jsonb,
+  version    integer NOT NULL DEFAULT 1,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE gl_accounts (
   account_number  text NOT NULL,
   organization_id text NOT NULL REFERENCES organizations,

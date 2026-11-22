@@ -80,3 +80,9 @@ Open points for the team. Loop C takes BUILD_PLAN's version and moves on.
 - **Sender checks are fraud / hold (item 11).** BUILD_PLAN lists them under fraud alerts without an effect; Loop C makes both hold until a finance manager or controller confirms or overrides. Confirmed fraud flags, and fraud flags on the vendor alone or on a payment, also hold the payment.
 - **EFT one cent off (item 12).** BUILD_PLAN says "amount equal" and 313/313; the data has 3 lines one cent off with matching references. Loop C matches on the reference within $0.05 and shows the difference.
 - **Who may Mark explained (item 12).** No matrix row; Loop C uses the fraud-resolution roles (finance manager, controller) and lets the auditor read.
+
+## Workspace preferences
+
+Open points from Loop D. Loop D takes the plan's recommendation and moves on.
+
+- **Stale `.next/` folder breaks `npm run lint` locally.** It's a gitignored build folder from the Next.js version; ESLint's ignores list only `dist`, `node_modules` and `storage`, so locally lint reports ~11,700 problems in it. CI is unaffected (clean checkout). Loop D runs `npm run lint -- --ignore-pattern '.next/**'` and leaves the config and the folder alone. Fix: delete `.next/` or add it to the ignores in `eslint.config.mjs`.
