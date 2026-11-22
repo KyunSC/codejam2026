@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { NotSetUpError } from "@/lib/errors";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import type { InvoiceData } from "@/lib/types";
@@ -44,10 +45,16 @@ const EmailClass = z.object({
 });
 
 let anthropic: Anthropic | null = null;
-const getClient = () => (anthropic ??= new Anthropic());
+const getClient = () => {
+  if (!process.env.ANTHROPIC_API_KEY) throw new NotSetUpError("Reading documents is not set up: ANTHROPIC_API_KEY is missing on the server.");
+  return (anthropic ??= new Anthropic());
+};
 
-// Reads one PDF or scanned image into the fixed invoice shape.
-export async function extractDocument(kind: "pdf" | "png" | "jpeg", bytes: Buffer): Promise<Extracted> {
+// The email a document came attached to.
+export type EmailContext = { from: string | null; subject: string | null; body: string | null };
+
+// Reads one PDF or scanned image into the fixed invoice shape. For an attachment, the email it came with is given alongside.
+export async function extractDocument(kind: "pdf" | "png" | "jpeg", bytes: Buffer, email?: EmailContext): Promise<Extracted> {
   const data = bytes.toString("base64");
   const block: Anthropic.ContentBlockParam =
     kind === "pdf"
@@ -61,9 +68,12 @@ export async function extractDocument(kind: "pdf" | "png" | "jpeg", bytes: Buffe
         role: "user",
         content: [
           block,
+          ...(email
+            ? [{ type: "text" as const, text: `It came attached to this email.\n\nFrom: ${email.from ?? ""}\nSubject: ${email.subject ?? ""}\n\n${email.body ?? ""}` }]
+            : []),
           {
             type: "text",
-            text: "This document arrived in a Canadian company's accounts payable inbox. Read it into the given fields, with amounts as plain numbers, dates as YYYY-MM-DD, and each line and tax line as printed.",
+            text: "This document arrived in a Canadian company's accounts payable inbox. Read it into the given fields, with amounts as plain numbers, dates as YYYY-MM-DD, and each line and tax line as printed. Where the email adds to the document, such as the invoice a credit note refers to or a PO number, include it in the fields.",
           },
         ],
       },

@@ -1,7 +1,7 @@
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { can } from "@/lib/authz";
 import { money } from "@/lib/format";
-import type { getInvoiceRecord, PaymentRow } from "@/services/read.service";
+import type { getInvoiceRecord, InvoiceRow, PaymentRow } from "@/services/read.service";
 import { get, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { ApiForm } from "../components/ApiForm";
@@ -15,6 +15,11 @@ export function Payments() {
   const tab = TABS.includes(sp.get("status") ?? "") ? sp.get("status")! : "scheduled";
   const totals = useLoad(() => get<{ status: string; n: number; total: number }[]>(org(user, "/payments/totals")), "");
   const rows = useLoad(() => get<PaymentRow[]>(org(user, `/payments${qs({ status: tab === "all" ? null : tab, size: 300 })}`)), tab);
+  // approved invoices with no payment yet, for the clerk to prepare
+  const ready = useLoad(
+    () => (can(user, "payment.prepare") ? get<InvoiceRow[]>(org(user, "/invoices?status=approved&type=invoice&size=100")) : Promise.resolve([] as InvoiceRow[])),
+    "",
+  );
   if (!can(user, "payment.view")) return <NotFound />;
 
   const release = (id: string) => async () => {
@@ -23,11 +28,18 @@ export function Payments() {
     rows.reload();
     return "Released.";
   };
-  const simulate = async () => {
-    const r = await post<{ sent: number }>(org(user, "/bank-runs"));
+  const prepare = (invoiceId: string) => async () => {
+    await post(org(user, "/payments"), { invoice_id: invoiceId });
     totals.reload();
     rows.reload();
-    return `${r.sent} released payment${r.sent === 1 ? "" : "s"} sent to the bank.`;
+    ready.reload();
+    return "Scheduled.";
+  };
+  const simulate = async () => {
+    const r = await post<{ sent: number; waiting: number }>(org(user, "/bank-runs"));
+    totals.reload();
+    rows.reload();
+    return `${r.sent} payment${r.sent === 1 ? "" : "s"} sent to the bank.${r.waiting ? ` ${r.waiting} released payment${r.waiting === 1 ? " waits" : "s wait"} for the scheduled date.` : ""}`;
   };
 
   return (
@@ -44,12 +56,28 @@ export function Payments() {
           );
         })}
       </div>
+      {can(user, "payment.prepare") && (ready.data?.length ?? 0) > 0 && (
+        <Card title={`Ready to pay (${ready.data!.length})`}>
+          <Table head={["Invoice", "Vendor", "Invoice #", "Due", "Total", ""]}>
+            {ready.data!.map((i) => (
+              <tr key={i.invoice_id}>
+                <Td><A href={`/invoices/${i.invoice_id}`}>{i.invoice_id}</A></Td>
+                <Td>{i.vendor_name}</Td>
+                <Td>{i.vendor_invoice_number}</Td>
+                <Td>{date(i.due_date)}</Td>
+                <Td className="whitespace-nowrap">{money(i.total, i.currency)}</Td>
+                <Td><ApiForm inline submit={prepare(i.invoice_id)}><button className={btn}>Prepare payment</button></ApiForm></Td>
+              </tr>
+            ))}
+          </Table>
+        </Card>
+      )}
       <Card
         title={`Payments: ${tab}`}
         actions={
           <>
             <Link to="/payments?status=all" className="text-xs link">all</Link>
-            {can(user, "payment.simulate") && <ApiForm submit={simulate}><button className={btnLight}>Run bank simulation</button></ApiForm>}
+            {can(user, "payment.simulate") && <ApiForm inline submit={simulate}><button className={btnLight}>Run bank simulation</button></ApiForm>}
           </>
         }
       >
@@ -68,9 +96,8 @@ export function Payments() {
                   <Td className="text-xs">{p.preparer ?? "—"} / {p.releaser ?? "—"}</Td>
                   <Td><Status value={p.status} /></Td>
                   <Td>
-                    {p.status === "scheduled" && can(user, "payment.release") && (
-                      <ApiForm submit={release(p.payment_id)}><button className={btn}>Release</button></ApiForm>
-                    )}
+                    {p.can_release && <ApiForm submit={release(p.payment_id)}><button className={btn}>Release</button></ApiForm>}
+                    {p.release_blocked && <span className="text-xs muted">{p.release_blocked}</span>}
                   </Td>
                 </tr>
               ))}
@@ -108,7 +135,7 @@ export function Payment() {
           <div className="space-y-5">
             <PageTitle sub={<Status value={p.status} />}>{p.payment_id} · {p.vendor} · {money(p.amount, p.currency)}</PageTitle>
             <div className="grid gap-5 lg:grid-cols-2">
-              <Card title="Payment" actions={p.status === "scheduled" && can(user, "payment.release") && <ApiForm submit={release}><button className={btn}>Release</button></ApiForm>}>
+              <Card title="Payment" actions={p.can_release ? <ApiForm inline submit={release}><button className={btn}>Release</button></ApiForm> : p.release_blocked && <span className="text-xs muted">{p.release_blocked}</span>}>
                 <dl className="grid grid-cols-2 gap-2 text-sm">
                   <dt className="muted">Method</dt><dd>{p.method}</dd>
                   <dt className="muted">Amount</dt><dd>{money(p.amount, p.currency)}{p.currency !== "CAD" && ` = ${money(p.amount_cad)} at ${p.fx_rate_to_cad}`}</dd>

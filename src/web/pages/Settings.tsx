@@ -27,6 +27,7 @@ export function UsersSettings() {
       work_province: str(fd, "work_province"),
       status: str(fd, "status") ?? "active",
       delegate_user_id: str(fd, "delegate_user_id"),
+      ...(str(fd, "password") ? { password: str(fd, "password") } : {}),
     };
     const id = str(fd, "user_id");
     if (id) await patch(org(user, `/users/${id}`), input);
@@ -56,6 +57,9 @@ export function UsersSettings() {
             <Field label="Approval limit (CAD)"><input name="approval_limit_cad" type="number" defaultValue={u.approval_limit_cad ?? 0} className={input} /></Field>
             <Field label="Province"><input name="work_province" defaultValue={u.work_province ?? ""} className={input} /></Field>
             <Field label="Status"><select name="status" defaultValue={u.status ?? "active"} className={input}><option>active</option><option>on_leave</option></select></Field>
+            <Field label={u.user_id ? "New password" : "Password"}>
+              <input name="password" type="password" minLength={8} required={!u.user_id} placeholder={u.user_id ? "unchanged" : ""} autoComplete="new-password" className={input} />
+            </Field>
             <Field label="Delegate"><select name="delegate_user_id" defaultValue={u.delegate_user_id ?? ""} className={input}><option value="">—</option>{active.map((m) => <option key={m.user_id} value={m.user_id}>{m.full_name}</option>)}</select></Field>
             <div className="col-span-2 sm:col-span-5"><button className={u.user_id ? btnLight : btn}>{u.user_id ? "Save" : "Add user"}</button></div>
           </ApiForm>

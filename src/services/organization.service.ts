@@ -1,8 +1,9 @@
-import { ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
-import { query, tx, nextId, one } from "@/lib/db";
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
+import { query, tx, nextId, one, type Db } from "@/lib/db";
 import { assertCan, assertMember, authorize } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 import { blankToNull } from "@/lib/values";
+import { setPassword } from "./auth.service";
 import type { User } from "@/lib/types";
 
 // --- organizations (Brim employees) ---
@@ -53,7 +54,19 @@ export async function updateOrganization(actor: User | null, id: string, input: 
 // --- users ---
 
 const USER_FIELDS = ["full_name", "email", "title", "department_id", "manager_id", "role", "approval_limit_cad", "work_province", "status", "status_since", "delegate_user_id"] as const;
-type UserInput = Partial<Record<(typeof USER_FIELDS)[number], unknown>> & { user_id?: string };
+// `password` sets the user's password; it is never stored with the user or written to the audit log.
+type UserInput = Partial<Record<(typeof USER_FIELDS)[number], unknown>> & { user_id?: string; password?: unknown };
+
+function checkUserFields(f: Record<string, unknown>) {
+  if ("approval_limit_cad" in f && Number(f.approval_limit_cad) < 0) throw new ValidationError("An approval limit cannot be negative.");
+  if ("email" in f && !/^[^@\s]+@[^@\s]+$/.test(String(f.email ?? ""))) throw new ValidationError("Give a valid email.");
+}
+
+// Each organization keeps at least one controller / admin, who manages its users and policies.
+async function keepOneAdmin(c: Db, organizationId: string, leavingUserId: string) {
+  const other = await one("SELECT 1 FROM users WHERE organization_id=$1 AND role='controller_admin' AND status<>'terminated' AND user_id<>$2", [organizationId, leavingUserId], c);
+  if (!other) throw new ConflictError("This is the organization's last controller / admin; make someone else one first.");
+}
 
 // The organization's users, removed ones last.
 export async function listUsers(actor: User | null, organizationId: string) {
@@ -70,6 +83,9 @@ export async function getOrgUser(actor: User | null, organizationId: string, use
 export async function createUser(actor: User | null, organizationId: string, input: UserInput) {
   authorize(actor, organizationId, "users.manage");
   if (input.role === "brim_employee") throw new ValidationError("Cannot create Brim employees");
+  const { password, ...fields } = input;
+  if (typeof password !== "string") throw new ValidationError("Give the new user a password");
+  checkUserFields(fields);
   return tx(async (c) => {
     const id = input.user_id || (await nextId("U", c));
     const cols = USER_FIELDS.filter((f) => f in input);
@@ -78,7 +94,8 @@ export async function createUser(actor: User | null, organizationId: string, inp
       [id, organizationId, ...cols.map((f) => blankToNull(input[f]))],
       c,
     );
-    await writeAudit(c, { organizationId, actor, action: "user.create", entityType: "user", entityId: id, after: input });
+    await setPassword(c, id, password);
+    await writeAudit(c, { organizationId, actor, action: "user.create", entityType: "user", entityId: id, after: fields });
     return id;
   });
 }
@@ -86,13 +103,22 @@ export async function createUser(actor: User | null, organizationId: string, inp
 export async function updateUser(actor: User | null, organizationId: string, userId: string, input: UserInput) {
   authorize(actor, organizationId, "users.manage");
   if (input.role === "brim_employee") throw new ValidationError("Cannot make a Brim employee");
+  const { password, ...fields } = input;
+  checkUserFields(fields);
   await tx(async (c) => {
     const before = await one<User>("SELECT * FROM users WHERE user_id=$1 AND organization_id=$2 FOR UPDATE", [userId, organizationId], c);
     if (!before) throw new NotFoundError("No such user");
-    const cols = USER_FIELDS.filter((f) => f in input);
-    if (!cols.length) return;
-    await query(`UPDATE users SET ${cols.map((f, i) => `${f}=$${i + 2}`).join(", ")} WHERE user_id=$1`, [userId, ...cols.map((f) => blankToNull(input[f]))], c);
-    await writeAudit(c, { organizationId, actor, action: "user.update", entityType: "user", entityId: userId, before, after: input });
+    if (userId === actor.user_id && "role" in fields && fields.role !== before.role) throw new ForbiddenError("You cannot change your own role.");
+    if (before.role === "controller_admin" && "role" in fields && fields.role !== "controller_admin") await keepOneAdmin(c, organizationId, userId);
+    const cols = USER_FIELDS.filter((f) => f in fields);
+    if (cols.length) {
+      await query(`UPDATE users SET ${cols.map((f, i) => `${f}=$${i + 2}`).join(", ")} WHERE user_id=$1`, [userId, ...cols.map((f) => blankToNull(fields[f]))], c);
+      await writeAudit(c, { organizationId, actor, action: "user.update", entityType: "user", entityId: userId, before, after: fields });
+    }
+    if (typeof password === "string" && password) {
+      await setPassword(c, userId, password);
+      await writeAudit(c, { organizationId, actor, action: "user.password_set", entityType: "user", entityId: userId });
+    }
   });
 }
 
@@ -103,6 +129,7 @@ export async function deleteUser(actor: User | null, organizationId: string, use
     const before = await one<User>("SELECT * FROM users WHERE user_id=$1 AND organization_id=$2 FOR UPDATE", [userId, organizationId], c);
     if (!before) throw new NotFoundError("No such user");
     if (before.user_id === actor.user_id) throw new ForbiddenError("Cannot remove yourself");
+    if (before.role === "controller_admin") await keepOneAdmin(c, organizationId, userId);
     await query("UPDATE users SET status='terminated', status_since=current_date WHERE user_id=$1", [userId], c);
     await writeAudit(c, { organizationId, actor, action: "user.delete", entityType: "user", entityId: userId, before });
   });

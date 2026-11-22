@@ -1,4 +1,5 @@
-import { Link, useSearchParams } from "react-router-dom";
+import { useEffect } from "react";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { can } from "@/lib/authz";
 import { money } from "@/lib/format";
 import type { InvoiceRow, ParsedRow, RawItemRow } from "@/services/read.service";
@@ -13,6 +14,9 @@ const KINDS = ["email", "pdf", "form"];
 export function Invoices() {
   const user = useUser();
   const [sp] = useSearchParams();
+  const notice = (useLocation().state as { notice?: string } | null)?.notice;
+  // AP sees the whole pipeline; someone who only submits sees their submissions and what happened to them
+  const ap = can(user, "raw.extract") || can(user, "parsed.review");
   const status = STATUSES.includes(sp.get("status") ?? "") ? sp.get("status")! : "all";
   const rawKind = KINDS.includes(sp.get("rawKind") ?? "") ? sp.get("rawKind") : null;
   const rawPage = pageParam(sp.get("rawPage"));
@@ -25,37 +29,46 @@ export function Invoices() {
     () => get<InvoiceRow[]>(org(user, `/invoices${qs({ status: status === "all" ? null : status, page: invPage, size: PAGE_SIZE })}`)),
     `${status}:${invPage}`,
   );
-  const reloadAll = () => [raw, parsed, invoices].forEach((l) => l.reload());
+  // while something is being read, look again every few seconds
+  const readingNow = (raw.data ?? []).some((r) => r.status === "new");
+  useEffect(() => {
+    if (!readingNow) return;
+    const t = setInterval(() => {
+      raw.reload();
+      parsed.reload();
+    }, 3000);
+    return () => clearInterval(t);
+    // reload functions change every render; readingNow is what matters
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readingNow]);
 
   const poll = async () => {
-    const r = await post<{ added: number; skipped: number }>(org(user, "/raw-items/poll"));
+    const r = await post<{ added: number; skipped: number; reading: number }>(org(user, "/raw-items/poll"));
     raw.reload();
-    return `${r.added} new email${r.added === 1 ? "" : "s"} (${r.skipped} already in).`;
-  };
-  const extract = (id: string) => async () => {
-    await post(org(user, `/raw-items/${id}/extract`));
-    reloadAll();
-    return "Extracted.";
+    return `${r.added} new email${r.added === 1 ? "" : "s"}; ${r.reading} being read.`;
   };
 
   return (
     <div className="space-y-6">
-      <PageTitle sub="Raw items stay as they arrived. Extract turns one into a parsed invoice; approving a parsed invoice adds it to the invoices.">Invoices</PageTitle>
+      <PageTitle sub={ap
+        ? "Raw items stay as they arrived. Uploads and emails are read automatically into parsed invoices, and a form is one already; approving a parsed invoice adds it to the invoices."
+        : "Submit an invoice by uploading it or filling the form. Accounts payable checks it, then it goes to its approvers."}>Invoices</PageTitle>
+      {notice && <p className="form-ok">{notice}</p>}
 
       <Card
         title={
           <span className="flex flex-wrap items-center gap-3">
-            1. Raw
-            <span className="flex gap-1 normal-case">
+            {ap ? "1. Raw" : can(user, "invoice.view_all") ? "Received" : "Your submissions"}
+            {ap && <span className="flex gap-1 normal-case">
               {([[null, "All"], ["email", "Emails"], ["pdf", "Uploads"], ["form", "Forms"]] as const).map(([k, label]) => (
                 <Link key={label} to={withParams(sp, { rawKind: k, rawPage: null })} className="chip" aria-current={rawKind === k}>{label}</Link>
               ))}
-            </span>
+            </span>}
           </span>
         }
         actions={
           <>
-            {can(user, "raw.poll") && <ApiForm submit={poll}><button className={btnLight}>Poll AP inbox</button></ApiForm>}
+            {can(user, "raw.poll") && <ApiForm inline submit={poll}><button className={btnLight}>Poll AP inbox</button></ApiForm>}
             {can(user, "raw.submit") && <Link to="/invoices/upload" className={btnLight}>Upload PDF</Link>}
             {can(user, "raw.submit") && <Link to="/invoices/form" className={btn}>Fill form</Link>}
           </>
@@ -64,27 +77,24 @@ export function Invoices() {
         <Show load={raw}>
           {(rows) => (
             <>
-              <Table head={["Raw item", "Kind", "From / file", "Received", "Status", ""]} empty="No raw items yet.">
+              <Table head={[ap ? "Raw item" : "Submission", "Kind", "From / file", "Received", "Status"]} empty={ap ? "No raw items yet." : "You have not submitted anything yet."}>
                 {rows.map((r) => (
                   <tr key={r.raw_item_id}>
-                    <Td className="font-mono text-xs">{r.raw_item_id}</Td>
+                    <Td className="font-mono text-xs"><A href={`/invoices/${r.raw_item_id}`}>{r.raw_item_id}</A></Td>
                     <Td><Badge>{r.kind}</Badge></Td>
                     <Td>
                       {r.kind === "email" && <div><span className="font-medium">{r.from_name}</span> — {r.subject}</div>}
+                      {r.kind === "pdf" && r.submitter && <div className="muted">uploaded by {r.submitter}</div>}
                       {r.kind === "form" && <div>Form: {r.form_json?.vendor_invoice_number} {r.submitter && <span className="muted">by {r.submitter}</span>}</div>}
                       <div className="text-xs muted">
                         {r.files.map((f) => <a key={f.file_name} href={org(user, `/raw-items/${r.raw_item_id}/files/${encodeURIComponent(f.file_name)}`)} target="_blank" rel="noreferrer" className="mr-2 link">{f.file_name}</a>)}
                         {r.kind === "email" && r.files.length === 0 && "no attachment"}
                       </div>
                       {r.no_invoice_reason && <div className="text-xs muted">{r.no_invoice_reason}</div>}
+                      {r.status === "failed" && r.failure_reason && <div className="text-xs text-flag">{r.failure_reason}{ap && " It is tried again at the next poll."}</div>}
                     </Td>
                     <Td className="whitespace-nowrap">{date(r.received_at)}</Td>
-                    <Td><Status value={r.status} /></Td>
-                    <Td>
-                      {r.status === "new" && can(user, "raw.extract") && (
-                        <ApiForm submit={extract(r.raw_item_id)}><button className={btnLight}>Extract</button></ApiForm>
-                      )}
-                    </Td>
+                    <Td>{r.status === "new" ? <Badge tone="blue">reading</Badge> : r.status === "failed" ? <Badge tone="red">not read</Badge> : r.status === "extracted" ? <Badge tone="green">{r.kind === "form" ? "submitted" : "read"}</Badge> : <Status value={r.status} />}</Td>
                   </tr>
                 ))}
               </Table>
@@ -94,11 +104,11 @@ export function Invoices() {
         </Show>
       </Card>
 
-      <Card title={`2. Parsed — pending approval (${parsed.data?.[0]?.total_count ?? 0})`}>
+      <Card title={`${ap ? "2. Parsed — pending approval" : "Being checked by accounts payable"} (${parsed.data?.[0]?.total_count ?? 0})`}>
         <Show load={parsed}>
           {(rows) => (
             <>
-              <Table head={["Parsed", "Vendor", "Invoice #", "Date", "Total", "Flags", ""]} empty="Nothing waiting for review.">
+              <Table head={[ap ? "Parsed" : "Reference", "Vendor", "Invoice #", "Date", "Total", "Flags", ""]} empty="Nothing waiting for review.">
                 {rows.map((p) => (
                   <tr key={p.parsed_invoice_id}>
                     <Td className="font-mono text-xs"><A href={`/invoices/${p.parsed_invoice_id}`}>{p.parsed_invoice_id}</A></Td>
@@ -122,7 +132,7 @@ export function Invoices() {
       </Card>
 
       <Card
-        title="3. Invoices"
+        title={ap ? "3. Invoices" : "Invoices"}
         actions={
           <div className="flex gap-1 text-xs">
             {STATUSES.map((s) => (

@@ -35,6 +35,14 @@ export async function taxChecks(ctx: CheckContext): Promise<Flag[]> {
     flags.push({ check_code: "tax_on_foreign_vendor", category: "tax", severity: "warning", message: `Canadian tax (${label(charged as string[])}) charged by a foreign vendor.` });
     return flags;
   }
+  // without the delivery province the expected tax is unknown: say so instead of guessing
+  if (!foreign && !exempt && !province) {
+    flags.push({
+      check_code: "tax_province_unknown", category: "tax", severity: "warning",
+      message: `The delivery province is not known, so the tax charged (${label(charged as string[])}) cannot be checked. Set "Delivered to" on the invoice.`,
+    });
+    return flags;
+  }
   if (!foreign && !exempt && vendor?.gst_hst_number && !charged.length && expGst !== 0) {
     flags.push({
       check_code: "tax_missing",

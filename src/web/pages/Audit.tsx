@@ -5,7 +5,7 @@ import type { AuditRow } from "@/services/audit.service";
 import { get, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { AuditFilters } from "../components/AuditFilters";
-import { A, Card, NotFound, PageTitle, Pager, Show, Table, Td, btnLight, dateTime, pageParam } from "../components/ui";
+import { A, Badge, Card, NotFound, PageTitle, Pager, Show, Table, Td, btnLight, dateTime, pageParam } from "../components/ui";
 
 type Options = { invoices: string[]; people: { user_id: string; full_name: string }[]; actions: string[] };
 
@@ -31,7 +31,7 @@ export function Audit() {
                     <Td className="muted text-xs">{e.event_id}</Td>
                     <Td className="whitespace-nowrap text-xs">{dateTime(e.occurred_at)}</Td>
                     <Td>{e.actor ?? "system"} <span className="muted text-xs">{e.actor_role?.replace(/_/g, " ")}</span>{e.on_behalf && <div className="muted text-xs">on behalf of {e.on_behalf}</div>}</Td>
-                    <Td className="font-mono text-xs">{e.action}</Td>
+                    <Td className="font-mono text-xs">{e.action}{e.channel === "agent" && <Badge tone="purple">agent</Badge>}</Td>
                     <Td className="font-mono text-xs">{e.entity_type} {e.entity_id}</Td>
                     <Td className="space-x-2 text-xs">
                       {e.invoice_id && <A href={`/invoices/${e.invoice_id}`}>{e.invoice_id}</A>}

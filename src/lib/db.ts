@@ -36,7 +36,35 @@ export async function tx<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
   }
 }
 
-export async function nextId(prefix: string, db: Db = pool): Promise<string> {
-  const row = await one<{ n: string }>("SELECT nextval('id_seq') AS n", [], db);
-  return `${prefix}-${row!.n}`;
+// How each kind of record is numbered: the dataset's own formats (V001, AP-00001, PAY-00001…), continued from the highest number in use.
+const ID_FORMATS: Record<string, { table: string; column: string; prefix: () => string; width: number }> = {
+  ORG: { table: "organizations", column: "organization_id", prefix: () => "ORG-", width: 3 },
+  U: { table: "users", column: "user_id", prefix: () => "U", width: 3 },
+  V: { table: "vendors", column: "vendor_id", prefix: () => "V", width: 3 },
+  BC: { table: "vendor_bank_changes", column: "change_id", prefix: () => "BC-", width: 3 },
+  RAW: { table: "raw_items", column: "raw_item_id", prefix: () => "RAW-", width: 4 },
+  PRS: { table: "parsed_invoices", column: "parsed_invoice_id", prefix: () => "PRS-", width: 4 },
+  FLG: { table: "invoice_flags", column: "flag_id", prefix: () => "FLG-", width: 4 },
+  INV: { table: "invoices", column: "invoice_id", prefix: () => "AP-", width: 5 },
+  APR: { table: "approvals", column: "approval_id", prefix: () => "AP-A-", width: 5 },
+  PAY: { table: "payments", column: "payment_id", prefix: () => "PAY-", width: 5 },
+  D: { table: "departments", column: "department_id", prefix: () => "D", width: 2 },
+  GL: { table: "gl_accounts", column: "account_number", prefix: () => "", width: 4 },
+  C: { table: "contracts", column: "contract_id", prefix: () => "C", width: 3 },
+  PO: { table: "purchase_orders", column: "po_id", prefix: () => `PO-${new Date().getFullYear()}-`, width: 4 },
+  P: { table: "approval_policies", column: "rule_id", prefix: () => "P", width: 2 },
+  TOK: { table: "api_tokens", column: "token_id", prefix: () => "TOK-", width: 4 },
+};
+
+// Call inside a transaction: the lock keeps two inserts from taking the same number.
+export async function nextId(kind: string, db: Db = pool): Promise<string> {
+  const f = ID_FORMATS[kind];
+  const prefix = f.prefix();
+  await query("SELECT pg_advisory_xact_lock(hashtext($1))", [f.table], db);
+  const row = await one<{ n: number }>(
+    `SELECT COALESCE(max(substring(${f.column} from ${prefix.length + 1})::int), 0) + 1 AS n FROM ${f.table} WHERE ${f.column} ~ $1`,
+    [`^${prefix.replace(/[-]/g, "\\-")}[0-9]+$`],
+    db,
+  );
+  return prefix + String(row!.n).padStart(f.width, "0");
 }

@@ -1,7 +1,7 @@
 import { useNavigate, useParams } from "react-router-dom";
 import { can } from "@/lib/authz";
 import { money } from "@/lib/format";
-import type { InvoiceLine, User } from "@/lib/types";
+import type { InvoiceData, InvoiceLine, User } from "@/lib/types";
 import type { RawItem } from "@/services/rawIntake.service";
 import type { getInvoiceRecord, getParsedInvoiceRecord } from "@/services/read.service";
 import type { TrailEvent } from "@/services/audit.service";
@@ -30,6 +30,14 @@ export function Invoice() {
   const load = useLoad(async () => {
     let invoice: InvoiceRecord | null = null;
     let parsed: ParsedRecord | null = null;
+    // a submission not yet read: the raw item on its own
+    if (id.startsWith("RAW-")) {
+      const [raw, vendors] = await Promise.all([
+        get<RawItem>(org(user, `/raw-items/${id}`)),
+        get<{ vendor_id: string; legal_name: string; status: string }[]>(org(user, "/vendor-choices")),
+      ]);
+      return { invoice, parsed, raw, audit: [] as TrailEvent[], vendors, depts: [], gls: [], people: [] as User[] };
+    }
     if (id.startsWith("PRS-")) {
       parsed = await get<ParsedRecord>(org(user, `/parsed-invoices/${id}`));
       if (parsed.invoice_id) invoice = await unlessHidden(get<InvoiceRecord>(org(user, `/invoices/${parsed.invoice_id}`)));
@@ -64,7 +72,10 @@ export function Invoice() {
         const vendorName = (vid: string | null | undefined) => vendors.find((v) => v.vendor_id === vid)?.legal_name;
         const title = invoice
           ? `${invoice.invoice_id} · ${invoice.vendor_name} ${invoice.vendor_invoice_number}`
-          : `${parsed!.parsed_invoice_id} · ${vendorName(d?.vendor_id) ?? d?.vendor_name ?? "Unknown vendor"} ${d?.vendor_invoice_number ?? ""}`;
+          : parsed
+            ? `${parsed.parsed_invoice_id} · ${vendorName(d?.vendor_id) ?? d?.vendor_name ?? "Unknown vendor"} ${d?.vendor_invoice_number ?? ""}`
+            : `${raw!.raw_item_id} · ${raw!.kind === "form" ? `form ${raw!.form_json?.vendor_invoice_number ?? ""}` : raw!.kind === "pdf" ? raw!.files[0]?.file_name ?? "upload" : raw!.subject ?? "email"}`;
+        const mySteps = steps.filter((s) => s.can_act);
 
         const saveReview = async (fd: FormData) => {
           const header: ReviewEdit["header"] = {};
@@ -104,13 +115,28 @@ export function Invoice() {
 
         return (
           <div className="space-y-5">
-            <PageTitle sub={invoice ? <span className="flex gap-2"><Status value={invoice.status} />{invoice.is_historical && <Badge>imported history</Badge>}{invoice.type === "credit_note" && <Badge tone="violet">credit note</Badge>}</span> : <Status value={parsed!.status} />}>
+            <PageTitle sub={invoice ? <span className="flex gap-2"><Status value={invoice.status} />{invoice.is_historical && <Badge>imported history</Badge>}{invoice.type === "credit_note" && <Badge tone="violet">credit note</Badge>}</span> : <Status value={parsed?.status ?? raw?.status} />}>
               {title}
             </PageTitle>
 
+            {/* the approver's decision comes first, above the documents */}
+            {invoice && mySteps.map((s) => (
+              <Card key={s.approval_id} title={`Your decision · step ${s.step_no}${s.assigned_user_id !== user.user_id ? ` on behalf of ${s.assignee}` : ""}`}>
+                <p className="mb-3 text-sm">{invoice.vendor_name} · {invoice.vendor_invoice_number} · {money(invoice.total, invoice.currency)}{invoice.department && ` · ${invoice.department}`}</p>
+                <ApiForm submit={decide(s.approval_id)} className="flex flex-wrap gap-2">
+                  <input name="comment" placeholder="Comment (required to reject)" className={`${input} max-w-md`} />
+                  <button name="decision" value="approved" className={btn}>Approve</button>
+                  <button name="decision" value="rejected" className={btnDanger}>Reject</button>
+                </ApiForm>
+              </Card>
+            ))}
+            {!parsed && raw?.no_invoice_reason && <p className="text-sm muted">No invoice found: {raw.no_invoice_reason}</p>}
+            {!parsed && raw?.status === "new" && <p className="text-sm muted">Being read; the invoice appears here when it is done.</p>}
+            {!parsed && raw?.status === "failed" && <p className="form-error">Could not be read: {raw.failure_reason}</p>}
+
             <div className="grid gap-5 xl:grid-cols-2">
-              <Card title="Raw item">
-                <RawView raw={raw} file={parsed?.file_name ?? null} />
+              <Card title="As received">
+                <RawView raw={raw} file={parsed?.file_name ?? null} vendorName={vendorName} />
               </Card>
 
               <div className="space-y-5">
@@ -232,13 +258,7 @@ export function Invoice() {
                           <Td><Status value={s.status} /></Td>
                           <Td>
                             {s.actor && <div className="text-xs">{s.actor}{s.on_behalf && ` on behalf of ${s.on_behalf}`} · {dateTime(s.acted_at)}{s.comment && ` · “${s.comment}”`}</div>}
-                            {s.can_act && (
-                              <ApiForm submit={decide(s.approval_id)} className="flex flex-wrap gap-2">
-                                <input name="comment" placeholder="Comment (required to reject)" className={input} />
-                                <button name="decision" value="approved" className={btn}>Approve</button>
-                                <button name="decision" value="rejected" className={btnDanger}>Reject</button>
-                              </ApiForm>
-                            )}
+                            {s.can_act && <span className="text-xs muted">your decision, at the top</span>}
                           </Td>
                         </tr>
                       ))}
@@ -267,19 +287,21 @@ export function Invoice() {
               </div>
             </div>
 
-            <Card title="Audit trail">
-              <Table head={["When", "Who", "Action", "On", "Note"]} empty="No events.">
-                {audit.map((e) => (
-                  <tr key={e.event_id}>
-                    <Td className="whitespace-nowrap text-xs">{dateTime(e.occurred_at)}</Td>
-                    <Td>{e.actor ?? "system"}{e.actor_role && <span className="ml-1 text-xs muted">{e.actor_role.replace(/_/g, " ")}</span>}{e.on_behalf && <div className="text-xs muted">on behalf of {e.on_behalf}</div>}</Td>
-                    <Td className="font-mono text-xs">{e.action}</Td>
-                    <Td className="font-mono text-xs">{e.entity_id}</Td>
-                    <Td className="text-xs">{e.note}</Td>
-                  </tr>
-                ))}
-              </Table>
-            </Card>
+            {(invoice || parsed) && (
+              <Card title="Audit trail">
+                <Table head={["When", "Who", "Action", "On", "Note"]} empty="No events.">
+                  {audit.map((e) => (
+                    <tr key={e.event_id}>
+                      <Td className="whitespace-nowrap text-xs">{dateTime(e.occurred_at)}</Td>
+                      <Td>{e.actor ?? "system"}{e.actor_role && <span className="ml-1 text-xs muted">{e.actor_role.replace(/_/g, " ")}</span>}{e.on_behalf && <div className="text-xs muted">on behalf of {e.on_behalf}</div>}</Td>
+                      <Td className="font-mono text-xs">{e.action}{e.channel === "agent" && <Badge tone="purple">agent</Badge>}</Td>
+                      <Td className="font-mono text-xs">{e.entity_id}</Td>
+                      <Td className="text-xs">{e.note}</Td>
+                    </tr>
+                  ))}
+                </Table>
+              </Card>
+            )}
           </div>
         );
       }}
@@ -296,7 +318,7 @@ function Item({ k, children }: { k: string; children: React.ReactNode }) {
   );
 }
 
-function RawView({ raw, file }: { raw: RawItem | null; file: string | null }) {
+function RawView({ raw, file, vendorName }: { raw: RawItem | null; file: string | null; vendorName: (id: string | null | undefined) => string | undefined }) {
   if (!raw) return <p className="text-sm muted">No raw item.</p>;
   const f = raw.files.find((x) => x.file_name === file) ?? raw.files[0];
   const url = f ? `/api/organizations/${raw.organization_id}/raw-items/${raw.raw_item_id}/files/${encodeURIComponent(f.file_name)}` : null;
@@ -310,7 +332,7 @@ function RawView({ raw, file }: { raw: RawItem | null; file: string | null }) {
           <p className="mt-2 whitespace-pre-wrap muted">{raw.body}</p>
         </div>
       )}
-      {raw.kind === "form" && <pre className="max-h-96 overflow-auto rounded-[6px] border-2 border-border bg-surface-2 p-3 text-xs">{JSON.stringify(raw.form_json, null, 2)}</pre>}
+      {raw.kind === "form" && raw.form_json && <FormView form={raw.form_json} vendorName={vendorName} />}
       {url && f && (f.mime_type === "application/pdf" ? <iframe src={url} className="h-[720px] w-full rounded-[6px] border-2 border-border" /> : f.mime_type.startsWith("image/") ? <img src={url} alt={f.file_name} className="w-full rounded-[6px] border-2 border-border" /> : <a href={url}>{f.file_name}</a>)}
     </div>
   );
@@ -365,5 +387,28 @@ function Taxes({ d }: { d: { subtotal: number | null; taxes: { label: string; am
       {d.taxes.map((t, i) => <div key={i} className="flex justify-between"><dt className="muted">{t.label}</dt><dd>{money(t.amount, d.currency)}</dd></div>)}
       <div className="flex justify-between border-t border-line pt-1 font-medium"><dt>Total</dt><dd>{money(d.total, d.currency)}</dd></div>
     </dl>
+  );
+}
+
+// A submitted form as the invoice it describes.
+function FormView({ form, vendorName }: { form: NonNullable<RawItem["form_json"]>; vendorName: (id: string | null | undefined) => string | undefined }) {
+  const f = form as Partial<InvoiceData>;
+  return (
+    <div className="space-y-3 rounded-[6px] border-2 border-border bg-surface-2 p-3">
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
+        <Item k="Vendor">{f.vendor_name ?? vendorName(f.vendor_id) ?? f.vendor_id ?? "—"}</Item>
+        <Item k="Invoice number">{f.vendor_invoice_number ?? "—"}</Item>
+        <Item k="Invoice date">{date(f.invoice_date)}</Item>
+        <Item k="Due date">{date(f.due_date)}</Item>
+        <Item k="PO">{f.po_reference ?? "—"}</Item>
+        <Item k="Delivered to">{[f.ship_to_province, f.bill_to_address].filter(Boolean).join(" · ") || "—"}</Item>
+      </dl>
+      <Table head={["#", "Description", "Qty", "Unit", "Amount"]}>
+        {(f.lines ?? []).map((l) => (
+          <tr key={l.line_no}><Td>{l.line_no}</Td><Td>{l.description}</Td><Td>{l.quantity}</Td><Td>{money(l.unit_price, f.currency)}</Td><Td>{money(l.amount, f.currency)}</Td></tr>
+        ))}
+      </Table>
+      <Taxes d={{ subtotal: f.subtotal ?? null, taxes: f.taxes ?? [], total: f.total ?? null, currency: f.currency ?? "CAD" }} />
+    </div>
   );
 }

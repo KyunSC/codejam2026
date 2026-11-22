@@ -3,11 +3,12 @@ import { tx, query, one, nextId } from "@/lib/db";
 import { assertMember, authorize, isBrim } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 import { blankToNull } from "@/lib/values";
+import { vendorName } from "@/lib/normalize";
 import type { User } from "@/lib/types";
 
 const FIELDS = [
   "legal_name", "category", "default_gl_account", "address", "province_or_state", "country", "gst_hst_number", "qst_number",
-  "payment_terms_days", "early_pay_discount", "preferred_payment_method", "accepts_card_payment", "ap_contact_email", "requires_po",
+  "payment_terms_days", "early_pay_discount", "preferred_payment_method", "accepts_card_payment", "ap_contact_email", "phone", "requires_po",
 ] as const;
 const BANK = ["bank_institution", "bank_transit", "bank_account"] as const;
 export type VendorInput = Partial<Record<(typeof FIELDS)[number] | (typeof BANK)[number] | "vendor_id" | "status" | "onboarded_at", unknown>>;
@@ -17,22 +18,50 @@ export type Vendor = {
   status: string; gst_hst_number: string | null; bank_institution: string | null; bank_transit: string | null; bank_account: string | null;
 } & Record<string, string | number | boolean | null>;
 
-// Vendors with their number of invoices and whether a bank change is pending or unverified.
+// A name with case, punctuation and the company suffix taken off: two vendors with the same key look alike.
+const nameKey = (s: string) => vendorName(s).replace(/ (inc|ltd|llp)$/, "");
+
+// The organization's other vendors whose names look like this one.
+async function lookalikesOf(organizationId: string, vendorId: string | null, legalName: string) {
+  const all = await query<{ vendor_id: string; legal_name: string }>("SELECT vendor_id, legal_name FROM vendors WHERE organization_id=$1", [organizationId]);
+  return all.filter((o) => o.vendor_id !== vendorId && nameKey(o.legal_name) === nameKey(legalName));
+}
+
+// Vendors with their number of invoices, whether a bank change is pending or unverified,
+// and the other vendors of the organization (in any status) with a lookalike name.
 export async function listVendors(actor: User | null, organizationId: string, status?: string | null) {
   authorize(actor, organizationId, isBrim(actor) ? "vendor.onboard" : "vendor.view");
-  return query<Vendor & { invoices: number; pending_change: boolean }>(
+  const all = await query<{ vendor_id: string; legal_name: string }>("SELECT vendor_id, legal_name FROM vendors WHERE organization_id=$1", [organizationId]);
+  const rows = await query<Vendor & { invoices: number; pending_change: boolean }>(
     `SELECT v.*, (SELECT count(*)::int FROM invoices i WHERE i.vendor_id=v.vendor_id) invoices,
        EXISTS (SELECT 1 FROM vendor_bank_changes c WHERE c.vendor_id=v.vendor_id AND (c.status='pending' OR NOT c.verified_by_callback)) pending_change
      FROM vendors v WHERE v.organization_id=$1 AND ($2::text IS NULL OR v.status=$2) ORDER BY v.legal_name`,
     [organizationId, status || null],
   );
+  return rows.map((v) => ({ ...v, lookalike_of: all.filter((o) => o.vendor_id !== v.vendor_id && nameKey(o.legal_name) === nameKey(v.legal_name)) }));
 }
 
 export async function getVendor(actor: User | null, organizationId: string, vendorId: string) {
   authorize(actor, organizationId, isBrim(actor) ? "vendor.onboard" : "vendor.view");
   const v = await one<Vendor>("SELECT * FROM vendors WHERE organization_id=$1 AND vendor_id=$2", [organizationId, vendorId]);
   if (!v) throw new NotFoundError("No such vendor");
-  return v;
+  return { ...v, lookalike_of: await lookalikesOf(organizationId, vendorId, v.legal_name) } as Vendor & { lookalike_of: { vendor_id: string; legal_name: string }[] };
+}
+
+// What an organization user types for a vendor must be well formed. A Brim employee loading an existing vendor master keeps its records as they are.
+function checkVendorFields(actor: User, v: VendorInput) {
+  if (isBrim(actor)) return;
+  const bad = (k: keyof VendorInput, ok: (s: string) => boolean, message: string) => {
+    const s = v[k] == null ? "" : String(v[k]).trim();
+    if (s && !ok(s)) throw new ValidationError(message);
+  };
+  bad("gst_hst_number", (s) => /^\d{9}RT\d{4}$/.test(s), "A GST/HST number looks like 123456789RT0001.");
+  bad("qst_number", (s) => /^\d{10}TQ\d{4}$/.test(s), "A QST number looks like 1234567890TQ0001.");
+  bad("payment_terms_days", (s) => /^\d+$/.test(s) && Number(s) <= 365, "Payment terms are a number of days from 0 to 365.");
+  bad("ap_contact_email", (s) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s), "Give a valid billing email.");
+  bad("bank_institution", (s) => /^\d{3}$/.test(s), "A bank institution number has 3 digits.");
+  bad("bank_transit", (s) => /^\d{5}$/.test(s), "A transit number has 5 digits.");
+  bad("bank_account", (s) => /^\d{7,12}$/.test(s), "A bank account number has 7 to 12 digits.");
 }
 
 // A new vendor waits as pending_review until the finance manager approves it.
@@ -40,6 +69,7 @@ export async function getVendor(actor: User | null, organizationId: string, vend
 export async function createVendor(actor: User | null, organizationId: string, v: VendorInput) {
   authorize(actor, organizationId, "vendor.onboard");
   if (!v.legal_name) throw new ValidationError("A legal name is required");
+  checkVendorFields(actor, v);
   return tx(async (c) => {
     const id = String(v.vendor_id ?? (await nextId("V", c)));
     const status = isBrim(actor) && v.status ? v.status : "pending_review";
@@ -58,6 +88,7 @@ export async function createVendor(actor: User | null, organizationId: string, v
 // Edits any field except the bank details (a bank change request) and the status (approve / hold).
 export async function updateVendor(actor: User | null, organizationId: string, vendorId: string, v: VendorInput) {
   authorize(actor, organizationId, "vendor.onboard");
+  checkVendorFields(actor, v);
   if (BANK.some((f) => f in v)) throw new ValidationError("Bank details change only through a bank change request");
   if ("status" in v) throw new ValidationError("Use approve or hold to change the status");
   await tx(async (c) => {
@@ -114,6 +145,7 @@ export async function requestBankChange(
   input: { change_id?: string; institution?: string | null; transit?: string | null; account: string; channel: string; verified_by_callback?: boolean; requested_at?: string; requested_by?: string; status?: string },
 ) {
   authorize(actor, organizationId, isBrim(actor) ? "vendor.onboard" : "bank_change.request");
+  checkVendorFields(actor, { bank_institution: input.institution, bank_transit: input.transit, bank_account: input.account });
   return tx(async (c) => {
     const v = await one("SELECT 1 FROM vendors WHERE vendor_id=$1 AND organization_id=$2", [vendorId, organizationId], c);
     if (!v) throw new NotFoundError("No such vendor");
@@ -137,7 +169,12 @@ export async function decideBankChange(actor: User | null, organizationId: strin
     const ch = await changeInOrg(c, organizationId, changeId);
     if (ch.status !== "pending") throw new ConflictError("Not pending");
     if (ch.requested_by === actor.user_id) throw new ForbiddenError("You requested this change; someone else approves it.");
-    if (decision === "approved" && !verifiedByCallback) throw new ValidationError("Confirm the change by calling the vendor on the number already on file.");
+    if (decision === "approved" && !verifiedByCallback) {
+      const vendor = await one<{ phone: string | null }>("SELECT phone FROM vendors WHERE vendor_id=$1", [ch.vendor_id], c);
+      throw new ValidationError(vendor?.phone
+        ? `Call the vendor at ${vendor.phone}, the number on file, to confirm the change, then tick "called the vendor".`
+        : "This vendor has no phone number on file: add it from a trusted source, call to confirm the change, then tick \"called the vendor\".");
+    }
     const v = (await one("SELECT bank_institution, bank_transit, bank_account FROM vendors WHERE vendor_id=$1", [ch.vendor_id], c))!;
     await query("UPDATE vendor_bank_changes SET status=$2, verified_by_callback=$3, approved_by=$4, approved_at=now() WHERE change_id=$1", [changeId, decision, verifiedByCallback, actor.user_id], c);
     if (decision === "approved") {
@@ -161,8 +198,11 @@ export async function confirmBankChangeByCallback(actor: User | null, organizati
   });
 }
 
-// Names to pick a vendor from, for anyone in the organization (the invoice form, the clerk's review).
+// Vendors to pick from, for anyone in the organization (the invoice form, the clerk's review), with what the form fills in from them.
 export async function listVendorChoices(user: User | null, organizationId: string) {
   assertMember(user, organizationId);
-  return query<{ vendor_id: string; legal_name: string; status: string }>("SELECT vendor_id, legal_name, status FROM vendors WHERE organization_id=$1 ORDER BY legal_name", [organizationId]);
+  return query<{ vendor_id: string; legal_name: string; status: string; payment_terms_days: number | null; country: string | null; category: string | null; requires_po: boolean }>(
+    "SELECT vendor_id, legal_name, status, payment_terms_days, country, category, requires_po FROM vendors WHERE organization_id=$1 ORDER BY legal_name",
+    [organizationId],
+  );
 }

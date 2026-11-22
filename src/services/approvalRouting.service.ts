@@ -1,5 +1,6 @@
 import { Db, query, one, nextId } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
+import { ValidationError } from "@/lib/errors";
 import type { User } from "@/lib/types";
 
 type Policy = { rule_id: string; rule_type: string; trigger_type: string; trigger_value: number | null; step_role: string | null; is_active: boolean };
@@ -41,6 +42,7 @@ export async function startApprovalChain(db: Db, actor: User, invoiceId: string)
     stepNo++;
     const original = await userForRole(db, inv.organization_id, s.role, inv.department_id);
     const { assigned, reason } = await reassign(db, original, inv.requester_user_id, { selfApproval: hasPolicy("requester_is_approver"), onLeave: hasPolicy("approver_on_leave") });
+    if (!assigned) throw new ValidationError(s.role === "dept_manager" ? "The invoice's department has no manager to approve it." : `Nobody holds the ${s.role.replace(/_/g, " ")} role to approve this invoice.`);
     await query(
       `INSERT INTO approvals (approval_id, invoice_id, step_no, rule_id, assigned_user_id, original_user_id, reassign_reason, status)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,

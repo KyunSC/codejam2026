@@ -65,7 +65,9 @@ export function invoiceScope(user: User, alias = "i"): { sql: string; params: un
   const deptClause = can(user, "invoice.view_department") ? ` OR ${alias}.department_id = $3` : "";
   return {
     sql: `${alias}.organization_id = $1 AND (${alias}.requester_user_id = $2 OR ${alias}.created_by = $2${deptClause}
-      OR EXISTS (SELECT 1 FROM approvals a WHERE a.invoice_id = ${alias}.invoice_id AND (a.assigned_user_id = $2 OR a.original_user_id = $2)))`,
+      OR EXISTS (SELECT 1 FROM approvals a WHERE a.invoice_id = ${alias}.invoice_id AND (a.assigned_user_id = $2 OR a.original_user_id = $2 OR a.acted_by = $2))
+      OR EXISTS (SELECT 1 FROM approvals a JOIN users au ON au.user_id = a.assigned_user_id
+                  WHERE a.invoice_id = ${alias}.invoice_id AND a.status = 'pending' AND au.status = 'on_leave' AND au.delegate_user_id = $2))`,
     params: deptClause ? [user.organization_id, user.user_id, user.department_id] : [user.organization_id, user.user_id],
   };
 }

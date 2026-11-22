@@ -1,10 +1,9 @@
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { can } from "@/lib/authz";
 import { money } from "@/lib/format";
-import { vendorName } from "@/lib/normalize";
-import type { listBankChanges, listVendors, Vendor as VendorRecord } from "@/services/vendor.service";
+import type { getVendor, listBankChanges, listVendors } from "@/services/vendor.service";
 import type { InvoiceRow } from "@/services/read.service";
-import { get, post, qs, useLoad } from "../api";
+import { get, patch, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { ApiForm, numOrNull, str } from "../components/ApiForm";
 import { A, Badge, Card, Field, NotFound, PageTitle, Show, Status, Table, Td, btn, btnDanger, btnLight, date, input } from "../components/ui";
@@ -17,7 +16,6 @@ export function Vendors() {
   const status = sp.get("status") ?? "all";
   const load = useLoad(() => get<VendorRow[]>(org(user, `/vendors${qs({ status: status === "all" ? null : status })}`)), status);
   if (!can(user, "vendor.view")) return <NotFound />;
-  const base = (s: string) => vendorName(s).replace(/ (inc|ltd|llp)$/, "");
   return (
     <div className="space-y-5">
       <PageTitle sub="New vendors wait for finance manager approval. A change of bank details is a request that must be verified by callback.">Vendors</PageTitle>
@@ -45,7 +43,7 @@ export function Vendors() {
                   <Td>{v.invoices}</Td>
                   <Td><Status value={v.status} /></Td>
                   <Td className="space-x-1">
-                    {vendors.some((o) => o.vendor_id !== v.vendor_id && base(o.legal_name) === base(v.legal_name)) && <Badge tone="gold">lookalike name</Badge>}
+                    {v.lookalike_of.length > 0 && <Badge tone="gold">looks like {v.lookalike_of.map((o) => o.legal_name).join(", ")}</Badge>}
                     {v.pending_change && <Badge tone="red">bank change unverified</Badge>}
                   </Td>
                 </tr>
@@ -60,20 +58,28 @@ export function Vendors() {
 
 type Contract = { contract_id: string; description: string; billing_type: string; monthly_fee: number | null; hourly_rate_cap: number | null; fuel_surcharge_cap_pct: number | null; not_to_exceed_monthly: number | null; end_date: string | null; status: string; currency: string };
 type Po = { po_id: string; description: string; total_amount: number; status: string; issue_date: string };
-type VendorView = { v: VendorRecord; changes: Awaited<ReturnType<typeof listBankChanges>>; contracts: Contract[]; pos: Po[]; invoices: InvoiceRow[] };
+type VendorView = { v: Awaited<ReturnType<typeof getVendor>>; changes: Awaited<ReturnType<typeof listBankChanges>>; contracts: Contract[]; pos: Po[]; invoices: InvoiceRow[]; depts: { department_id: string; name: string }[] };
+
+// The vendor fields a clerk edits on the vendor page.
+const DETAIL_FIELDS: [string, string][] = [
+  ["legal_name", "Legal name"], ["category", "Category"], ["default_gl_account", "Default GL account"], ["address", "Address"],
+  ["province_or_state", "Province / state"], ["country", "Country"], ["gst_hst_number", "GST/HST number"], ["qst_number", "QST number"],
+  ["payment_terms_days", "Payment terms (days)"], ["preferred_payment_method", "Pays by (EFT, CHEQUE, CARD)"], ["ap_contact_email", "Billing email"], ["phone", "Phone"],
+];
 
 export function Vendor() {
   const user = useUser();
   const { id = "" } = useParams();
   const load = useLoad(async (): Promise<VendorView> => {
-    const [v, changes, contracts, pos, invoices] = await Promise.all([
+    const [v, changes, contracts, pos, invoices, depts] = await Promise.all([
       get<VendorView["v"]>(org(user, `/vendors/${id}`)),
       get<VendorView["changes"]>(org(user, `/vendors/${id}/bank-changes`)),
       get<Contract[]>(org(user, `/contracts${qs({ vendor_id: id })}`)),
       get<Po[]>(org(user, `/purchase-orders${qs({ vendor_id: id })}`)),
       get<InvoiceRow[]>(org(user, `/invoices${qs({ vendor_id: id, size: 50 })}`)),
+      get<{ department_id: string; name: string }[]>(org(user, "/departments")),
     ]);
-    return { v, changes, contracts, pos, invoices };
+    return { v, changes, contracts, pos, invoices, depts };
   }, id);
   if (!can(user, "vendor.view")) return <NotFound />;
 
@@ -97,6 +103,28 @@ export function Vendor() {
     await post(org(user, `/bank-changes/${changeId}/${rejected ? "reject" : "approve"}`), { verified_by_callback: fd.get("verified") === "on" });
     return done(`Change ${rejected ? "rejected" : "approved"}.`);
   };
+  const saveDetails = async (fd: FormData) => {
+    const body: Record<string, unknown> = {};
+    for (const k of DETAIL_FIELDS.map(([k]) => k)) body[k] = k === "payment_terms_days" ? numOrNull(fd, k) : str(fd, k);
+    body.requires_po = fd.get("requires_po") === "on";
+    await patch(org(user, `/vendors/${id}`), body);
+    return done("Saved.");
+  };
+  const addContract = async (fd: FormData) => {
+    await post(org(user, "/contracts"), {
+      vendor_id: id, description: str(fd, "description"), billing_type: str(fd, "billing_type"), currency: str(fd, "currency") ?? "CAD",
+      monthly_fee: numOrNull(fd, "monthly_fee"), hourly_rate_cap: numOrNull(fd, "hourly_rate_cap"), not_to_exceed_monthly: numOrNull(fd, "not_to_exceed_monthly"),
+      start_date: str(fd, "start_date"), end_date: str(fd, "end_date"), status: "active",
+    });
+    return done("Contract added.");
+  };
+  const addPo = async (fd: FormData) => {
+    await post(org(user, "/purchase-orders"), {
+      vendor_id: id, description: str(fd, "description"), total_amount: numOrNull(fd, "total_amount"), currency: str(fd, "currency") ?? "CAD",
+      department_id: str(fd, "department_id"), issue_date: str(fd, "issue_date"), status: "open",
+    });
+    return done("Purchase order added.");
+  };
   const confirmCallback = (changeId: string) => async () => {
     await post(org(user, `/bank-changes/${changeId}/confirm-callback`));
     return done("Confirmed by callback.");
@@ -104,7 +132,7 @@ export function Vendor() {
 
   return (
     <Show load={load}>
-      {({ v, changes, contracts, pos, invoices }) => {
+      {({ v, changes, contracts, pos, invoices, depts }) => {
         const row = (k: string, label: string) => (
           <>
             <dt className="muted">{label}</dt>
@@ -114,6 +142,11 @@ export function Vendor() {
         return (
           <div className="space-y-5">
             <PageTitle sub={<Status value={v.status} />}>{v.legal_name} <span className="text-base font-normal muted">{id}</span></PageTitle>
+            {v.lookalike_of.length > 0 && (
+              <p className="form-error">
+                The name looks like {v.lookalike_of.map((o, i) => <span key={o.vendor_id}>{i > 0 && ", "}<A href={`/vendors/${o.vendor_id}`}>{o.legal_name} ({o.vendor_id})</A></span>)}. Check it is not a duplicate or an impersonation before approving.
+              </p>
+            )}
             <div className="grid gap-5 lg:grid-cols-2">
               <Card
                 title="Details"
@@ -127,9 +160,22 @@ export function Vendor() {
                 <dl className="grid grid-cols-2 gap-2 text-sm">
                   {row("category", "Category")}{row("default_gl_account", "Default GL")}{row("address", "Address")}{row("country", "Country")}
                   {row("gst_hst_number", "GST/HST")}{row("qst_number", "QST")}{row("payment_terms_days", "Terms (days)")}{row("early_pay_discount", "Early-pay discount")}
-                  {row("preferred_payment_method", "Pays by")}{row("ap_contact_email", "Billing email")}{row("requires_po", "Requires PO")}{row("onboarded_at", "Onboarded")}
+                  {row("preferred_payment_method", "Pays by")}{row("ap_contact_email", "Billing email")}{row("phone", "Phone")}{row("requires_po", "Requires PO")}{row("onboarded_at", "Onboarded")}
                   <dt className="muted">Bank account</dt><dd className="font-mono">{v.bank_account ? `${v.bank_institution}-${v.bank_transit}-${v.bank_account}` : "—"}</dd>
                 </dl>
+                {can(user, "vendor.onboard") && (
+                  <details className="mt-4 border-t border-line pt-3">
+                    <summary className="cursor-pointer text-sm font-bold">Edit details</summary>
+                    <ApiForm submit={saveDetails} className="mt-3 grid grid-cols-2 gap-2">
+                      {DETAIL_FIELDS.map(([k, label]) => (
+                        <Field key={k} label={label}><input name={k} defaultValue={v[k] == null ? "" : String(v[k])} className={input} /></Field>
+                      ))}
+                      <label className="col-span-2 flex items-center gap-2 text-sm"><input type="checkbox" name="requires_po" defaultChecked={!!v.requires_po} /> Requires a PO</label>
+                      <div className="col-span-2 text-xs muted">Bank details change through a bank change request.</div>
+                      <div className="col-span-2"><button className={btnLight}>Save details</button></div>
+                    </ApiForm>
+                  </details>
+                )}
               </Card>
 
               <Card title="Bank details changes">
@@ -160,7 +206,7 @@ export function Vendor() {
                   ))}
                 </Table>
                 {can(user, "bank_change.request") && (
-                  <ApiForm submit={requestChange} className="mt-4 grid grid-cols-3 gap-2 border-t border-line pt-4">
+                  <ApiForm reset submit={requestChange} className="mt-4 grid grid-cols-3 gap-2 border-t border-line pt-4">
                     <Field label="Institution"><input name="institution" className={input} required /></Field>
                     <Field label="Transit"><input name="transit" className={input} required /></Field>
                     <Field label="Account"><input name="account" className={input} required /></Field>
@@ -190,6 +236,22 @@ export function Vendor() {
                     </tr>
                   ))}
                 </Table>
+                {can(user, "contract.manage") && (
+                  <details className="mt-4 border-t border-line pt-3">
+                    <summary className="cursor-pointer text-sm font-bold">Add a contract</summary>
+                    <ApiForm reset submit={addContract} className="mt-3 grid grid-cols-2 gap-2">
+                      <Field label="Description"><input name="description" className={input} required /></Field>
+                      <Field label="Type"><select name="billing_type" className={input}><option value="fixed_monthly">fixed monthly</option><option value="rate_card">rate card</option><option value="retainer">retainer</option><option value="blanket">blanket</option></select></Field>
+                      <Field label="Monthly fee"><input name="monthly_fee" type="number" step="0.01" className={input} /></Field>
+                      <Field label="Hourly rate cap"><input name="hourly_rate_cap" type="number" step="0.01" className={input} /></Field>
+                      <Field label="Monthly limit"><input name="not_to_exceed_monthly" type="number" step="0.01" className={input} /></Field>
+                      <Field label="Currency"><select name="currency" className={input}><option>CAD</option><option>USD</option></select></Field>
+                      <Field label="Starts"><input name="start_date" type="date" className={input} /></Field>
+                      <Field label="Ends"><input name="end_date" type="date" className={input} /></Field>
+                      <div className="col-span-2"><button className={btnLight}>Add contract</button></div>
+                    </ApiForm>
+                  </details>
+                )}
               </Card>
 
               <Card title="Purchase orders">
@@ -198,6 +260,19 @@ export function Vendor() {
                     <tr key={p.po_id}><Td>{p.po_id}</Td><Td>{p.description}</Td><Td>{money(p.total_amount)}</Td><Td>{date(p.issue_date)}</Td><Td><Status value={p.status} /></Td></tr>
                   ))}
                 </Table>
+                {can(user, "po.manage") && (
+                  <details className="mt-4 border-t border-line pt-3">
+                    <summary className="cursor-pointer text-sm font-bold">Add a purchase order</summary>
+                    <ApiForm reset submit={addPo} className="mt-3 grid grid-cols-2 gap-2">
+                      <Field label="Description"><input name="description" className={input} required /></Field>
+                      <Field label="Total"><input name="total_amount" type="number" step="0.01" className={input} required /></Field>
+                      <Field label="Department"><select name="department_id" className={input} required><option value="">Choose…</option>{depts.map((d) => <option key={d.department_id} value={d.department_id}>{d.name}</option>)}</select></Field>
+                      <Field label="Issued"><input name="issue_date" type="date" className={input} required /></Field>
+                      <Field label="Currency"><select name="currency" className={input}><option>CAD</option><option>USD</option></select></Field>
+                      <div className="col-span-2"><button className={btnLight}>Add purchase order</button></div>
+                    </ApiForm>
+                  </details>
+                )}
               </Card>
 
               <Card title="Invoices" className="lg:col-span-2">
@@ -236,6 +311,7 @@ export function NewVendor() {
       bank_transit: str(fd, "bank_transit"),
       bank_account: str(fd, "bank_account"),
       ap_contact_email: str(fd, "ap_contact_email"),
+      phone: str(fd, "phone"),
       requires_po: fd.get("requires_po") === "on",
     });
     navigate(`/vendors/${r.id}`);
@@ -265,6 +341,7 @@ export function NewVendor() {
           {text("bank_transit", "Transit")}
           {text("bank_account", "Account")}
           {text("ap_contact_email", "Billing email")}
+          {text("phone", "Phone (for bank change callbacks)")}
           <label className="col-span-2 flex items-center gap-2 text-sm"><input type="checkbox" name="requires_po" /> Requires a PO</label>
           <div className="col-span-2"><button className={btn}>Create vendor</button></div>
         </ApiForm>

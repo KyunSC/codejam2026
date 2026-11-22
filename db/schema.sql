@@ -34,6 +34,24 @@ CREATE TABLE users (
 
 ALTER TABLE departments ADD FOREIGN KEY (manager_user_id) REFERENCES users DEFERRABLE INITIALLY DEFERRED;
 
+-- Kept apart from users so that no read of users, nor the audit log of a user change, can carry a password hash.
+CREATE TABLE user_passwords (
+  user_id       text PRIMARY KEY REFERENCES users,
+  password_hash text NOT NULL,
+  updated_at    timestamptz NOT NULL DEFAULT now()
+);
+
+-- Personal access tokens: an employee's agent signs in with one. Only a hash is kept; the token is shown once.
+CREATE TABLE api_tokens (
+  token_id     text PRIMARY KEY,
+  user_id      text NOT NULL REFERENCES users,
+  name         text NOT NULL,
+  token_hash   text NOT NULL UNIQUE,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  last_used_at timestamptz,
+  revoked_at   timestamptz
+);
+
 CREATE TABLE gl_accounts (
   account_number  text NOT NULL,
   organization_id text NOT NULL REFERENCES organizations,
@@ -74,6 +92,7 @@ CREATE TABLE vendors (
   bank_transit             text,
   bank_account             text,
   ap_contact_email         text,
+  phone                    text,
   requires_po              boolean NOT NULL DEFAULT false,
   status                   text NOT NULL DEFAULT 'pending_review' CHECK (status IN ('active','pending_review','on_hold')),
   onboarded_at             date,
@@ -135,8 +154,10 @@ CREATE TABLE raw_items (
   files             jsonb NOT NULL DEFAULT '[]',
   form_json         jsonb,
   submitted_by      text REFERENCES users,
-  status            text NOT NULL DEFAULT 'new' CHECK (status IN ('new','extracted','no_invoice')),
+  -- new: waiting to be read; failed: reading failed (failure_reason), retried on the next poll
+  status            text NOT NULL DEFAULT 'new' CHECK (status IN ('new','extracted','no_invoice','failed')),
   no_invoice_reason text,
+  failure_reason    text,
   extracted_by      text REFERENCES users,
   extracted_at      timestamptz,
   source_ref        text,
@@ -273,7 +294,9 @@ CREATE TABLE audit_events (
   vendor_id            text,
   before_json          jsonb,
   after_json           jsonb,
-  note                 text
+  note                 text,
+  -- where the action came from: the website and REST API ("web"), or an employee's agent through MCP ("agent")
+  channel              text NOT NULL DEFAULT 'web'
 );
 
 -- The audit log is append-only.
@@ -283,8 +306,6 @@ BEGIN
 END $$ LANGUAGE plpgsql;
 CREATE TRIGGER audit_events_no_change BEFORE UPDATE OR DELETE ON audit_events
   FOR EACH ROW EXECUTE FUNCTION audit_events_append_only();
-
-CREATE SEQUENCE id_seq START 1000;
 
 -- The one Brim employee who creates organizations.
 INSERT INTO users (user_id, full_name, email, title, role)

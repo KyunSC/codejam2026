@@ -22,4 +22,4 @@ payments.post("/payments/:id/release", route(async ({ user, params }) => {
   return getPaymentRecord(user, params.orgId, params.id);
 }, { gate: "payment.release" }));
 // Sends every released payment to the simulated bank.
-payments.post("/bank-runs", route(async ({ user }) => ({ sent: await runBankSimulation(user) }), { gate: "payment.simulate" }));
+payments.post("/bank-runs", route(async ({ user }) => runBankSimulation(user), { gate: "payment.simulate" }));

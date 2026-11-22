@@ -13,6 +13,7 @@ const { vendors } = await import("./routes/vendors");
 const { invoices } = await import("./routes/invoices");
 const { payments } = await import("./routes/payments");
 const { audit } = await import("./routes/audit");
+const { mcp } = await import("./mcp");
 
 const app = express();
 app.use(cookieParser());
@@ -28,6 +29,9 @@ api.use((_req, res) => {
 api.use(errors);
 app.use("/api", api);
 
+// The MCP server for employees' agents.
+app.use("/mcp", express.json({ limit: "5mb" }), mcp);
+
 // The React app: served by Vite with hot reload in development, from the build in production.
 if (process.env.NODE_ENV === "production") {
   const dist = path.join(ROOT, "dist");
@@ -41,3 +45,7 @@ if (process.env.NODE_ENV === "production") {
 
 const port = Number(process.env.PORT ?? 3000);
 app.listen(port, () => console.log(`http://localhost:${port}`));
+
+// raw items stored but not read before the last stop
+const { resumeReading } = await import("@/services/intake.service");
+void resumeReading();

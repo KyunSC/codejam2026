@@ -1,4 +1,5 @@
 import { Db, query, one, nextId } from "@/lib/db";
+import { today } from "@/lib/dates";
 import type { InvoiceData } from "@/lib/types";
 import type { RawItem } from "./rawIntake.service";
 import type { CheckContext, Flag, Vendor } from "./checks/types";
@@ -15,7 +16,7 @@ import { detectDuplicates } from "./duplicateDetection.service";
 export async function buildContext(db: Db, organizationId: string, parsedInvoiceId: string, sha256: string | null, data: InvoiceData, raw: RawItem): Promise<CheckContext> {
   const org = (await one<{ legal_name: string; gst_hst_number: string | null }>("SELECT legal_name, gst_hst_number FROM organizations WHERE organization_id=$1", [organizationId], db))!;
   const vendor = data.vendor_id ? await one<Vendor>("SELECT * FROM vendors WHERE vendor_id=$1", [data.vendor_id], db) : null;
-  return { db, organizationId, org, data, parsedInvoiceId, sha256, raw, vendor, asOf: process.env.AS_OF_DATE ?? new Date().toISOString().slice(0, 10) };
+  return { db, organizationId, org, data, parsedInvoiceId, sha256, raw, vendor, asOf: today() };
 }
 
 // Step 4 (checks) and step 5 (duplicates). Flags the clerk already resolved stay resolved when the same problem comes back.

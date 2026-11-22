@@ -5,9 +5,8 @@ import {
   getInvoiceRecord, getParsedInvoiceRecord, getRawItemRecord, listInvoices, listParsedInvoices, listRawItems, listWaitingApprovals,
 } from "@/services/read.service";
 import { invoiceTrail, parsedInvoiceTrail } from "@/services/audit.service";
-import { readStoredFile, submitForm, submitPdf } from "@/services/rawIntake.service";
-import { pollInbox } from "@/services/inboxPolling.service";
-import { extract } from "@/services/pipeline.service";
+import { readStoredFile } from "@/services/rawIntake.service";
+import { pollAndRead, submitInvoiceForm, uploadInvoice } from "@/services/intake.service";
 import { approve, importInvoice, reject, resolveFlag, saveEdits, type ReviewEdit } from "@/services/parsedInvoiceReview.service";
 import { decide } from "@/services/approval.service";
 import { pagingOf, param, route } from "../http";
@@ -21,20 +20,28 @@ export const invoices = Router({ mergeParams: true });
 invoices.get("/raw-items", route(async ({ user, params, query }) => (
   listRawItems(user, params.orgId, { kind: param(query, "kind"), status: param(query, "status"), ...pagingOf(query) })
 )));
-// Multipart body with the file in field "file".
+// Multipart body with the file in field "file". It is read in the background; its raw item shows the result.
 invoices.post("/raw-items/uploads", upload.single("file"), route(async ({ req, user }) => {
   if (!req.file || req.file.size === 0) throw new ValidationError("Send the file in a multipart field named file");
-  return { id: await submitPdf(user, req.file.originalname, req.file.buffer) };
+  return { id: await uploadInvoice(user, req.file.originalname, req.file.buffer) };
 }, { gate: "raw.submit" }));
-// The invoice fields as typed into the form.
-invoices.post("/raw-items/forms", route(async ({ user, params, body }) => ({ id: await submitForm(user, body, { organizationId: params.orgId }) }), { gate: "raw.submit", brim: "raw.submit" }));
-// Reads the AP inbox and stores each new email as a raw item.
-invoices.post("/raw-items/poll", route(async ({ user }) => pollInbox(user), { gate: "raw.poll" }));
+// The invoice as typed into the form: checked, then a parsed invoice for review at once. Answers the raw item and parsed invoice ids.
+// JSON, or multipart with the invoice as JSON in field "invoice" and the scan of the paper invoice in field "file".
+invoices.post("/raw-items/forms", upload.single("file"), route(async ({ req, user, params, body }) => {
+  let form = body;
+  if (req.file || typeof body.invoice === "string") {
+    try {
+      form = JSON.parse(String(body.invoice));
+    } catch {
+      throw new ValidationError("Send the invoice as JSON in the field named invoice");
+    }
+  }
+  const scan = req.file ? { fileName: req.file.originalname, bytes: req.file.buffer } : undefined;
+  return submitInvoiceForm(user, form, { organizationId: params.orgId, scan });
+}, { gate: "raw.submit", brim: "raw.submit" }));
+// Reads the AP inbox, stores each new email as a raw item, and starts reading everything not yet read.
+invoices.post("/raw-items/poll", route(async ({ user }) => pollAndRead(user), { gate: "raw.poll" }));
 invoices.get("/raw-items/:id", route(async ({ user, params }) => getRawItemRecord(user, params.orgId, params.id)));
-// Reads the raw item into parsed invoices, or marks it as holding no invoice.
-invoices.post("/raw-items/:id/extract", route(async ({ user, params }) => {
-  return extract(user, params.orgId, params.id);
-}, { gate: "raw.extract", brim: "raw.extract" }));
 // The stored attachment, as it arrived.
 invoices.get("/raw-items/:id/files/:name", route(async ({ res, user, params }) => {
   const raw = await getRawItemRecord(user, params.orgId, params.id);

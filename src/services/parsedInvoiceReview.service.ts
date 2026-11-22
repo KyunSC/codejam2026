@@ -4,7 +4,7 @@ import { assertCan} from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 import { invoiceNumberCore } from "@/lib/normalize";
 import type { InvoiceData, User } from "@/lib/types";
-import { extract, getParsed, resolveAndCheck } from "./pipeline.service";
+import { getParsed, readRawItem, resolveAndCheck } from "./pipeline.service";
 import { getRawItem, submitForm } from "./rawIntake.service";
 import { startApprovalChain } from "./approvalRouting.service";
 
@@ -78,6 +78,14 @@ export async function reject(actor: User | null, organizationId: string, parsedI
     if (!p) throw new NotFoundError("No such parsed invoice");
     if (p.status !== "pending") throw new ConflictError("Not pending");
     await query("UPDATE parsed_invoices SET status='rejected', reviewed_by=$2, reviewed_at=now(), rejection_reason=$3 WHERE parsed_invoice_id=$1", [parsedInvoiceId, actor.user_id, reason], c);
+    // the other pending copies no longer have a twin
+    await query(
+      `UPDATE invoice_flags f SET status='resolved', resolved_by=$2, resolved_at=now(), resolution_note=$3
+         FROM parsed_invoices p WHERE p.parsed_invoice_id=f.parsed_invoice_id AND p.status='pending' AND f.status='open'
+          AND f.category='duplicate' AND f.evidence_json->>'other'=$1`,
+      [parsedInvoiceId, actor.user_id, `${parsedInvoiceId} was rejected`],
+      c,
+    );
     await writeAudit(c, { organizationId: p.organization_id, actor, action: "parsed_invoice.reject", entityType: "parsed_invoice", entityId: parsedInvoiceId, note: reason });
   });
 }
@@ -110,6 +118,7 @@ async function approveParsed(actor: User | null, organizationId: string, parsedI
     if (open.length && !history) throw new ConflictError(`Resolve the blocking flags first: ${open.map((f) => f.message).join(" | ")}`);
     const d = p.invoice_json;
     if (!d.vendor_id && !history) throw new ValidationError("Pick a vendor first");
+    if (!d.department_id && !history) throw new ValidationError("Pick a department first: it decides who approves the invoice.");
 
     const id = history?.invoice_id ?? (await nextId("INV", c));
     const dup = await one<{ related_invoice_id: string }>(
@@ -167,7 +176,7 @@ async function recordHistory(c: PoolClientLike, orgId: string, invoiceId: string
 }
 
 // Import of a past invoice for an organization being set up: the recorded invoice goes in as a form entry,
-// is extracted and approved, and keeps the approvals and payments it already had.
+// becomes a parsed invoice and is approved, and keeps the approvals and payments it already had.
 export async function importInvoice(
   actor: User | null,
   organizationId: string,
@@ -175,7 +184,7 @@ export async function importInvoice(
 ) {
   assertCan(actor, "org.manage");
   const rawId = await submitForm(actor, input.form, { submittedBy: input.submitted_by, receivedAt: input.received_at, organizationId });
-  const { parsed } = await extract(actor, organizationId, rawId);
+  const { parsed } = await readRawItem(organizationId, rawId);
   if (parsed.length !== 1) throw new ValidationError("The form did not produce one invoice");
   return approveParsed(actor, organizationId, parsed[0], input.history);
 }

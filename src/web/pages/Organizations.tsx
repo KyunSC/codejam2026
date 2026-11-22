@@ -3,7 +3,7 @@ import type { User } from "@/lib/types";
 import type { Organization as OrganizationRecord } from "@/services/organization.service";
 import { get, patch, post, useLoad } from "../api";
 import { ApiForm, str } from "../components/ApiForm";
-import { A, Card, Field, PageTitle, Show, Status, Table, Td, btn, date, input } from "../components/ui";
+import { A, Card, Field, PageTitle, Show, Status, Table, Td, btn, btnLight, date, input } from "../components/ui";
 
 export function Organizations() {
   const navigate = useNavigate();
@@ -54,6 +54,19 @@ export function Organization() {
     ]);
     return { org, depts, users };
   }, id);
+  const addDepartment = async (fd: FormData) => {
+    await post(`${base}/departments`, { name: str(fd, "name"), cost_centre: str(fd, "cost_centre") });
+    load.reload();
+    return "Department added.";
+  };
+  const addUser = async (fd: FormData) => {
+    await post(`${base}/users`, {
+      full_name: str(fd, "full_name"), email: str(fd, "email"), title: str(fd, "title"), role: str(fd, "role"),
+      department_id: str(fd, "department_id"), password: str(fd, "password") ?? "",
+    });
+    load.reload();
+    return "User added. They sign in on the regular login.";
+  };
   const save = async (fd: FormData) => {
     await patch(base, { legal_name: str(fd, "legal_name") ?? "", gst_hst_number: str(fd, "gst_hst_number"), base_currency: str(fd, "base_currency") ?? "CAD" });
     load.reload();
@@ -77,11 +90,31 @@ export function Organization() {
               <Table head={["Department", "Cost centre", "Manager"]}>
                 {depts.map((d) => <tr key={d.department_id}><Td>{d.name}</Td><Td>{d.cost_centre}</Td><Td>{d.manager}</Td></tr>)}
               </Table>
+              <ApiForm reset submit={addDepartment} className="mt-4 flex flex-wrap items-end gap-2 border-t border-line pt-4">
+                <Field label="Department"><input name="name" className={input} required /></Field>
+                <Field label="Cost centre"><input name="cost_centre" className={input} /></Field>
+                <button className={btnLight}>Add department</button>
+              </ApiForm>
             </Card>
             <Card title={`Users (${users.length})`}>
               <Table head={["User", "Title", "Role", "Status"]}>
                 {users.map((u) => <tr key={u.user_id}><Td>{u.full_name}</Td><Td>{u.title}</Td><Td>{u.role.replace("_", " ")}</Td><Td><Status value={u.status} /></Td></tr>)}
               </Table>
+              {/* remounts once the first admin exists, so the role picker's default moves on to employee */}
+              <ApiForm key={users.some((u) => u.role === "controller_admin") ? "more" : "first"} reset submit={addUser} className="mt-4 grid grid-cols-2 gap-2 border-t border-line pt-4">
+                <Field label="Name"><input name="full_name" className={input} required /></Field>
+                <Field label="Email"><input name="email" type="email" className={input} required /></Field>
+                <Field label="Title"><input name="title" className={input} /></Field>
+                <Field label="Role">
+                  <select name="role" defaultValue={users.some((u) => u.role === "controller_admin") ? "employee" : "controller_admin"} className={input}>
+                    {["controller_admin", "finance_manager", "approver", "ap_clerk", "employee", "auditor"].map((r) => <option key={r} value={r}>{r.replace(/_/g, " ")}</option>)}
+                  </select>
+                </Field>
+                <Field label="Department"><select name="department_id" className={input}><option value="">—</option>{depts.map((d) => <option key={d.department_id} value={d.department_id}>{d.name}</option>)}</select></Field>
+                <Field label="Password"><input name="password" type="password" minLength={8} required autoComplete="new-password" className={input} /></Field>
+                <p className="col-span-2 text-xs muted">The first user is usually the controller / admin, who then sets up the rest in Settings.</p>
+                <div className="col-span-2"><button className={btnLight}>Add user</button></div>
+              </ApiForm>
             </Card>
           </div>
         </div>

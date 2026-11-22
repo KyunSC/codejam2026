@@ -16,6 +16,7 @@ import { Payment, Payments } from "./pages/Payments";
 import { NewVendor, Vendor, Vendors } from "./pages/Vendors";
 import { PoliciesSettings, UsersSettings } from "./pages/Settings";
 import { Audit } from "./pages/Audit";
+import { Account } from "./pages/Account";
 import { Organization as OrganizationPage, Organizations } from "./pages/Organizations";
 
 export function App() {
@@ -47,6 +48,9 @@ export function App() {
         </Route>
         <Route path="/audit" element={<Audit />} />
         <Route path="*" element={<NotFound />} />
+      </Route>
+      <Route path="/account" element={<AccountLayout />}>
+        <Route index element={<Account />} />
       </Route>
       <Route element={<BrimLayout />}>
         <Route path="/organizations" element={<Organizations />} />
@@ -92,7 +96,7 @@ function WorkspaceLayout() {
             <span className="muted text-sm">Accounts payable</span>
           </Link>
           <div className="ml-auto flex flex-wrap items-center gap-3 text-sm">
-            <span className="font-bold">{user.full_name}</span>
+            <Link to="/account" className="font-bold no-underline">{user.full_name}</Link>
             <span className="chip chip--gray">{user.role.replace(/_/g, " ")}</span>
             <LogoutButton />
           </div>
@@ -123,6 +127,14 @@ function SettingsLayout() {
   );
 }
 
+// The account page sits in the header of whichever side the user signs in to.
+function AccountLayout() {
+  const { user, loading } = useSession();
+  if (loading) return null;
+  if (!user) return <Navigate to="/login" replace />;
+  return user.role === "brim_employee" ? <BrimLayout /> : <WorkspaceLayout />;
+}
+
 // Brim operations: the organizations.
 function BrimLayout() {
   const { user, loading } = useSession();
@@ -139,7 +151,7 @@ function BrimLayout() {
           </Link>
           <nav className="text-sm font-bold"><Link to="/organizations" className="no-underline">Organizations</Link></nav>
           <div className="ml-auto flex items-center gap-3 text-sm">
-            <span className="font-bold">{user.full_name}</span>
+            <Link to="/account" className="font-bold no-underline">{user.full_name}</Link>
             <LogoutButton />
           </div>
         </div>

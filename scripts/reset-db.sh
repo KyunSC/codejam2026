@@ -7,5 +7,7 @@ DB="${DB_NAME:-brim_ap}"
 dropdb --if-exists --force "$DB"
 createdb "$DB"
 psql -v ON_ERROR_STOP=1 -q -d "$DB" -f db/schema.sql
+# the Brim employee in the schema gets the demo password, so the loader can sign in
+npx tsx scripts/set-demo-password.ts ops@brim.example
 find storage -mindepth 1 -delete 2>/dev/null || mkdir -p storage
 echo "database $DB reset"

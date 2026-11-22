@@ -66,7 +66,7 @@ export async function resolve(db: Db, organizationId: string, input: InvoiceData
     if (exact) {
       sug = { gl: exact.pl.gl_account ?? null, dept: exact.pl.department_id ?? exact.p.department_id, type: exact.pl.line_type ?? null, source: "exact_match", reason: `Same as ${exact.p.invoice_id}, line ${exact.pl.line_no}`, basis: exact.p.invoice_id };
     } else if (vendor) {
-      sug = { gl: vendor.default_gl_account, dept: usualDept, type: (usualType as InvoiceLine["line_type"]) ?? "services", source: "vendor_default", reason: `${vendor.legal_name}'s default account`, basis: null };
+      sug = { gl: vendor.default_gl_account, dept: usualDept, type: (usualType as InvoiceLine["line_type"]) ?? "services", source: "vendor_default", reason: `default account of ${vendor.legal_name}`, basis: null };
     } else {
       let best: { p: PastInvoice; pl: InvoiceLine; s: number } | null = null;
       for (const p of past) for (const pl of p.lines) {

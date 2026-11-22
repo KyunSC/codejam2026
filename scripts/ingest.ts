@@ -4,6 +4,11 @@ import { readFileSync } from "fs";
 import path from "path";
 import { parseCsv } from "../src/lib/csv";
 
+process.loadEnvFile(path.join(import.meta.dirname, "../.env.local"));
+// Every loaded account gets this password (DEMO_PASSWORD in .env.local).
+const PASSWORD = process.env.DEMO_PASSWORD;
+if (!PASSWORD) throw new Error("Set DEMO_PASSWORD in .env.local");
+
 const BASE = process.env.BASE_URL ?? "http://localhost:3000";
 const DATA = path.join(process.env.DATASET_DIR ?? "/Users/ming/Downloads/brim_ap_dataset", "data");
 const ORG = "ORG-HARBORLINE";
@@ -24,7 +29,7 @@ async function call(method: string, url: string, body?: unknown) {
   if (!res.ok) throw new Error(`${method} ${url}: ${out.error}`);
   return out;
 }
-const login = (email: string) => call("POST", "/api/session", { email });
+const login = (email: string) => call("POST", "/api/session", { email, password: PASSWORD });
 const post = (url: string, body: unknown) => call("POST", O + url, body);
 const patch = (url: string, body: unknown) => call("PATCH", O + url, body);
 
@@ -57,7 +62,7 @@ async function setup() {
   for (const u of users) {
     await post("/users", {
       user_id: u.user_id, full_name: u.full_name, email: u.email, title: u.title, department_id: u.department_id, role: u.role,
-      approval_limit_cad: num(u.approval_limit_cad), work_province: u.work_province, status: u.status, status_since: orNull(u.status_since),
+      approval_limit_cad: num(u.approval_limit_cad), work_province: u.work_province, status: u.status, status_since: orNull(u.status_since), password: PASSWORD,
     });
   }
   for (const u of users) {

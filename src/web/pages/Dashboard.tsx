@@ -106,7 +106,7 @@ async function loadDashboard(user: User) {
   const when = <T,>(ok: boolean, f: () => Promise<T>, empty: T) => (ok ? f() : Promise.resolve(empty));
 
   const [rawNew, parsed, waiting, approved, scheduled, vendorsPending, openChanges, othersPending, spend, users] = await Promise.all([
-    when(can(user, "raw.extract"), () => count("/raw-items?status=new&size=1"), 0),
+    when(can(user, "raw.extract"), () => count("/raw-items?status=failed&size=1"), 0),
     when(can(user, "parsed.review") || can(user, "raw.extract"), () => get<ParsedRow[]>(at("/parsed-invoices?size=100")), []),
     when(can(user, "approval.act"), () => get<WaitingApproval[]>(at("/approvals?waiting_on=me")), []),
     when(can(user, "payment.prepare"), () => count("/invoices?status=approved&type=invoice&size=1"), 0),
@@ -120,7 +120,7 @@ async function loadDashboard(user: User) {
 
   const tiles: { label: string; value: number; href: string }[] = [];
   if (can(user, "raw.extract")) {
-    tiles.push({ label: "Raw items to extract", value: rawNew, href: "/invoices" });
+    tiles.push({ label: "Documents that could not be read", value: rawNew, href: "/invoices" });
     tiles.push({ label: "Parsed invoices to review", value: parsed[0]?.total_count ?? 0, href: "/invoices" });
   }
   if (can(user, "approval.act")) tiles.push({ label: "Waiting for your approval", value: waiting.length, href: "/invoices" });

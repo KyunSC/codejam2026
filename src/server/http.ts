@@ -1,7 +1,7 @@
 import type { ErrorRequestHandler, Request, RequestHandler, Response } from "express";
-import { SESSION_COOKIE, userFromSession } from "@/lib/auth";
+import { SESSION_COOKIE, bearer, userFromSession, userFromToken } from "@/lib/auth";
 import { assertCan, authorize, type Action } from "@/lib/authz";
-import { AppError, ForbiddenError, UnauthorizedError } from "@/lib/errors";
+import { AppError, ForbiddenError, UnauthorizedError, fromDatabase } from "@/lib/errors";
 import type { Paging } from "@/lib/paging";
 import type { User } from "@/lib/types";
 
@@ -24,7 +24,8 @@ function checkGate(user: User | null, params: Record<string, string>, g: Gate) {
 // A POST that creates something answers 201 with its id.
 export function route(fn: (a: Args) => Promise<unknown>, g: Gate = {}): RequestHandler {
   return async (req, res) => {
-    const user = await userFromSession(req.cookies?.[SESSION_COOKIE]);
+    const token = bearer(req.headers.authorization);
+    const user = token ? await userFromToken(token) : await userFromSession(req.cookies?.[SESSION_COOKIE]);
     const params = req.params as Record<string, string>;
     checkGate(user, params, g);
     const query = new URLSearchParams(req.originalUrl.split("?")[1] ?? "");
@@ -36,7 +37,8 @@ export function route(fn: (a: Args) => Promise<unknown>, g: Gate = {}): RequestH
 }
 
 // Errors become their HTTP status with { error }; anything unexpected is a logged 500.
-export const errors: ErrorRequestHandler = (e, _req, res, _next) => {
+export const errors: ErrorRequestHandler = (err, _req, res, _next) => {
+  const e = fromDatabase(err) ?? err;
   const status = e instanceof AppError ? e.status : e?.type === "entity.parse.failed" ? 400 : 500;
   if (status === 500) console.error(e);
   res.status(status).json({ error: status === 400 && e?.type === "entity.parse.failed" ? "Send a JSON body" : e instanceof Error ? e.message : String(e) });

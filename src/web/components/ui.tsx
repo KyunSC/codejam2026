@@ -1,7 +1,8 @@
 import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { ApiError, type Loaded } from "../api";
 
-export const date = (s: string | null | undefined) => (s ? String(s).slice(0, 10) : "—");
+// A date column (YYYY-MM-DD) as it is; a timestamp as its date where the user is.
+export const date = (s: string | null | undefined) => (!s ? "—" : String(s).length <= 10 ? String(s) : new Date(s).toLocaleDateString("en-CA"));
 export const dateTime = (s: string | null | undefined) => (s ? new Date(s).toLocaleString("en-CA", { dateStyle: "medium", timeStyle: "short" }) : "—");
 
 export function Card({ title, actions, children, className = "" }: { title?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode; className?: string }) {

@@ -65,6 +65,30 @@ export async function releasePayment(actor: User | null, organizationId: string,
   });
 }
 
+// Why the user cannot release each scheduled payment, or null when they can: the same rules as releasePayment.
+export async function releaseBlocks(actor: User, orgId: string, rows: { payment_id: string; invoice_id: string; vendor_id: string; amount_cad: number; status: string }[]) {
+  const out = new Map<string, string | null>();
+  const scheduled = rows.filter((r) => r.status === "scheduled");
+  if (!scheduled.length) return out;
+  const limit = await releaseLimit(actor, orgId);
+  const approvedByMe = new Set((await query<{ invoice_id: string }>(
+    "SELECT DISTINCT invoice_id FROM approvals WHERE invoice_id = ANY($1) AND status='approved' AND (acted_by=$2 OR on_behalf_of_user_id=$2)",
+    [scheduled.map((r) => r.invoice_id), actor.user_id],
+  )).map((r) => r.invoice_id));
+  const unverified = new Set((await query<{ vendor_id: string }>(
+    `SELECT DISTINCT ON (vendor_id) vendor_id, verified_by_callback, status FROM vendor_bank_changes WHERE vendor_id = ANY($1) ORDER BY vendor_id, requested_at DESC`,
+    [scheduled.map((r) => r.vendor_id)],
+  )).filter((c) => !(c as unknown as { verified_by_callback: boolean }).verified_by_callback || (c as unknown as { status: string }).status === "pending").map((c) => c.vendor_id));
+  for (const r of scheduled) {
+    out.set(r.payment_id,
+      approvedByMe.has(r.invoice_id) ? "You approved this invoice (policy P11)."
+        : limit !== null && Math.abs(r.amount_cad) > limit ? `Above your release limit of ${limit.toLocaleString("en-CA")} CAD.`
+          : unverified.has(r.vendor_id) ? "The vendor's bank change is not verified."
+            : null);
+  }
+  return out;
+}
+
 async function releaseLimit(actor: User, orgId: string): Promise<number | null> {
   const rows = await query<{ trigger_type: string; trigger_value: number | null; step_role: string }>(
     "SELECT trigger_type, trigger_value, step_role FROM approval_policies WHERE organization_id=$1 AND rule_type='payment_release' AND is_active",

@@ -6,6 +6,7 @@ import type { InvoiceData, InvoiceLine, User } from "@/lib/types";
 import { canActOn, pendingForUserSql } from "./approval.service";
 import { getParsed } from "./pipeline.service";
 import { getRawItem, type RawItem } from "./rawIntake.service";
+import { releaseBlocks } from "./payment.service";
 
 // Read side shared by the API and the pages: each list and record has one function, limited to what the user may see.
 
@@ -14,6 +15,7 @@ import { getRawItem, type RawItem } from "./rawIntake.service";
 export type RawItemRow = {
   total_count: number; raw_item_id: string; kind: string; received_at: string; from_name: string | null; from_address: string | null; subject: string | null;
   files: { file_name: string }[]; form_json: InvoiceData | null; submitted_by: string | null; submitter: string | null; status: string; no_invoice_reason: string | null;
+  failure_reason: string | null;
 };
 
 // Raw items not yet extracted come first. Those who do not see all invoices see only what they submitted.
@@ -22,7 +24,7 @@ export async function listRawItems(user: User | null, organizationId: string, f:
   const { limit, offset } = window(f);
   return query<RawItemRow>(
     `SELECT r.raw_item_id, r.kind, r.received_at, r.from_name, r.from_address, r.subject, r.files, r.form_json, r.submitted_by, u.full_name AS submitter,
-            r.status, r.no_invoice_reason, count(*) OVER ()::int AS total_count
+            r.status, r.no_invoice_reason, r.failure_reason, count(*) OVER ()::int AS total_count
        FROM raw_items r LEFT JOIN users u ON u.user_id=r.submitted_by
       WHERE r.organization_id=$1 AND ($2::text IS NULL OR r.kind=$2) AND ($3::text IS NULL OR r.status=$3) AND ($4::text IS NULL OR r.submitted_by=$4)
         AND NOT EXISTS (SELECT 1 FROM parsed_invoices p JOIN invoices i ON i.parsed_invoice_id=p.parsed_invoice_id WHERE p.raw_item_id=r.raw_item_id AND i.is_historical)
@@ -136,7 +138,16 @@ export type PaymentRow = {
   total_count: number; payment_id: string; invoice_id: string; vendor_id: string; vendor: string; method: string; amount: number; currency: string; amount_cad: number;
   fx_rate_to_cad: number; scheduled_date: string | null; paid_date: string | null; status: string; preparer: string | null; releaser: string | null; released_at: string | null;
   snapshot_institution: string | null; snapshot_transit: string | null; snapshot_account: string | null; bank_reference: string | null; card_reference: string | null; discount_taken: number;
+  // for a scheduled payment: whether the signed-in user may release it, and if not, why
+  can_release?: boolean; release_blocked?: string | null;
 };
+
+// Adds can_release / release_blocked for the signed-in user.
+async function withRelease(user: User, organizationId: string, rows: PaymentRow[]) {
+  if (!can(user, "payment.release")) return rows;
+  const blocks = await releaseBlocks(user, organizationId, rows);
+  return rows.map((r) => (r.status === "scheduled" ? { ...r, can_release: !blocks.get(r.payment_id), release_blocked: blocks.get(r.payment_id) ?? null } : r));
+}
 
 const PAYMENT_SELECT = `SELECT p.*, v.legal_name vendor, u1.full_name preparer, u2.full_name releaser, count(*) OVER ()::int AS total_count
   FROM payments p JOIN vendors v USING (vendor_id) LEFT JOIN users u1 ON u1.user_id=p.prepared_by LEFT JOIN users u2 ON u2.user_id=p.released_by`;
@@ -171,11 +182,14 @@ export async function getInvoiceRecord(user: User | null, organizationId: string
 export async function listPayments(user: User | null, organizationId: string, f: Paging & { status?: string | null } = {}) {
   authorize(user, organizationId, "payment.view");
   const { limit, offset } = window(f);
-  return query<PaymentRow>(
+  // payments still to go out: the earliest due first; the rest: the latest first
+  const upcoming = f.status === "scheduled" || f.status === "released";
+  const rows = await query<PaymentRow>(
     `${PAYMENT_SELECT} WHERE p.organization_id=$1 AND ($2::text IS NULL OR p.status=$2)
-      ORDER BY p.scheduled_date DESC NULLS LAST, p.payment_id DESC LIMIT ${limit} OFFSET ${offset}`,
+      ORDER BY p.scheduled_date ${upcoming ? "ASC" : "DESC"} NULLS LAST, p.payment_id DESC LIMIT ${limit} OFFSET ${offset}`,
     [organizationId, f.status || null],
   );
+  return withRelease(user, organizationId, rows);
 }
 
 // Count and CAD total of the payments in each status.
@@ -191,7 +205,7 @@ export async function getPaymentRecord(user: User | null, organizationId: string
   authorize(user, organizationId, "payment.view");
   const p = await one<PaymentRow>(`${PAYMENT_SELECT} WHERE p.payment_id=$1 AND p.organization_id=$2`, [id, organizationId]);
   if (!p) throw new NotFoundError("No such payment");
-  return p;
+  return (await withRelease(user, organizationId, [p]))[0];
 }
 
 // --- approvals waiting on the user ---
@@ -216,16 +230,16 @@ export async function listWaitingApprovals(user: User | null, organizationId: st
 
 // --- spend ---
 
-// Invoice spend in CAD by department and month, for the three months up to AS_OF_DATE.
+// Approved invoice spend in CAD by department and month, for the last three months.
 // Those who see all invoices get every department; department approvers get their own.
 export async function departmentSpend(user: User | null, organizationId: string) {
   assertMember(user, organizationId);
   if (!can(user, "invoice.view_all") && !can(user, "invoice.view_department")) return [];
   return query<{ department: string; month: string; total: number }>(
     `SELECT d.name department, to_char(i.invoice_date,'YYYY-MM') AS month, sum(i.total_cad)::float AS total FROM invoices i JOIN departments d USING (department_id)
-      WHERE i.organization_id=$1 AND i.status NOT IN ('rejected','void') AND ($2::text IS NULL OR i.department_id=$2)
-        AND i.invoice_date >= date_trunc('month', $3::date) - interval '2 months'
+      WHERE i.organization_id=$1 AND i.status IN ('approved','scheduled','paid') AND ($2::text IS NULL OR i.department_id=$2)
+        AND i.invoice_date >= date_trunc('month', current_date) - interval '2 months'
       GROUP BY 1,2 ORDER BY 1,2`,
-    [organizationId, can(user, "invoice.view_all") ? null : user.department_id, process.env.AS_OF_DATE],
+    [organizationId, can(user, "invoice.view_all") ? null : user.department_id],
   );
 }

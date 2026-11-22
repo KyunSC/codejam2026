@@ -7,11 +7,12 @@ import type { User } from "@/lib/types";
 const ref = (kind: string) => `BRIM-${kind}-${String(randomInt(10_000_000, 99_999_999))}`;
 
 // Simulated settlement of released payments: EFT settles, a cheque stays outstanding until cleared, a card payment is a virtual card charge.
-export async function runBankSimulation(actor: User | null): Promise<number> {
+// Released payments wait for their scheduled date; the result says how many went and how many wait.
+export async function runBankSimulation(actor: User | null): Promise<{ sent: number; waiting: number }> {
   assertCan(actor, "payment.simulate");
   return tx(async (c) => {
     const released = await query<{ payment_id: string; invoice_id: string; vendor_id: string; method: string }>(
-      "SELECT payment_id, invoice_id, vendor_id, method FROM payments WHERE organization_id=$1 AND status='released' FOR UPDATE",
+      "SELECT payment_id, invoice_id, vendor_id, method FROM payments WHERE organization_id=$1 AND status='released' AND (scheduled_date IS NULL OR scheduled_date <= current_date) FOR UPDATE",
       [actor.organization_id],
       c,
     );
@@ -29,6 +30,7 @@ export async function runBankSimulation(actor: User | null): Promise<number> {
         invoiceId: p.invoice_id, paymentId: p.payment_id, vendorId: p.vendor_id, note: reference,
       });
     }
-    return released.length;
+    const waiting = await query("SELECT 1 FROM payments WHERE organization_id=$1 AND status='released' AND scheduled_date > current_date", [actor.organization_id], c);
+    return { sent: released.length, waiting: waiting.length };
   });
 }

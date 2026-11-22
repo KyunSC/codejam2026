@@ -1,9 +1,9 @@
 import { ConflictError, NotFoundError } from "@/lib/errors";
 import { tx, query, one, nextId, Db } from "@/lib/db";
-import { assertCan, assertMember } from "@/lib/authz";
+import { assertMember } from "@/lib/authz";
 import { writeAudit } from "@/lib/audit";
 import type { InvoiceData, User } from "@/lib/types";
-import { getRawItem, RawItem } from "./rawIntake.service";
+import type { RawItem } from "./rawIntake.service";
 import { inspectFile } from "./fileInspection.service";
 import { classifyEmail, extractDocument, toInvoiceData, EXTRACTION_MODEL } from "./extraction.service";
 import { resolve } from "./resolution.service";
@@ -19,12 +19,13 @@ const EMPTY: InvoiceData = {
   remit_institution: null, remit_transit: null, remit_account: null, remit_note: null, lines: [],
 };
 
-// Step 2: the Extract button. Steps 3–5 follow for each invoice found.
-export async function extract(actor: User | null, organizationId: string, rawItemId: string): Promise<{ parsed: string[]; noInvoice?: string }> {
-  assertCan(actor, actor?.role === "brim_employee" ? "org.manage" : "raw.extract");
-  const raw = await getRawItem(actor, organizationId, rawItemId);
+// Step 2, run by the system as soon as a raw item is stored: a form is already an invoice; an upload or an email's attachments
+// are read by Claude. Steps 3–5 follow for each invoice found. A raw item that failed before is read again.
+export async function readRawItem(organizationId: string, rawItemId: string): Promise<{ parsed: string[]; noInvoice?: string }> {
+  const raw = await one<RawItem>("SELECT * FROM raw_items WHERE raw_item_id=$1 AND organization_id=$2", [rawItemId, organizationId]);
   if (!raw) throw new NotFoundError("No such raw item");
-  if (raw.status !== "new") throw new ConflictError("Already extracted");
+  if (raw.status !== "new" && raw.status !== "failed") throw new ConflictError("Already read");
+  const actor = null;
 
   const found: Found[] = [];
   let noInvoice: string | null = null;
@@ -36,6 +37,7 @@ export async function extract(actor: User | null, organizationId: string, rawIte
     noInvoice = `${c.category.replace(/_/g, " ")}: ${c.reason}`;
   } else {
     const reasons: string[] = [];
+    const email = raw.kind === "email" ? { from: [raw.from_name, raw.from_address && `<${raw.from_address}>`].filter(Boolean).join(" "), subject: raw.subject, body: raw.body } : undefined;
     for (const f of raw.files) {
       const ins = inspectFile(f);
       if (!ins.readable) {
@@ -43,7 +45,7 @@ export async function extract(actor: User | null, organizationId: string, rawIte
           extra: [{ check_code: "file_unreadable", category: "extraction", severity: "blocking", message: `${ins.reason}. Open the raw item and enter the invoice by hand.` }] });
         continue;
       }
-      const e = await extractDocument(ins.kind, ins.bytes);
+      const e = await extractDocument(ins.kind, ins.bytes, email);
       if (!e.is_invoice) {
         reasons.push(`${f.file_name}: ${e.not_invoice_reason ?? "not an invoice"}`);
         continue;
@@ -55,7 +57,7 @@ export async function extract(actor: User | null, organizationId: string, rawIte
 
   return tx(async (c) => {
     if (noInvoice) {
-      await query("UPDATE raw_items SET status='no_invoice', no_invoice_reason=$2, extracted_by=$3, extracted_at=now() WHERE raw_item_id=$1", [raw.raw_item_id, noInvoice, actor.user_id], c);
+      await query("UPDATE raw_items SET status='no_invoice', no_invoice_reason=$2, failure_reason=NULL, extracted_at=now() WHERE raw_item_id=$1", [raw.raw_item_id, noInvoice], c);
       await writeAudit(c, { organizationId: raw.organization_id, actor, action: "raw_item.no_invoice", entityType: "raw_item", entityId: raw.raw_item_id, note: noInvoice });
       return { parsed: [], noInvoice };
     }
@@ -72,7 +74,7 @@ export async function extract(actor: User | null, organizationId: string, rawIte
       await writeAudit(c, { organizationId: raw.organization_id, actor, action: "parsed_invoice.create", entityType: "parsed_invoice", entityId: id, note: f.file_name });
       ids.push(id);
     }
-    await query("UPDATE raw_items SET status='extracted', extracted_by=$2, extracted_at=now() WHERE raw_item_id=$1", [raw.raw_item_id, actor.user_id], c);
+    await query("UPDATE raw_items SET status='extracted', failure_reason=NULL, extracted_at=now() WHERE raw_item_id=$1", [raw.raw_item_id], c);
     return { parsed: ids };
   });
 }
