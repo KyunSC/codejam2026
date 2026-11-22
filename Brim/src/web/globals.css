@@ -224,6 +224,8 @@
   }
   .star:hover { color: var(--text); background: var(--line); }
   .star[aria-pressed="true"] { color: var(--accent); }
+  .rows-per-page { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+  .rows-per-page .seg button { padding: 5px 10px; font-size: 12px; }
   .tile-edit { position: relative; outline: 2px dashed var(--muted); outline-offset: 5px; border-radius: 6px; }
   .tile-edit > .card { display: block; height: 100%; }
   .tile-edit__tools { position: absolute; top: 6px; right: 6px; display: flex; align-items: center; gap: 4px; }

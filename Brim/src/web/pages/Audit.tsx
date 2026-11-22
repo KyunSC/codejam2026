@@ -5,6 +5,8 @@ import type { AuditRow } from "@/services/audit.service";
 import { get, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { AuditFilters } from "../components/AuditFilters";
+import { RowsPerPage } from "../customize/RowsPerPage";
+import { usePreferences } from "../preferences";
 import { DataTable, type Column } from "../components/DataTable";
 import { A, Card, NotFound, PageTitle, Pager, Show, btnLight, dateTime, pageParam } from "../components/ui";
 
@@ -30,8 +32,10 @@ export function Audit() {
   const [sp] = useSearchParams();
   const filter = { invoice: sp.get("invoice"), actor: sp.get("actor"), action: sp.get("action") };
   const page = pageParam(sp.get("page"));
+  // Rows per page come from the user's preferences (plan 6.6); the API's default is the fallback.
+  const size = usePreferences().prefs.tables.audit.pageSize ?? API_PAGE_SIZE;
   const options = useLoad(() => get<Options>(org(user, "/audit-events/filters")), "");
-  const rows = useLoad(() => get<(AuditRow & { total_count: number })[]>(org(user, `/audit-events${qs({ ...filter, page })}`)), `${qs(filter)}:${page}`);
+  const rows = useLoad(() => get<(AuditRow & { total_count: number })[]>(org(user, `/audit-events${qs({ ...filter, page, size })}`)), `${qs(filter)}:${page}:${size}`);
   if (!can(user, "audit.view")) return <NotFound />;
   return (
     <div className="space-y-5">
@@ -42,7 +46,8 @@ export function Audit() {
           {(list) => (
             <>
               <DataTable table="audit" rows={list} rowKey={(e) => e.event_id} columns={AUDIT_COLUMNS} empty="No events." />
-              <Pager param="page" page={page} total={list[0]?.total_count ?? 0} size={API_PAGE_SIZE} />
+              <Pager param="page" page={page} total={list[0]?.total_count ?? 0} size={size} />
+              <RowsPerPage table="audit" param="page" />
             </>
           )}
         </Show>

@@ -7,6 +7,7 @@ import { get, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
 import { ApiForm } from "../components/ApiForm";
 import { FilterStar } from "../customize/FilterStar";
+import { RowsPerPage } from "../customize/RowsPerPage";
 import { usePreferences } from "../preferences";
 import { DataTable, type Column } from "../components/DataTable";
 import { A, Badge, Card, PageTitle, Pager, Show, Status, btn, btnLight, date, PAGE_SIZE, pageParam, withParams } from "../components/ui";
@@ -57,12 +58,16 @@ export function Invoices() {
   const rawPage = pageParam(sp.get("rawPage"));
   const parsedPage = pageParam(sp.get("parsedPage"));
   const invPage = pageParam(sp.get("page"));
+  // Rows per page come from the user's preferences (plan 6.6); PAGE_SIZE is the fallback.
+  const rawSize = prefs.tables.raw.pageSize ?? PAGE_SIZE;
+  const parsedSize = prefs.tables.parsed.pageSize ?? PAGE_SIZE;
+  const invSize = prefs.tables.invoices.pageSize ?? PAGE_SIZE;
 
-  const raw = useLoad(() => get<RawItemRow[]>(org(user, `/raw-items${qs({ kind: rawKind, page: rawPage, size: PAGE_SIZE })}`)), `${rawKind}:${rawPage}`);
-  const parsed = useLoad(() => get<ParsedRow[]>(org(user, `/parsed-invoices${qs({ page: parsedPage, size: PAGE_SIZE })}`)), `${parsedPage}`);
+  const raw = useLoad(() => get<RawItemRow[]>(org(user, `/raw-items${qs({ kind: rawKind, page: rawPage, size: rawSize })}`)), `${rawKind}:${rawPage}:${rawSize}`);
+  const parsed = useLoad(() => get<ParsedRow[]>(org(user, `/parsed-invoices${qs({ page: parsedPage, size: parsedSize })}`)), `${parsedPage}:${parsedSize}`);
   const invoices = useLoad(
-    () => get<InvoiceRow[]>(org(user, `/invoices${qs({ status: status === "all" ? null : status, page: invPage, size: PAGE_SIZE })}`)),
-    `${status}:${invPage}`,
+    () => get<InvoiceRow[]>(org(user, `/invoices${qs({ status: status === "all" ? null : status, page: invPage, size: invSize })}`)),
+    `${status}:${invPage}:${invSize}`,
   );
   const reloadAll = () => [raw, parsed, invoices].forEach((l) => l.reload());
 
@@ -138,7 +143,8 @@ export function Invoices() {
                 )}
                 empty="No raw items yet."
               />
-              <Pager param="rawPage" page={rawPage} total={rows[0]?.total_count ?? 0} />
+              <Pager param="rawPage" page={rawPage} total={rows[0]?.total_count ?? 0} size={rawSize} />
+              <RowsPerPage table="raw" param="rawPage" />
             </>
           )}
         </Show>
@@ -156,7 +162,8 @@ export function Invoices() {
                 trailing={(p) => <A href={`/invoices/${p.parsed_invoice_id}`}>Review</A>}
                 empty="Nothing waiting for review."
               />
-              <Pager param="parsedPage" page={parsedPage} total={rows[0]?.total_count ?? 0} />
+              <Pager param="parsedPage" page={parsedPage} total={rows[0]?.total_count ?? 0} size={parsedSize} />
+              <RowsPerPage table="parsed" param="parsedPage" />
             </>
           )}
         </Show>
@@ -181,7 +188,8 @@ export function Invoices() {
           {(rows) => (
             <>
               <DataTable table="invoices" rows={rows} rowKey={(i) => i.invoice_id} rowClassName={(i) => (i.mine ? "row-mine" : "")} columns={INVOICE_COLUMNS} empty="No invoices." />
-              <Pager param="page" page={invPage} total={rows[0]?.total_count ?? 0} />
+              <Pager param="page" page={invPage} total={rows[0]?.total_count ?? 0} size={invSize} />
+              <RowsPerPage table="invoices" param="page" />
             </>
           )}
         </Show>
