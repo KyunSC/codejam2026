@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { ValidationError } from "@/lib/errors";
 import { getPaymentRecord, listPayments } from "@/services/read.service";
-import { preparePayment, releasePayment } from "@/services/payment.service";
+import { cancelPayment, preparePayment, releasePayment } from "@/services/payment.service";
 import { pagingOf, param, route } from "../http";
 
 // /api/organizations/:orgId: payments.
@@ -19,3 +19,8 @@ payments.post("/payments/:id/release", route(async ({ user, params }) => {
   return getPaymentRecord(user, params.orgId, params.id);
 }, { gate: "payment.release" }));
 
+// Cancel a scheduled payment, with the reason; its invoice goes back to approved.
+payments.post("/payments/:id/cancel", route(async ({ user, params, body }) => {
+  await cancelPayment(user, params.orgId, params.id, String(body.reason ?? ""));
+  return getPaymentRecord(user, params.orgId, params.id);
+}, { gate: "payment.cancel" }));

@@ -29,7 +29,7 @@ export function Badge({ tone = "gray", children }: { tone?: Tone | "amber" | "vi
 const STATUS_TONE: Record<string, Tone> = {
   new: "blue", extracted: "gray", no_invoice: "gray", pending: "gold", pending_approval: "gold", waiting: "gray",
   approved: "green", scheduled: "blue", released: "purple", outstanding: "purple", settled: "green", paid: "green",
-  rejected: "red", void: "gray", failed: "red", active: "green", pending_review: "gold", on_hold: "red", on_leave: "gold",
+  rejected: "red", void: "gray", cancelled: "gray", failed: "red", active: "green", pending_review: "gold", on_hold: "red", on_leave: "gold",
   terminated: "gray", open: "gold", resolved: "green", overridden: "gray", blocking: "red", warning: "gold", info: "blue",
 };
 

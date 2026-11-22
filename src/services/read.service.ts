@@ -7,7 +7,7 @@ import type { InvoiceData, InvoiceLine, User } from "@/lib/types";
 import { canActOn, pendingForUserSql } from "./approval.service";
 import { getParsed } from "./pipeline.service";
 import { getRawItem, type RawItem } from "./rawIntake.service";
-import { releaseBlocks } from "./payment.service";
+import { cancelProblem, releaseBlocks } from "./payment.service";
 
 // Read side shared by the API and the pages: each list and record has one function, limited to what the user may see.
 
@@ -157,17 +157,24 @@ export type PaymentRow = {
   cheque_number: number | null;
   // for a scheduled payment: whether the signed-in user may release it, and if not, why
   can_release?: boolean; release_blocked?: string | null;
+  // a cancelled payment: who stopped it, when and why; for a scheduled one, whether the signed-in user may cancel it
+  canceller: string | null; cancelled_at: string | null; cancel_reason: string | null; prepared_by: string | null;
+  can_cancel?: boolean;
 };
 
-// Adds can_release / release_blocked for the signed-in user.
+// Adds can_release / release_blocked and can_cancel for the signed-in user.
 async function withRelease(user: User, organizationId: string, rows: PaymentRow[]) {
-  if (!can(user, "payment.release")) return rows;
-  const blocks = await releaseBlocks(user, organizationId, rows);
-  return rows.map((r) => (r.status === "scheduled" ? { ...r, can_release: !blocks.get(r.payment_id), release_blocked: blocks.get(r.payment_id) ?? null } : r));
+  const blocks = can(user, "payment.release") ? await releaseBlocks(user, organizationId, rows) : null;
+  return rows.map((r) => {
+    if (r.status !== "scheduled") return r;
+    const out: PaymentRow = { ...r, can_cancel: can(user, "payment.cancel") && !cancelProblem(user, r) };
+    return blocks ? { ...out, can_release: !blocks.get(r.payment_id), release_blocked: blocks.get(r.payment_id) ?? null } : out;
+  });
 }
 
-const PAYMENT_SELECT = `SELECT p.*, v.legal_name vendor, u1.full_name preparer, u2.full_name releaser, count(*) OVER ()::int AS total_count
-  FROM payments p JOIN vendors v USING (vendor_id) LEFT JOIN users u1 ON u1.user_id=p.prepared_by LEFT JOIN users u2 ON u2.user_id=p.released_by`;
+const PAYMENT_SELECT = `SELECT p.*, v.legal_name vendor, u1.full_name preparer, u2.full_name releaser, u3.full_name canceller, count(*) OVER ()::int AS total_count
+  FROM payments p JOIN vendors v USING (vendor_id) LEFT JOIN users u1 ON u1.user_id=p.prepared_by LEFT JOIN users u2 ON u2.user_id=p.released_by
+    LEFT JOIN users u3 ON u3.user_id=p.cancelled_by`;
 
 // An invoice the user may see, with its approval chain and, for those who see payments, its payments.
 export async function getInvoiceRecord(user: User | null, organizationId: string, id: string) {

@@ -19,7 +19,7 @@ import { getVendor, listBankChanges, listVendorChoices, listVendors, requestBank
 import { pollAndRead, submitInvoiceForm } from "@/services/intake.service";
 import { approve, reject, resolveFlag, runChecksAgain, saveEdits } from "@/services/parsedInvoiceReview.service";
 import { decide } from "@/services/approval.service";
-import { preparePayment, releasePayment } from "@/services/payment.service";
+import { cancelPayment, preparePayment, releasePayment } from "@/services/payment.service";
 
 // The MCP server at /mcp: an employee's agent signs in with a personal access token and gets one tool per thing
 // the employee's role may do. Each tool calls the same service as the REST route, so permissions and the audit log are the same;
@@ -152,6 +152,11 @@ function serverFor(user: User) {
   tool("release_payment", "payment.release", "Releases a scheduled payment to the bank run. Refused above the employee's limit, for an invoice they approved, or while the vendor's bank change is unverified.",
     { payment_id: z.string() }, true, async (a) => {
       await releasePayment(user, org, a.payment_id);
+      return getPaymentRecord(user, org, a.payment_id);
+    });
+  tool("cancel_payment", "payment.cancel", "Cancels a scheduled payment before it is released, with the reason; its invoice goes back to approved. An AP clerk may cancel only payments they prepared.",
+    { payment_id: z.string(), reason: z.string().min(1) }, true, async (a) => {
+      await cancelPayment(user, org, a.payment_id, a.reason);
       return getPaymentRecord(user, org, a.payment_id);
     });
   tool("request_bank_change", "bank_change.request", "Requests a change of a vendor's bank details; the finance manager approves it after calling the vendor.", {

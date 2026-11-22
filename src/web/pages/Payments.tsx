@@ -1,13 +1,33 @@
+import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { can } from "@/lib/authz";
 import { money } from "@/lib/format";
 import type { getInvoiceRecord, InvoiceRow, PaymentRow } from "@/services/read.service";
 import { get, post, qs, useLoad } from "../api";
 import { org, useUser } from "../session";
-import { ApiForm } from "../components/ApiForm";
-import { A, Card, NotFound, PAGE_SIZE, PageTitle, Pager, Show, Status, Table, Td, btn, date, dateTime, pageParam, withParams } from "../components/ui";
+import { ApiForm, str } from "../components/ApiForm";
+import { A, Card, NotFound, PAGE_SIZE, PageTitle, Pager, Show, Status, Table, Td, btn, btnDanger, btnLight, date, dateTime, input, pageParam, withParams } from "../components/ui";
 
-const TABS = ["scheduled", "released", "outstanding", "settled", "all"];
+const TABS = ["scheduled", "released", "outstanding", "settled", "cancelled", "all"];
+
+// Stops a scheduled payment, asking for the reason first; its invoice goes back to approved.
+function CancelPayment({ p, done }: { p: PaymentRow; done: () => void }) {
+  const user = useUser();
+  const [open, setOpen] = useState(false);
+  if (!open) return <button type="button" className={btnLight} onClick={() => setOpen(true)}>Cancel payment</button>;
+  const cancel = async (fd: FormData) => {
+    await post(org(user, `/payments/${p.payment_id}/cancel`), { reason: str(fd, "reason") ?? "" });
+    done();
+    return "Cancelled.";
+  };
+  return (
+    <ApiForm inline submit={cancel} confirm={`Cancel the ${money(p.amount, p.currency)} payment to ${p.vendor}? Its invoice goes back to approved.`}>
+      <input name="reason" placeholder="Reason" className={`${input} max-w-48`} required autoFocus />
+      <button className={btnDanger}>Cancel payment</button>
+      <button type="button" className={btnLight} onClick={() => setOpen(false)}>Keep</button>
+    </ApiForm>
+  );
+}
 
 export function Payments() {
   const user = useUser();
@@ -86,6 +106,7 @@ export function Payments() {
                     <Td>
                       {p.can_release && <ApiForm submit={release(p.payment_id)} confirm={`Release ${money(p.amount, p.currency)} to ${p.vendor}?`}><button className={btn}>Release</button></ApiForm>}
                       {p.release_blocked && <span className="text-xs muted">{p.release_blocked}</span>}
+                      {p.can_cancel && <div className="mt-1"><CancelPayment p={p} done={() => { rows.reload(); ready.reload(); }} /></div>}
                     </Td>
                   </tr>
                 ))}
@@ -125,13 +146,17 @@ export function Payment() {
           <div className="space-y-5">
             <PageTitle sub={<Status value={p.status} />}>{p.payment_id} · {p.vendor} · {money(p.amount, p.currency)}</PageTitle>
             <div className="grid gap-5 lg:grid-cols-2">
-              <Card title="Payment" actions={p.can_release ? <ApiForm inline submit={release} confirm={`Release ${money(p.amount, p.currency)} to ${p.vendor}?`}><button className={btn}>Release</button></ApiForm> : p.release_blocked && <span className="text-xs muted">{p.release_blocked}</span>}>
+              <Card title="Payment" actions={<div className="flex flex-wrap items-center gap-2">
+                {p.can_release ? <ApiForm inline submit={release} confirm={`Release ${money(p.amount, p.currency)} to ${p.vendor}?`}><button className={btn}>Release</button></ApiForm> : p.release_blocked && <span className="text-xs muted">{p.release_blocked}</span>}
+                {p.can_cancel && <CancelPayment p={p} done={load.reload} />}
+              </div>}>
                 <dl className="grid grid-cols-2 gap-2 text-sm">
                   <dt className="muted">Method</dt><dd>{p.method}</dd>
                   <dt className="muted">Amount</dt><dd>{money(p.amount, p.currency)}{p.currency !== "CAD" && ` = ${money(p.amount_cad)} at ${p.fx_rate_to_cad}`}</dd>
                   <dt className="muted">Scheduled</dt><dd>{date(p.scheduled_date)}</dd>
                   <dt className="muted">Prepared by</dt><dd>{p.preparer ?? "—"}</dd>
                   <dt className="muted">Released by</dt><dd>{p.releaser ?? "—"} {p.released_at && `· ${dateTime(p.released_at)}`}</dd>
+                  {p.status === "cancelled" && <><dt className="muted">Cancelled by</dt><dd>{p.canceller ?? "—"} · {dateTime(p.cancelled_at)}</dd><dt className="muted">Reason</dt><dd>{p.cancel_reason}</dd></>}
                   <dt className="muted">Paid</dt><dd>{date(p.paid_date)}</dd>
                   <dt className="muted">Bank account paid</dt><dd>{p.snapshot_account ? `${p.snapshot_institution}-${p.snapshot_transit}-${p.snapshot_account}` : "—"}</dd>
                   <dt className="muted">Reference</dt><dd className="font-mono text-xs">{p.bank_reference ?? p.card_reference ?? "—"}</dd>
