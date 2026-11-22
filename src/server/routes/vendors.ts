@@ -8,7 +8,7 @@ import { pagingOf, param, route } from "../http";
 // /api/organizations/:orgId: vendors and their bank details changes.
 export const vendors = Router({ mergeParams: true });
 
-vendors.get("/vendors", route(async ({ user, params, query }) => listVendors(user, params.orgId, { status: param(query, "status"), ...pagingOf(query) }), { gate: "vendor.view" }));
+vendors.get("/vendors", route(async ({ user, params, query }) => listVendors(user, params.orgId, { status: param(query, "status"), q: param(query, "q"), ...pagingOf(query) }), { gate: "vendor.view" }));
 vendors.post("/vendors", route(async ({ user, params, body }) => ({ id: await createVendor(user, params.orgId, body as VendorInput) }), { gate: "vendor.onboard" }));
 // Vendor names to pick from, for anyone in the organization.
 vendors.get("/vendor-choices", route(async ({ user, params }) => listVendorChoices(user, params.orgId)));
