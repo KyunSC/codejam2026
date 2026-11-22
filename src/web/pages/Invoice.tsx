@@ -2,7 +2,8 @@ import { useNavigate, useParams } from "react-router-dom";
 import { actionName } from "@/lib/auditActions";
 import { can } from "@/lib/authz";
 import { money } from "@/lib/format";
-import type { InvoiceLine, User } from "@/lib/types";
+import { EditableLinesTable, LinesTable } from "../components/InvoiceLines";
+import type { User } from "@/lib/types";
 import type { RawItem } from "@/services/rawIntake.service";
 import type { getInvoiceRecord, getParsedInvoiceRecord } from "@/services/read.service";
 import type { TrailEvent } from "@/services/audit.service";
@@ -192,7 +193,7 @@ export function Invoice() {
                           </Field>
                           <Field label="Total"><div className="py-1 text-sm">{money(d.total, d.currency)}{d.currency !== "CAD" && <span className="muted"> = {money(d.total_cad)} at {d.fx_rate_to_cad}</span>}</div></Field>
                         </div>
-                        <LinesTable lines={d.lines} gls={gls} depts={depts} editable currency={d.currency} />
+                        <EditableLinesTable lines={d.lines} gls={gls} depts={depts} currency={d.currency} />
                         <Taxes d={d} />
                         <button className={btn}>Save changes</button>
                       </ApiForm>
@@ -216,6 +217,12 @@ export function Invoice() {
                         <Taxes d={d} />
                       </div>
                     )}
+                  </Card>
+                )}
+
+                {!d && invoice && invoice.lines.length > 0 && (
+                  <Card title="Invoice lines">
+                    <LinesTable lines={invoice.lines} gls={gls} depts={depts} currency={invoice.currency} />
                   </Card>
                 )}
 
@@ -354,48 +361,6 @@ function RawView({ raw, file }: { raw: RawItem | null; file: string | null }) {
       )}
       {url && f && (f.mime_type === "application/pdf" ? <iframe src={url} className="h-[720px] w-full rounded-[6px] border-2 border-border" /> : f.mime_type.startsWith("image/") ? <img src={url} alt={f.file_name} className="w-full rounded-[6px] border-2 border-border" /> : <a href={url}>{f.file_name}</a>)}
     </div>
-  );
-}
-
-function LinesTable({ lines, gls, depts, editable, currency }: { lines: InvoiceLine[]; gls: { account_number: string; name: string }[]; depts: { department_id: string; name: string }[]; editable?: boolean; currency: string }) {
-  return (
-    <Table head={["#", "Description", "Qty", "Unit", "Amount", "GL account", "Department", "Type"]}>
-      {lines.map((l) => (
-        <tr key={l.line_no}>
-          <Td>{l.line_no}</Td>
-          <Td>
-            {l.description}
-            {l.suggestion_reason && <div className="text-xs muted">Suggested: {l.suggested_gl_account ?? "—"} · {l.suggestion_reason}{l.coding_status && l.coding_status !== "suggested" && ` · ${l.coding_status}`}</div>}
-          </Td>
-          <Td>{l.quantity}</Td>
-          <Td className="whitespace-nowrap">{money(l.unit_price, currency)}</Td>
-          <Td className="whitespace-nowrap">{money(l.amount, currency)}</Td>
-          <Td>
-            {editable ? (
-              <select name={`gl_${l.line_no}`} defaultValue={l.gl_account ?? ""} className={input}>
-                <option value="">—</option>
-                {gls.map((g) => <option key={g.account_number} value={g.account_number}>{g.account_number} {g.name}</option>)}
-              </select>
-            ) : `${l.gl_account ?? "—"} ${gls.find((g) => g.account_number === l.gl_account)?.name ?? ""}`}
-          </Td>
-          <Td>
-            {editable ? (
-              <select name={`dept_${l.line_no}`} defaultValue={l.department_id ?? ""} className={input}>
-                <option value="">—</option>
-                {depts.map((x) => <option key={x.department_id} value={x.department_id}>{x.name}</option>)}
-              </select>
-            ) : depts.find((x) => x.department_id === l.department_id)?.name ?? "—"}
-          </Td>
-          <Td>
-            {editable ? (
-              <select name={`type_${l.line_no}`} defaultValue={l.line_type ?? "services"} className={input}>
-                <option>services</option><option>goods</option>
-              </select>
-            ) : l.line_type}
-          </Td>
-        </tr>
-      ))}
-    </Table>
   );
 }
 
