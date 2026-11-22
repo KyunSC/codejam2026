@@ -21,6 +21,7 @@ const NAMES: Record<string, string> = {
   "delegate.clear": "Back from leave",
   "payment.prepare": "Payment prepared",
   "payment.release": "Payment released",
+  "payment.cancel": "Payment cancelled",
   "payment.settled": "Payment settled",
   "vendor.create": "Vendor onboarded",
   "vendor.update": "Vendor edited",

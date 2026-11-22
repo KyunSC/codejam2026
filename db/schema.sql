@@ -296,7 +296,7 @@ CREATE TABLE payments (
   fx_rate_to_cad       numeric(10,4) NOT NULL DEFAULT 1,
   amount_cad           numeric(14,2) NOT NULL,
   discount_taken       numeric(14,2) NOT NULL DEFAULT 0,
-  status               text NOT NULL CHECK (status IN ('scheduled','released','outstanding','settled','failed')),
+  status               text NOT NULL CHECK (status IN ('scheduled','released','outstanding','settled','failed','cancelled')),
   prepared_by          text REFERENCES users,
   released_by          text REFERENCES users,
   released_at          timestamptz,
@@ -307,7 +307,11 @@ CREATE TABLE payments (
   card_reference       text,
   -- a cheque's number, given when it is issued; the bank statement reports it when the cheque clears
   cheque_number        integer,
-  failure_reason       text
+  failure_reason       text,
+  -- a scheduled payment stopped before release: who stopped it, when and why
+  cancelled_by         text REFERENCES users,
+  cancelled_at         timestamptz,
+  cancel_reason        text
 );
 
 -- What the bank and the card feed report: bank statement lines (EFT payments, cleared cheques, fees) and virtual card charges.
