@@ -1,21 +1,42 @@
-import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@/generated/prisma/client";
-import { assertLocalDbIfRequired } from "./db-guard";
+import { Pool, PoolClient, types } from "pg";
 
-const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
+// numeric → number, date → 'YYYY-MM-DD' string
+types.setTypeParser(1700, (v) => (v === null ? null : parseFloat(v)));
+types.setTypeParser(1082, (v) => v);
 
-/**
- * The shared Prisma client. Created on first use, so code that never touches the
- * database (the rules engine and its tests) does not need DATABASE_URL.
- */
-export function db(): PrismaClient {
-  if (globalForPrisma.prisma) return globalForPrisma.prisma;
-  assertLocalDbIfRequired();
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
-    throw new Error("DATABASE_URL is not set. Copy .env.example to .env and fill it in.");
+export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+// An idle connection the database closed (a restart, the reset script) is dropped; the pool opens a new one on the next query.
+pool.on("error", (e) => console.error("idle database connection closed:", e.message));
+
+export type Db = Pool | PoolClient;
+export type PoolClientLike = Db;
+
+export async function query<T = Record<string, unknown>>(sql: string, params: unknown[] = [], db: Db = pool): Promise<T[]> {
+  const res = await db.query(sql, params);
+  return res.rows as T[];
+}
+
+export async function one<T = Record<string, unknown>>(sql: string, params: unknown[] = [], db: Db = pool): Promise<T | null> {
+  const rows = await query<T>(sql, params, db);
+  return rows[0] ?? null;
+}
+
+export async function tx<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
+  const c = await pool.connect();
+  try {
+    await c.query("BEGIN");
+    const out = await fn(c);
+    await c.query("COMMIT");
+    return out;
+  } catch (e) {
+    await c.query("ROLLBACK");
+    throw e;
+  } finally {
+    c.release();
   }
-  // Kept on globalThis so one client is reused across calls and across hot reloads in dev.
-  globalForPrisma.prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
-  return globalForPrisma.prisma;
+}
+
+export async function nextId(prefix: string, db: Db = pool): Promise<string> {
+  const row = await one<{ n: string }>("SELECT nextval('id_seq') AS n", [], db);
+  return `${prefix}-${row!.n}`;
 }
