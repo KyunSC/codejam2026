@@ -209,6 +209,11 @@
   .wtabs--editing .wtab-item a[aria-current="page"] { box-shadow: inset 0 3px 0 var(--accent); background: transparent; }
   .wtab-item .x-btn { width: 18px; height: 18px; font-size: 12px; }
   .wtab-home { display: inline-block; margin-right: 5px; color: var(--accent); vertical-align: -1px; }
+
+  .dash-tile, .dash-card { outline: 2px dashed var(--muted); outline-offset: 5px; border-radius: 6px; }
+  .dash-tools { position: absolute; top: 6px; right: 6px; display: flex; align-items: center; gap: 4px; }
+  .dash-card .card > header { cursor: grab; }
+  .dash-card .card > header button { cursor: pointer; }
 }
 
 /* ---------- Workspace preferences (src/web/preferences.tsx sets these attributes on <html>) ----------

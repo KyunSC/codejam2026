@@ -4,11 +4,12 @@ import { ApiError, type Loaded } from "../api";
 export const date = (s: string | null | undefined) => (s ? String(s).slice(0, 10) : "—");
 export const dateTime = (s: string | null | undefined) => (s ? new Date(s).toLocaleString("en-CA", { dateStyle: "medium", timeStyle: "short" }) : "—");
 
-export function Card({ title, actions, children, className = "" }: { title?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode; className?: string }) {
+// headerProps: extra attributes for the header, e.g. the drag listeners when a card is moved by its header in edit mode.
+export function Card({ title, actions, children, className = "", headerProps }: { title?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode; className?: string; headerProps?: React.HTMLAttributes<HTMLElement> }) {
   return (
     <section className={`card ${className}`}>
       {(title || actions) && (
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-border px-5 py-3">
+        <header {...headerProps} className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-border px-5 py-3">
           <h2 className="heading text-lg leading-none">{title}</h2>
           <div className="flex flex-wrap items-center gap-2">{actions}</div>
         </header>
