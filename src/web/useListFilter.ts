@@ -2,9 +2,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { withParams } from "./components/ui";
 
-export function useListFilter() {
+// A typed filter kept in the URL. `param` and `pageParam` let several lists on one page each keep their own.
+export function useListFilter(param = "q", pageParam = "page") {
   const [sp, setParams] = useSearchParams();
-  const search = sp.get("q") ?? "";
+  const search = sp.get(param) ?? "";
   const [draft, setDraft] = useState(search);
   const pendingSearch = useRef<string | null>(null);
   useLayoutEffect(() => {
@@ -17,9 +18,9 @@ export function useListFilter() {
     if (term === search) return;
     const timer = setTimeout(() => {
       pendingSearch.current = term;
-      setParams(withParams(sp, { q: term || null, page: null }), { replace: true });
+      setParams(withParams(sp, { [param]: term || null, [pageParam]: null }), { replace: true });
     }, term ? 200 : 0);
     return () => clearTimeout(timer);
-  }, [term, search, sp, setParams]);
+  }, [term, search, sp, setParams, param, pageParam]);
   return { sp, search, draft, setDraft, term };
 }

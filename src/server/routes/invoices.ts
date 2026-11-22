@@ -66,7 +66,7 @@ invoices.get("/raw-items/:id/files/:name", route(async ({ res, user, params }) =
 }));
 
 // --- parsed invoices ---
-invoices.get("/parsed-invoices", route(async ({ user, params, query }) => listParsedInvoices(user, params.orgId, { status: param(query, "status"), ...pagingOf(query) })));
+invoices.get("/parsed-invoices", route(async ({ user, params, query }) => listParsedInvoices(user, params.orgId, { status: param(query, "status"), q: param(query, "q"), flags: param(query, "flags"), ...pagingOf(query) })));
 invoices.get("/parsed-invoices/:id", route(async ({ user, params }) => getParsedInvoiceRecord(user, params.orgId, params.id)));
 // Clerk edits: header fields and line coding. Resolution runs again; the checks run again only when asked (below).
 invoices.patch("/parsed-invoices/:id", route(async ({ user, params, body }) => {
