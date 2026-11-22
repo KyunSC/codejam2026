@@ -2,8 +2,9 @@ import { writeAudit } from "@/lib/audit";
 import { one, query, tx } from "@/lib/db";
 import { ValidationError } from "@/lib/errors";
 import {
-  PREFERENCES_VERSION, migratePreferences, preferencesSchema, resolvePreferences, type ResolvedPreferences, type StoredPreferences,
+  PREFERENCES_VERSION, migratePreferences, resolvePreferences, type ResolvedPreferences, type StoredPreferences,
 } from "@/lib/preferences";
+import { preferencesSchema } from "@/lib/preferences.schema";
 import type { User } from "@/lib/types";
 
 // Each user's workspace preferences. Always the signed-in user's own: there is no way to read or change someone else's.

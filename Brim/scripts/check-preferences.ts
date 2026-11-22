@@ -3,8 +3,9 @@
 import assert from "node:assert/strict";
 import type { Role, User } from "@/lib/types";
 import {
-  DEFAULT_PREFERENCES, TABLES, preferencesSchema, resetPage, resolvePreferences, sanitizePreferences, type StoredPreferences,
+  DEFAULT_PREFERENCES, TABLES, resetPage, resolvePreferences, sanitizePreferences, type StoredPreferences,
 } from "@/lib/preferences";
+import { preferencesSchema } from "@/lib/preferences.schema";
 
 const person = (role: Role): User => ({
   user_id: "U-CHECK", organization_id: "ORG-CHECK", full_name: "Check Person", email: "check@example.com", title: null, department_id: null,

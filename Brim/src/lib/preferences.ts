@@ -1,17 +1,17 @@
-import { z } from "zod";
 import { can, type Action } from "./authz";
 import type { User } from "./types";
 
 // Workspace preferences: what each user can customize, the shape stored in user_preferences.prefs,
 // and how a stored document resolves against the defaults and the user's role.
-// Shared by the server (validation, resolution) and the React app (the same resolution, so edits show at once).
+// Shared by the server and the React app (the same resolution, so edits show at once). The zod schema for
+// saving is in preferences.schema.ts, so zod stays out of the browser bundle.
 // Only what the user changed is stored; resolvePreferences fills in the rest on every read.
 
 export const PREFERENCES_VERSION = 1;
 
 // ---------- what can be customized ----------
 
-type Def<Id extends string = string> = { id: Id; label: string; action?: Action; locked?: boolean };
+export type Def<Id extends string = string> = { id: Id; label: string; action?: Action; locked?: boolean };
 
 export const TAB_IDS = ["dashboard", "invoices", "payments", "vendors", "audit", "settings"] as const;
 export type TabId = (typeof TAB_IDS)[number];
@@ -64,7 +64,7 @@ export const SECTIONS = {
 } satisfies Record<string, Def[]>;
 export type SectionPage = keyof typeof SECTIONS;
 
-type TableDef = {
+export type TableDef = {
   columns: Def[]; // the first column is locked: it holds the row's id or link
   filters?: { values: readonly string[]; default: string };
   pageSizes?: { values: readonly number[]; default: number };
@@ -104,7 +104,7 @@ export const TABLES = {
 } satisfies Record<string, TableDef>;
 export type TableId = keyof typeof TABLES;
 export const TABLE_IDS = Object.keys(TABLES) as TableId[];
-const tableDef = (t: TableId): TableDef => TABLES[t];
+export const tableDef = (t: TableId): TableDef => TABLES[t];
 
 // The pages "Reset this page" knows about, and the stored keys each one owns.
 export type PageId = "dashboard" | "invoices" | "payments" | "vendors" | "audit";
@@ -137,44 +137,7 @@ export type StoredPreferences = {
   tables?: { [T in TableId]?: TablePrefs };
 };
 
-const MAX_LIST = 30;
-
-// A list of { id, visible } with known ids, at most 30 entries, duplicates dropped (the first one wins).
-function orderedSchema(ids: readonly string[]) {
-  return z
-    .array(z.object({ id: z.string().refine((id) => ids.includes(id), { message: `must be one of: ${ids.join(", ")}` }), visible: z.boolean() }).strict())
-    .max(MAX_LIST)
-    .transform((list) => list.filter((x, i) => list.findIndex((y) => y.id === x.id) === i));
-}
-
-function tableSchema(t: TableDef) {
-  return z
-    .object({
-      columns: orderedSchema(t.columns.map((c) => c.id)).optional(),
-      ...(t.filters ? { filter: z.enum(t.filters.values as [string, ...string[]]).optional() } : {}),
-      ...(t.pageSizes ? { pageSize: z.number().refine((n) => t.pageSizes!.values.includes(n), { message: `must be one of: ${t.pageSizes.values.join(", ")}` }).optional() } : {}),
-    })
-    .strict();
-}
-
-// What PUT /api/me/preferences accepts. Unknown top-level keys are dropped; unknown ids and values inside are refused.
-export const preferencesSchema = z.object({
-  theme: z.enum(THEMES).optional(),
-  density: z.enum(DENSITIES).optional(),
-  accent: z.enum(ACCENTS).optional(),
-  textSize: z.enum(TEXT_SIZES).optional(),
-  landingPage: z.enum(TAB_IDS).optional(),
-  tabs: orderedSchema(TAB_IDS).optional(),
-  dashboard: z.object({ tiles: orderedSchema(TILE_IDS).optional(), cards: orderedSchema(CARD_IDS).optional() }).strict().optional(),
-  sections: z
-    .object(Object.fromEntries(Object.entries(SECTIONS).map(([p, defs]) => [p, orderedSchema(defs.map((d) => d.id)).optional()])))
-    .strict()
-    .optional(),
-  tables: z
-    .object(Object.fromEntries(TABLE_IDS.map((t) => [t, tableSchema(tableDef(t)).optional()])))
-    .strict()
-    .optional(),
-});
+export const MAX_LIST = 30;
 
 // Every setting at its default, written out in full.
 export const DEFAULT_PREFERENCES: Required<Omit<StoredPreferences, "dashboard" | "sections" | "tables">> & {
